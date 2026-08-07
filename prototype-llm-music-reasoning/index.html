@@ -1,0 +1,180 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>PROTOTYPE — llm-music-reasoning (fod077)</title>
+<style>
+  :root {
+    --bg: #14161a; --panel: #1c1f26; --border: #2c313c; --fg: #d7dae0;
+    --dim: #8b93a1; --accent: #6aa1ff; --tool: #e3b341; --err: #f47067; --ok: #57ab5a;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.5 system-ui, sans-serif; display: flex; height: 100vh; }
+  #sidebar { width: 340px; min-width: 340px; border-right: 1px solid var(--border); padding: 14px; overflow-y: auto; }
+  #main { flex: 1; overflow-y: auto; padding: 14px 18px; }
+  h1 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); margin: 0 0 12px; }
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--dim); margin: 18px 0 6px; }
+  label.opt { display: block; padding: 5px 8px; border-radius: 6px; cursor: pointer; }
+  label.opt:hover { background: var(--panel); }
+  label.opt input { margin-right: 8px; }
+  .pname { color: var(--dim); font-size: 12px; margin-left: 4px; }
+  select, textarea, button { font: inherit; color: var(--fg); background: var(--panel); border: 1px solid var(--border); border-radius: 6px; }
+  select { padding: 6px 8px; width: 100%; }
+  textarea { width: 100%; padding: 8px; resize: vertical; min-height: 74px; }
+  .btnrow { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+  button { padding: 7px 12px; cursor: pointer; }
+  button.primary { background: #29436e; border-color: #3a5a94; }
+  button:disabled { opacity: .45; cursor: default; }
+  details.fixture { margin-top: 14px; }
+  details.fixture pre { max-height: 340px; overflow: auto; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 8px; font-size: 11px; }
+  .card { border: 1px solid var(--border); border-radius: 10px; background: var(--panel); margin-bottom: 16px; }
+  .card > .head { padding: 8px 12px; border-bottom: 1px solid var(--border); display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+  .card > .head .model { font-weight: 600; color: var(--accent); }
+  .card > .head .meta { color: var(--dim); font-size: 12px; }
+  .card > .body { padding: 10px 12px; }
+  .prompt { color: var(--dim); font-style: italic; margin-bottom: 8px; white-space: pre-wrap; }
+  .stream { white-space: pre-wrap; }
+  .thinking { color: var(--dim); font-size: 12px; white-space: pre-wrap; border-left: 2px solid var(--border); padding-left: 8px; margin: 6px 0; }
+  .toolcall { margin: 8px 0; }
+  .toolcall summary { cursor: pointer; color: var(--tool); font: 12px/1.5 ui-monospace, monospace; }
+  .toolcall pre { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 8px; font-size: 11px; max-height: 260px; overflow: auto; }
+  .error { color: var(--err); font-weight: 600; margin-top: 8px; }
+  .saved { color: var(--ok); font-size: 12px; margin-top: 8px; }
+  .status { color: var(--dim); font-size: 12px; }
+</style>
+</head>
+<body>
+  <div id="sidebar">
+    <h1>PROTOTYPE · fod077</h1>
+    <h2>Fixture</h2>
+    <div id="fixtures"></div>
+    <h2>Model</h2>
+    <select id="model"></select>
+    <h2>Thinking</h2>
+    <select id="thinking"></select>
+    <h2>Producer prompt</h2>
+    <textarea id="prompt"></textarea>
+    <div class="btnrow">
+      <button id="run" class="primary">Run</button>
+      <button id="runBoth">Run on both models</button>
+      <button id="continue">Continue</button>
+      <button id="stop">Stop</button>
+    </div>
+    <div id="status" class="status" style="margin-top:10px"></div>
+    <details class="fixture"><summary>Fixture data (what the tools serve)</summary><pre id="fixtureJson"></pre></details>
+  </div>
+  <div id="main"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let fixtures = [];
+const cards = {}; // runId -> {el, streamEl, lastTextNode, lastThinkNode}
+
+function el(tag, cls, text) {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text !== undefined) n.textContent = text;
+  return n;
+}
+
+function selectedFixture() {
+  const r = document.querySelector('input[name=fixture]:checked');
+  return fixtures.find((f) => f.id === r.value);
+}
+
+function refreshFixturePanel() {
+  const f = selectedFixture();
+  $("prompt").value = f.suggestedPrompt;
+  $("fixtureJson").textContent = JSON.stringify(f.json, null, 2);
+}
+
+async function init() {
+  const { models, fixtures: fx, thinkingLevels } = await window.api.getInit();
+  fixtures = fx;
+  for (const f of fx) {
+    const label = el("label", "opt");
+    const input = el("input");
+    input.type = "radio"; input.name = "fixture"; input.value = f.id;
+    if (f === fx[0]) input.checked = true;
+    input.addEventListener("change", refreshFixturePanel);
+    label.append(input, f.id, el("span", "pname", "· " + f.projectName));
+    $("fixtures").append(label);
+  }
+  for (const m of models) {
+    const o = el("option", null, m.label); o.value = m.key; $("model").append(o);
+  }
+  for (const t of thinkingLevels) {
+    const o = el("option", null, t); o.value = t;
+    if (t === "medium") o.selected = true;
+    $("thinking").append(o);
+  }
+  refreshFixturePanel();
+}
+
+function newCard(ev) {
+  const card = el("div", "card");
+  const head = el("div", "head");
+  head.append(
+    el("span", "model", ev.model),
+    el("span", "meta", `${ev.fixtureId} · thinking:${ev.thinking}${ev.continued ? " · continued" : ""}`),
+  );
+  const body = el("div", "body");
+  body.append(el("div", "prompt", "» " + ev.prompt));
+  const stream = el("div", "stream");
+  body.append(stream);
+  card.append(head, body);
+  $("main").prepend(card);
+  cards[ev.runId] = { el: card, body, stream, lastText: null, lastThink: null };
+}
+
+window.api.onEvent((ev) => {
+  if (ev.type === "run_start") { newCard(ev); $("status").textContent = "running…"; return; }
+  const c = cards[ev.runId];
+  if (!c) return;
+  if (ev.type === "text") {
+    if (!c.lastText) { c.lastText = el("span"); c.stream.append(c.lastText); }
+    c.lastText.textContent += ev.delta;
+    c.lastThink = null;
+  } else if (ev.type === "thinking") {
+    if (!c.lastThink) { c.lastThink = el("div", "thinking"); c.stream.append(c.lastThink); }
+    c.lastThink.textContent += ev.delta;
+    c.lastText = null;
+  } else if (ev.type === "tool_call") {
+    const d = el("details", "toolcall");
+    const argstr = JSON.stringify(ev.params);
+    d.append(el("summary", null, `⚒ ${ev.tool}(${argstr === "{}" ? "" : argstr})`));
+    d.append(Object.assign(el("pre"), { textContent: JSON.stringify(ev.result, null, 2) }));
+    c.stream.append(d);
+    c.lastText = null; c.lastThink = null;
+  } else if (ev.type === "run_error") {
+    c.body.append(el("div", "error", "Error: " + ev.error));
+  } else if (ev.type === "agent_end") {
+    $("status").textContent = "";
+  } else if (ev.type === "run_saved") {
+    c.body.append(el("div", "saved", "saved → runs/" + ev.file));
+  }
+});
+
+async function doRun(mode) {
+  const opts = {
+    fixtureId: selectedFixture().id,
+    modelKey: $("model").value,
+    thinking: $("thinking").value,
+    prompt: $("prompt").value,
+    mode,
+  };
+  for (const b of ["run", "runBoth", "continue"]) $(b).disabled = true;
+  const res = await window.api.run(opts);
+  for (const b of ["run", "runBoth", "continue"]) $(b).disabled = false;
+  if (res.error) $("status").textContent = res.error;
+}
+
+$("run").addEventListener("click", () => doRun("fresh"));
+$("runBoth").addEventListener("click", () => doRun("both"));
+$("continue").addEventListener("click", () => doRun("continue"));
+$("stop").addEventListener("click", () => window.api.abort());
+
+init();
+</script>
+</body>
+</html>

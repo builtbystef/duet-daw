@@ -1,0 +1,441 @@
+{
+  "id": "fixture-e",
+  "suggestedPrompt": "The drop feels crowded but I can't tell what to remove. Help?",
+  "meta": {
+    "projectName": "everything_louder_v5",
+    "key": "E minor",
+    "tempoBpm": 128,
+    "timeSignature": "4/4",
+    "barCount": 72,
+    "sampleRateHz": 48000
+  },
+  "sections": [
+    { "name": "intro", "startBar": 1, "lengthBars": 16 },
+    { "name": "build", "startBar": 17, "lengthBars": 16 },
+    { "name": "drop 1", "startBar": 33, "lengthBars": 16 },
+    { "name": "break", "startBar": 49, "lengthBars": 8 },
+    { "name": "drop 2", "startBar": 57, "lengthBars": 16 }
+  ],
+  "tracks": [
+    {
+      "id": "kick",
+      "name": "Kick",
+      "instrument": "Drum sampler: big-room kick",
+      "role": "drums",
+      "mixer": { "volumeDb": 0.0, "pan": 0.0, "muted": false, "sends": {} },
+      "clips": [
+        { "name": "kick", "startBar": 17, "lengthBars": 32, "pattern": "four_floor", "loop": true },
+        { "name": "kick", "startBar": 57, "lengthBars": 16, "pattern": "four_floor", "loop": true }
+      ],
+      "patterns": {
+        "four_floor": {
+          "lengthBars": 1,
+          "notes": [
+            { "beat": 0, "lengthBeats": 0.25, "pitch": 36, "name": "C1", "velocity": 120 },
+            { "beat": 1, "lengthBeats": 0.25, "pitch": 36, "name": "C1", "velocity": 116 },
+            { "beat": 2, "lengthBeats": 0.25, "pitch": 36, "name": "C1", "velocity": 120 },
+            { "beat": 3, "lengthBeats": 0.25, "pitch": 36, "name": "C1", "velocity": 116 }
+          ]
+        }
+      },
+      "analysis": {
+        "rmsDb": -11.0, "peakDb": -1.8, "lufsIntegrated": -12.6, "crestFactorDb": 9.2,
+        "stereoWidth": 0.0,
+        "spectralBandsDb": {
+          "sub_20_60Hz": -10.0, "bass_60_150Hz": -12.0, "lowMid_150_400Hz": -21.0,
+          "mid_400_2000Hz": -19.5, "highMid_2k_6kHz": -24.0, "high_6k_16kHz": -32.0
+        }
+      },
+      "pluginChain": [],
+      "automation": []
+    },
+    {
+      "id": "sub",
+      "name": "Sub",
+      "instrument": "Mono synth: sine sub",
+      "role": "bass",
+      "mixer": { "volumeDb": -2.0, "pan": 0.0, "muted": false, "sends": {} },
+      "clips": [
+        { "name": "sub", "startBar": 33, "lengthBars": 16, "pattern": "sub_offbeat", "loop": true },
+        { "name": "sub", "startBar": 57, "lengthBars": 16, "pattern": "sub_offbeat", "loop": true }
+      ],
+      "patterns": {
+        "sub_offbeat": {
+          "lengthBars": 1,
+          "notes": [
+            { "beat": 0.5, "lengthBeats": 0.45, "pitch": 28, "name": "E1", "velocity": 104 },
+            { "beat": 1.5, "lengthBeats": 0.45, "pitch": 28, "name": "E1", "velocity": 104 },
+            { "beat": 2.5, "lengthBeats": 0.45, "pitch": 28, "name": "E1", "velocity": 104 },
+            { "beat": 3.5, "lengthBeats": 0.45, "pitch": 28, "name": "E1", "velocity": 104 }
+          ]
+        }
+      },
+      "analysis": {
+        "rmsDb": -12.8, "peakDb": -7.0, "lufsIntegrated": -14.2, "crestFactorDb": 5.8,
+        "stereoWidth": 0.0,
+        "spectralBandsDb": {
+          "sub_20_60Hz": -8.5, "bass_60_150Hz": -14.0, "lowMid_150_400Hz": -30.0,
+          "mid_400_2000Hz": -45.0, "highMid_2k_6kHz": -60.0, "high_6k_16kHz": -70.0
+        }
+      },
+      "pluginChain": [],
+      "automation": []
+    },
+    {
+      "id": "bass_mid",
+      "name": "Mid Bass",
+      "instrument": "Mono synth: distorted mid bass",
+      "role": "bass",
+      "mixer": { "volumeDb": -4.5, "pan": 0.0, "muted": false, "sends": {} },
+      "clips": [
+        { "name": "mid bass", "startBar": 33, "lengthBars": 16, "pattern": "mid_bass", "loop": true },
+        { "name": "mid bass", "startBar": 57, "lengthBars": 16, "pattern": "mid_bass", "loop": true }
+      ],
+      "patterns": {
+        "mid_bass": {
+          "lengthBars": 2,
+          "notes": [
+            { "beat": 0.5, "lengthBeats": 0.9, "pitch": 40, "name": "E2", "velocity": 106 },
+            { "beat": 2.5, "lengthBeats": 0.9, "pitch": 40, "name": "E2", "velocity": 102 },
+            { "beat": 4.5, "lengthBeats": 0.9, "pitch": 43, "name": "G2", "velocity": 106 },
+            { "beat": 6.5, "lengthBeats": 0.45, "pitch": 45, "name": "A2", "velocity": 104 },
+            { "beat": 7.5, "lengthBeats": 0.45, "pitch": 47, "name": "B2", "velocity": 104 }
+          ]
+        }
+      },
+      "analysis": {
+        "rmsDb": -14.0, "peakDb": -6.8, "lufsIntegrated": -15.6, "crestFactorDb": 7.2,
+        "stereoWidth": 0.3,
+        "spectralBandsDb": {
+          "sub_20_60Hz": -40.0, "bass_60_150Hz": -16.0, "lowMid_150_400Hz": -13.5,
+          "mid_400_2000Hz": -17.0, "highMid_2k_6kHz": -23.0, "high_6k_16kHz": -32.0
+        }
+      },
+      "pluginChain": [
+        { "name": "EQ Eight", "type": "eq", "params": { "band1": { "mode": "highpass", "freqHz": 90, "slope": "24dB/oct" } } },
+        { "name": "Saturator", "type": "saturation", "params": { "driveDb": 8.0, "mode": "hard clip" } }
+      ],
+      "automation": []
+    },
+    {
+      "id": "clap",
+      "name": "Clap",
+      "instrument": "Drum sampler: layered clap + snare",
+      "role": "drums",
+      "mixer": { "volumeDb": -4.0, "pan": 0.0, "muted": false, "sends": { "reverb": -13.0 } },
+      "clips": [
+        { "name": "clap", "startBar": 33, "lengthBars": 16, "pattern": "backbeat", "loop": true },
+        { "name": "clap", "startBar": 57, "lengthBars": 16, "pattern": "backbeat", "loop": true }
+      ],
+      "patterns": {
+        "backbeat": {
+          "lengthBars": 1,
+          "notes": [
+            { "beat": 1, "lengthBeats": 0.25, "pitch": 39, "name": "D#1", "velocity": 108 },
+            { "beat": 3, "lengthBeats": 0.25, "pitch": 39, "name": "D#1", "velocity": 106 }
+          ]
+        }
+      },
+      "analysis": {
+        "rmsDb": -17.0, "peakDb": -6.5, "lufsIntegrated": -18.8, "crestFactorDb": 10.5,
+        "stereoWidth": 0.35,
+        "spectralBandsDb": {
+          "sub_20_60Hz": -58.0, "bass_60_150Hz": -40.0, "lowMid_150_400Hz": -25.0,
+          "mid_400_2000Hz": -18.5, "highMid_2k_6kHz": -20.5, "high_6k_16kHz": -26.0
+        }
+      },
+      "pluginChain": [],
+      "automation": []
+    },
+    {
+      "id": "hats",
+      "name": "Hats",
+      "instrument": "Drum sampler: closed hat",
+      "role": "drums",
+      "mixer": { "volumeDb": -9.0, "pan": 0.1, "muted": false, "sends": {} },
+      "clips": [
+        { "name": "hats", "startBar": 33, "lengthBars": 16, "pattern": "offbeat_8ths", "loop": true },
+        { "name": "hats", "startBar": 57, "lengthBars": 16, "pattern": "offbeat_8ths", "loop": true }
+      ],
+      "patterns": {
+        "offbeat_8ths": {
+          "lengthBars": 1,
+          "notes": [
+            { "beat": 0.5, "lengthBeats": 0.2, "pitch": 42, "name": "F#1", "velocity": 98 },
+            { "beat": 1.5, "lengthBeats": 0.2, "pitch": 42, "name": "F#1", "velocity": 94 },
+            { "beat": 2.5, "lengthBeats": 0.2, "pitch": 42, "name": "F#1", "velocity": 98 },
+            { "beat": 3.5, "lengthBeats": 0.2, "pitch": 42, "name": "F#1", "velocity": 94 }
+          ]
+        }
+      },
+      "analysis": {
+        "rmsDb": -22.0, "peakDb": -12.5, "lufsIntegrated": -23.8, "crestFactorDb": 9.5,
+        "stereoWidth": 0.2,
+        "spectralBandsDb": {
+          "sub_20_60Hz": -70.0, "bass_60_150Hz": -60.0, "lowMid_150_400Hz": -46.0,
+          "mid_400_2000Hz": -32.0, "highMid_2k_6kHz": -20.0, "high_6k_16kHz": -16.5
+        }
+      },
+      "pluginChain": [],
+      "automation": []
+    },
+    {
+      "id": "ride",
+      "name": "Ride",
+      "instrument": "Drum sampler: ride cymbal",
+      "role": "drums",
+      "mixer": { "volumeDb": -12.0, "pan": -0.2, "muted": false, "sends": {} },
+      "clips": [
+        { "name": "ride", "startBar": 33, "lengthBars": 16, "pattern": "quarters", "loop": true },
+        { "name": "ride", "startBar": 57, "lengthBars": 16, "pattern": "quarters", "loop": true }
+      ],
+      "patterns": {
+        "quarters": {
+          "lengthBars": 1,
+          "notes": [
+            { "beat": 0, "lengthBeats": 0.5, "pitch": 51, "name": "D#2", "velocity": 88 },
+            { "beat": 1, "lengthBeats": 0.5, "pitch": 51, "name": "D#2", "velocity": 84 },
+            { "beat": 2, "lengthBeats": 0.5, "pitch": 51, "name": "D#2", "velocity": 88 },
+            { "beat": 3, "lengthBeats": 0.5, "pitch": 51, "name": "D#2", "velocity": 84 }
+          ]
+        }
+      },
+      "analysis": {
+        "rmsDb": -24.5, "peakDb": -15.0, "lufsIntegrated": -26.2, "crestFactorDb": 9.5,
+        "stereoWidth": 0.3,
+        "spectralBandsDb": {
+          "sub_20_60Hz": -70.0, "bass_60_150Hz": -62.0, "lowMid_150_400Hz": -48.0,
+          "mid_400_2000Hz": -34.0, "highMid_2k_6kHz": -23.0, "high_6k_16kHz": -18.0
+        }
+      },
+      "pluginChain": [],
+      "automation": []
+    },
+    {
+      "id": "lead1",
+      "name": "Lead",
+      "instrument": "Poly synth: supersaw, 7 voices detuned",
+      "role": "lead",
+      "mixer": { "volumeDb": -3.5, "pan": 0.0, "muted": false, "sends": { "reverb": -10.0, "delay": -11.0 } },
+      "clips": [
+        { "name": "hook", "startBar": 33, "lengthBars": 16, "pattern": "hook", "loop": true },
+        { "name": "hook", "startBar": 57, "lengthBars": 16, "pattern": "hook", "loop": true }
+      ],
+      "patterns": {
+        "hook": {
+          "lengthBars": 2,
+          "notes": [
+            { "beat": 0.0, "lengthBeats": 0.75, "pitch": 64, "name": "E4", "velocity": 110 },
+            { "beat": 1.0, "lengthBeats": 0.75, "pitch": 64, "name": "E4", "velocity": 104 },
+            { "beat": 2.0, "lengthBeats": 0.75, "pitch": 67, "name": "G4", "velocity": 110 },
+            { "beat": 3.0, "lengthBeats": 0.75, "pitch": 71, "name": "B4", "velocity": 106 },
+            { "beat": 4.0, "lengthBeats": 0.75, "pitch": 69, "name": "A4", "velocity": 110 },
+            { "beat": 5.0, "lengthBeats": 0.75, "pitch": 67, "name": "G4", "velocity": 104 },
+            { "beat": 6.0, "lengthBeats": 1.5, "pitch": 66, "name": "F#4", "velocity": 108 }
+          ]
+        }
+      },
+      "analysis": {
+        "rmsDb": -12.5, "peakDb": -4.5, "lufsIntegrated": -14.0, "crestFactorDb": 8.0,
+        "stereoWidth": 0.7,
+        "spectralBandsDb": {
+          "sub_20_60Hz": -55.0, "bass_60_150Hz": -34.0, "lowMid_150_400Hz": -18.0,
+          "mid_400_2000Hz": -12.0, "highMid_2k_6kHz": -14.5, "high_6k_16kHz": -22.0
+        }
+      },
+      "pluginChain": [
+        { "name": "EQ Eight", "type": "eq", "params": { "band1": { "mode": "highpass", "freqHz": 180, "slope": "12dB/oct" } } }
+      ],
+      "automation": []
+    },
+    {
+      "id": "lead2",
+      "name": "Lead 2",
+      "instrument": "Poly synth: supersaw, 7 voices detuned",
+      "role": "lead",
+      "mixer": { "volumeDb": -5.0, "pan": 0.0, "muted": false, "sends": { "reverb": -10.0 } },
+      "clips": [
+        { "name": "hook high", "startBar": 33, "lengthBars": 16, "pattern": "hook_high", "loop": true },
+        { "name": "hook high", "startBar": 57, "lengthBars": 16, "pattern": "hook_high", "loop": true }
+      ],
+      "patterns": {
+        "hook_high": {
+          "lengthBars": 2,
+          "notes": [
+            { "beat": 0.0, "lengthBeats": 0.75, "pitch": 76, "name": "E5", "velocity": 110 },
+            { "beat": 1.0, "lengthBeats": 0.75, "pitch": 76, "name": "E5", "velocity": 104 },
+            { "beat": 2.0, "lengthBeats": 0.75, "pitch": 79, "name": "G5", "velocity": 110 },
+            { "beat": 3.0, "lengthBeats": 0.75, "pitch": 83, "name": "B5", "velocity": 106 },
+            { "beat": 4.0, "lengthBeats": 0.75, "pitch": 81, "name": "A5", "velocity": 110 },
+            { "beat": 5.0, "lengthBeats": 0.75, "pitch": 79, "name": "G5", "velocity": 104 },
+            { "beat": 6.0, "lengthBeats": 1.5, "pitch": 78, "name": "F#5", "velocity": 108 }
+          ]
+        }
+      },
+      "analysis": {
+        "rmsDb": -14.0, "peakDb": -6.0, "lufsIntegrated": -15.5, "crestFactorDb": 8.0,
+        "stereoWidth": 0.7,
+        "spectralBandsDb": {
+          "sub_20_60Hz": -60.0, "bass_60_150Hz": -40.0, "lowMid_150_400Hz": -22.0,
+          "mid_400_2000Hz": -14.0, "highMid_2k_6kHz": -12.5, "high_6k_16kHz": -19.0
+        }
+      },
+      "pluginChain": [
+        { "name": "EQ Eight", "type": "eq", "params": { "band1": { "mode": "highpass", "freqHz": 250, "slope": "12dB/oct" } } }
+      ],
+      "automation": []
+    },
+    {
+      "id": "arp",
+      "name": "Arp",
+      "instrument": "Poly synth: pluck arp",
+      "role": "lead",
+      "mixer": { "volumeDb": -7.5, "pan": -0.15, "muted": false, "sends": { "delay": -8.0 } },
+      "clips": [
+        { "name": "arp", "startBar": 17, "lengthBars": 32, "pattern": "arp_16ths", "loop": true },
+        { "name": "arp", "startBar": 57, "lengthBars": 16, "pattern": "arp_16ths", "loop": true }
+      ],
+      "patterns": {
+        "arp_16ths": {
+          "lengthBars": 1,
+          "notes": [
+            { "beat": 0.0, "lengthBeats": 0.2, "pitch": 64, "name": "E4", "velocity": 92 },
+            { "beat": 0.25, "lengthBeats": 0.2, "pitch": 67, "name": "G4", "velocity": 86 },
+            { "beat": 0.5, "lengthBeats": 0.2, "pitch": 71, "name": "B4", "velocity": 90 },
+            { "beat": 0.75, "lengthBeats": 0.2, "pitch": 67, "name": "G4", "velocity": 84 },
+            { "beat": 1.0, "lengthBeats": 0.2, "pitch": 64, "name": "E4", "velocity": 92 },
+            { "beat": 1.25, "lengthBeats": 0.2, "pitch": 67, "name": "G4", "velocity": 86 },
+            { "beat": 1.5, "lengthBeats": 0.2, "pitch": 71, "name": "B4", "velocity": 90 },
+            { "beat": 1.75, "lengthBeats": 0.2, "pitch": 74, "name": "D5", "velocity": 86 },
+            { "beat": 2.0, "lengthBeats": 0.2, "pitch": 64, "name": "E4", "velocity": 92 },
+            { "beat": 2.25, "lengthBeats": 0.2, "pitch": 67, "name": "G4", "velocity": 86 },
+            { "beat": 2.5, "lengthBeats": 0.2, "pitch": 71, "name": "B4", "velocity": 90 },
+            { "beat": 2.75, "lengthBeats": 0.2, "pitch": 67, "name": "G4", "velocity": 84 },
+            { "beat": 3.0, "lengthBeats": 0.2, "pitch": 64, "name": "E4", "velocity": 92 },
+            { "beat": 3.25, "lengthBeats": 0.2, "pitch": 67, "name": "G4", "velocity": 86 },
+            { "beat": 3.5, "lengthBeats": 0.2, "pitch": 71, "name": "B4", "velocity": 90 },
+            { "beat": 3.75, "lengthBeats": 0.2, "pitch": 74, "name": "D5", "velocity": 86 }
+          ]
+        }
+      },
+      "analysis": {
+        "rmsDb": -16.5, "peakDb": -8.0, "lufsIntegrated": -18.2, "crestFactorDb": 8.5,
+        "stereoWidth": 0.45,
+        "spectralBandsDb": {
+          "sub_20_60Hz": -62.0, "bass_60_150Hz": -46.0, "lowMid_150_400Hz": -28.0,
+          "mid_400_2000Hz": -15.5, "highMid_2k_6kHz": -17.0, "high_6k_16kHz": -24.0
+        }
+      },
+      "pluginChain": [],
+      "automation": []
+    },
+    {
+      "id": "pad",
+      "name": "Pad",
+      "instrument": "Poly synth: wide saw pad",
+      "role": "pads",
+      "mixer": { "volumeDb": -6.5, "pan": 0.0, "muted": false, "sends": { "reverb": -6.0 } },
+      "clips": [
+        { "name": "pad", "startBar": 17, "lengthBars": 32, "pattern": "pad_wholes", "loop": true },
+        { "name": "pad", "startBar": 49, "lengthBars": 24, "pattern": "pad_wholes", "loop": true }
+      ],
+      "patterns": {
+        "pad_wholes": {
+          "lengthBars": 4,
+          "notes": [
+            { "beat": 0, "lengthBeats": 8.0, "pitch": 52, "name": "E3", "velocity": 90 },
+            { "beat": 0, "lengthBeats": 8.0, "pitch": 55, "name": "G3", "velocity": 90 },
+            { "beat": 0, "lengthBeats": 8.0, "pitch": 59, "name": "B3", "velocity": 90 },
+            { "beat": 0, "lengthBeats": 8.0, "pitch": 64, "name": "E4", "velocity": 90 },
+            { "beat": 8, "lengthBeats": 8.0, "pitch": 50, "name": "D3", "velocity": 90 },
+            { "beat": 8, "lengthBeats": 8.0, "pitch": 55, "name": "G3", "velocity": 90 },
+            { "beat": 8, "lengthBeats": 8.0, "pitch": 59, "name": "B3", "velocity": 90 },
+            { "beat": 8, "lengthBeats": 8.0, "pitch": 62, "name": "D4", "velocity": 90 }
+          ]
+        }
+      },
+      "analysis": {
+        "rmsDb": -13.5, "peakDb": -7.5, "lufsIntegrated": -15.0, "crestFactorDb": 6.0,
+        "stereoWidth": 0.85,
+        "spectralBandsDb": {
+          "sub_20_60Hz": -52.0, "bass_60_150Hz": -28.0, "lowMid_150_400Hz": -15.5,
+          "mid_400_2000Hz": -13.0, "highMid_2k_6kHz": -18.0, "high_6k_16kHz": -26.0
+        }
+      },
+      "pluginChain": [
+        { "name": "EQ Eight", "type": "eq", "params": { "band1": { "mode": "highpass", "freqHz": 150, "slope": "12dB/oct" } } }
+      ],
+      "automation": []
+    },
+    {
+      "id": "vox",
+      "name": "Vox Chops",
+      "instrument": "Audio clips: pitched vocal chops (no MIDI)",
+      "role": "vocal",
+      "mixer": { "volumeDb": -6.0, "pan": 0.0, "muted": false, "sends": { "reverb": -8.0, "delay": -9.0 } },
+      "clips": [
+        { "name": "chop loop", "startBar": 33, "lengthBars": 16, "pattern": null, "loop": true },
+        { "name": "chop loop", "startBar": 57, "lengthBars": 16, "pattern": null, "loop": true }
+      ],
+      "patterns": {},
+      "analysis": {
+        "rmsDb": -15.5, "peakDb": -6.8, "lufsIntegrated": -17.0, "crestFactorDb": 8.7,
+        "stereoWidth": 0.5,
+        "spectralBandsDb": {
+          "sub_20_60Hz": -65.0, "bass_60_150Hz": -42.0, "lowMid_150_400Hz": -20.0,
+          "mid_400_2000Hz": -14.0, "highMid_2k_6kHz": -16.5, "high_6k_16kHz": -23.0
+        }
+      },
+      "pluginChain": [
+        { "name": "EQ Eight", "type": "eq", "params": { "band1": { "mode": "highpass", "freqHz": 220, "slope": "12dB/oct" } } }
+      ],
+      "automation": []
+    },
+    {
+      "id": "fx",
+      "name": "FX",
+      "instrument": "Audio clips: risers, impacts, downlifters (no MIDI)",
+      "role": "fx",
+      "mixer": { "volumeDb": -8.0, "pan": 0.0, "muted": false, "sends": { "reverb": -8.0 } },
+      "clips": [
+        { "name": "riser", "startBar": 25, "lengthBars": 8, "pattern": null },
+        { "name": "impact + tail", "startBar": 33, "lengthBars": 4, "pattern": null },
+        { "name": "riser", "startBar": 49, "lengthBars": 8, "pattern": null },
+        { "name": "impact + tail", "startBar": 57, "lengthBars": 4, "pattern": null }
+      ],
+      "patterns": {},
+      "analysis": {
+        "rmsDb": -18.0, "peakDb": -6.0, "lufsIntegrated": -20.0, "crestFactorDb": 12.0,
+        "stereoWidth": 0.75,
+        "spectralBandsDb": {
+          "sub_20_60Hz": -30.0, "bass_60_150Hz": -28.0, "lowMid_150_400Hz": -26.0,
+          "mid_400_2000Hz": -22.0, "highMid_2k_6kHz": -20.0, "high_6k_16kHz": -18.0
+        }
+      },
+      "pluginChain": [],
+      "automation": []
+    },
+    {
+      "id": "master",
+      "name": "Master",
+      "instrument": null,
+      "role": "master",
+      "mixer": { "volumeDb": 0.0, "pan": 0.0, "muted": false, "sends": {} },
+      "clips": [],
+      "patterns": {},
+      "analysis": {
+        "rmsDb": -8.2, "peakDb": -0.6, "lufsIntegrated": -8.9, "crestFactorDb": 5.4,
+        "stereoWidth": 0.55,
+        "spectralBandsDb": {
+          "sub_20_60Hz": -10.5, "bass_60_150Hz": -11.0, "lowMid_150_400Hz": -11.5,
+          "mid_400_2000Hz": -8.8, "highMid_2k_6kHz": -11.0, "high_6k_16kHz": -16.0
+        },
+        "note": "Measured over drop 1 (bars 33-48)."
+      },
+      "pluginChain": [
+        { "name": "Limiter", "type": "limiter", "params": { "ceilingDb": -0.5, "avgGainReductionDb": 4.5 } }
+      ],
+      "automation": []
+    }
+  ]
+}
