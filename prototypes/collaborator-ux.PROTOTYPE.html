@@ -1,0 +1,836 @@
+<!doctype html>
+<!--
+  PROTOTYPE — DISPOSABLE — DO NOT SHIP
+  Roadmap node u64tso: "What must the Collaborator and Proposal UX look and feel like?"
+  Open this file directly in a browser. No build, no server. All state is in memory.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>PROTOTYPE — Collaborator UX click-dummy</title>
+<style>
+  :root {
+    --bg: #16181d;
+    --bg2: #1d2026;
+    --bg3: #23262e;
+    --line: #2e323b;
+    --text: #d5d9e0;
+    --dim: #8a90a0;
+    --accent: #4f8cff;       /* selection / producer accent */
+    --ai: #b07cff;           /* Collaborator accent */
+    --ai-dim: #7a55c0;
+    --ok: #4fc06a;
+    --warn: #e0a83c;
+    --bad: #e05c5c;
+    --clip-audio: #3a6ea5;
+    --clip-midi: #3f8f6b;
+    --clip-drums: #a5703a;
+    --clip-vox: #a53a6e;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 13px/1.45 system-ui, sans-serif;
+    display: grid;
+    grid-template-rows: 40px 1fr 190px 26px;
+    grid-template-columns: 1fr 340px;
+    grid-template-areas:
+      "toolbar toolbar"
+      "timeline panel"
+      "mixer panel"
+      "statusbar statusbar";
+    height: 100vh; overflow: hidden;
+    user-select: none;
+  }
+
+  /* ---------- toolbar ---------- */
+  #toolbar {
+    grid-area: toolbar; display: flex; align-items: center; gap: 10px;
+    background: var(--bg2); border-bottom: 1px solid var(--line); padding: 0 10px;
+  }
+  #toolbar .title { font-weight: 600; letter-spacing: .3px; }
+  #toolbar .proto-badge {
+    background: var(--bad); color: #fff; font-size: 10px; font-weight: 700;
+    padding: 2px 6px; border-radius: 3px;
+  }
+  button {
+    background: var(--bg3); color: var(--text); border: 1px solid var(--line);
+    border-radius: 4px; padding: 4px 10px; cursor: pointer; font: inherit;
+  }
+  button:hover { border-color: var(--dim); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.ai { background: var(--ai-dim); border-color: var(--ai); color: #fff; }
+  button.small { padding: 1px 7px; font-size: 11px; }
+  button.danger { color: var(--bad); }
+  #transport { display: flex; gap: 6px; align-items: center; }
+  #timeDisplay { font-family: ui-monospace, monospace; color: var(--dim); min-width: 70px; }
+  #variantBox { margin-left: auto; display: flex; align-items: center; gap: 6px; color: var(--dim); }
+  #variantBox button.active { border-color: var(--ai); color: var(--ai); }
+
+  /* ---------- timeline ---------- */
+  #timeline {
+    grid-area: timeline; overflow: auto; position: relative;
+    background: var(--bg);
+  }
+  #ruler {
+    position: sticky; top: 0; z-index: 5; height: 22px;
+    background: var(--bg2); border-bottom: 1px solid var(--line);
+    margin-left: 140px; position: relative;
+  }
+  .rulerWrap { position: sticky; top: 0; z-index: 6; display: flex; }
+  .rulerCorner { width: 140px; min-width: 140px; background: var(--bg2); border-bottom: 1px solid var(--line); height: 22px;
+    font-size: 10px; color: var(--dim); display: flex; align-items: center; padding-left: 8px; }
+  .rulerBars { position: relative; height: 22px; background: var(--bg2); border-bottom: 1px solid var(--line); flex: 1; }
+  .rulerBars .bar { position: absolute; top: 0; height: 100%; border-left: 1px solid var(--line); font-size: 9px; color: var(--dim); padding: 4px 0 0 3px; }
+  .track { display: flex; height: 64px; border-bottom: 1px solid var(--line); }
+  .trackHead {
+    width: 140px; min-width: 140px; background: var(--bg2); border-right: 1px solid var(--line);
+    padding: 6px 8px; display: flex; flex-direction: column; gap: 4px; position: relative;
+  }
+  .trackHead .name { font-weight: 600; font-size: 12px; }
+  .trackHead .btns { display: flex; gap: 4px; }
+  .trackHead .btns button { padding: 0 6px; font-size: 10px; }
+  /* right-click context menu (clips & tracks) */
+  #ctxMenu {
+    position: fixed; z-index: 100; min-width: 170px; display: none;
+    background: var(--bg3); border: 1px solid var(--line); border-radius: 6px;
+    box-shadow: 0 6px 20px rgba(0,0,0,.5); padding: 4px; font-size: 12px;
+  }
+  #ctxMenu.show { display: block; }
+  #ctxMenu .mi { padding: 5px 10px; border-radius: 4px; cursor: pointer; color: var(--text); }
+  #ctxMenu .mi:hover { background: var(--bg2); }
+  #ctxMenu .mi.dim { color: var(--dim); cursor: default; }
+  #ctxMenu .mi.dim:hover { background: none; }
+  #ctxMenu .mi.ai { color: var(--ai); font-weight: 600; }
+  #ctxMenu .sep { height: 1px; background: var(--line); margin: 4px 6px; }
+  .lane { position: relative; flex: 1; background: repeating-linear-gradient(90deg, transparent 0, transparent 79px, #1b1e24 79px, #1b1e24 80px); }
+  .clip {
+    position: absolute; top: 6px; height: 52px; border-radius: 4px;
+    border: 1px solid rgba(255,255,255,.25); overflow: hidden; cursor: grab;
+    font-size: 10px; color: rgba(255,255,255,.9); padding: 2px 5px;
+  }
+  .clip .cname { position: relative; z-index: 2; text-shadow: 0 1px 2px rgba(0,0,0,.6); }
+  .clip.selected { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .clip .wave, .clip .notes { position: absolute; inset: 14px 3px 3px 3px; opacity: .8; }
+  #playhead { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--warn); z-index: 4; pointer-events: none; margin-left: 140px; }
+
+  /* proposal-state for clips: settled look — ghost + glow combined */
+  .clip.proposed {
+    cursor: pointer;
+    opacity: .6;
+    border: 1.5px solid var(--ai);
+    box-shadow: 0 0 10px 1px rgba(176,124,255,.55);
+  }
+  .clip.proposed .aiTag {
+    position: absolute; right: 2px; top: 2px; z-index: 3;
+    background: var(--ai); color: #fff; font-size: 9px; font-weight: 700;
+    border-radius: 3px; padding: 0 4px;
+  }
+  .clip.proposed.stale { filter: grayscale(.8); }
+  .clip.proposed.stale .aiTag { background: var(--warn); color: #000; }
+
+  /* ---------- mixer ---------- */
+  #mixer {
+    grid-area: mixer; display: flex; gap: 1px; background: var(--line);
+    border-top: 1px solid var(--line); overflow-x: auto;
+  }
+  .strip { background: var(--bg2); width: 92px; min-width: 92px; padding: 6px; display: flex; flex-direction: column; align-items: center; gap: 3px; }
+  .strip .sname { font-size: 11px; font-weight: 600; }
+  .strip .gainVal { font-family: ui-monospace, monospace; font-size: 10px; color: var(--dim); }
+  .faderArea { position: relative; height: 90px; width: 100%; display: flex; justify-content: center; gap: 8px; }
+  .faderTrack { position: relative; width: 6px; height: 100%; background: var(--bg); border-radius: 3px; cursor: ns-resize; }
+  .faderHandle {
+    position: absolute; left: -7px; width: 20px; height: 10px; background: #c7ccd6;
+    border-radius: 2px; box-shadow: 0 1px 3px rgba(0,0,0,.6); cursor: ns-resize;
+  }
+  .faderGhost {
+    position: absolute; left: -7px; width: 20px; height: 10px;
+    border: 1.5px solid var(--ai); border-radius: 2px; background: rgba(176,124,255,.25);
+    pointer-events: none;
+  }
+  .faderGhost.stale { border-color: var(--warn); background: rgba(224,168,60,.2); }
+  .meter { width: 8px; height: 100%; background: var(--bg); border-radius: 2px; overflow: hidden; position: relative; }
+  .meter .fill { position: absolute; bottom: 0; width: 100%; background: linear-gradient(0deg, var(--ok), #d8e04c 80%, var(--bad)); transition: height .12s; }
+  .strip .pluginRow { font-size: 9px; color: var(--dim); text-align: center; line-height: 1.3; }
+  .strip .pluginRow .pchange { color: var(--ai); }
+  .strip .pluginRow .pchange.stale { color: var(--warn); }
+
+  /* ---------- Collaborator panel ---------- */
+  #panel {
+    grid-area: panel; background: var(--bg2); border-left: 1px solid var(--line);
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  #panelHead {
+    padding: 8px 10px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 8px;
+  }
+  #panelHead .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
+  #panelHead .ptitle { font-weight: 600; }
+  #panelHead .offlineToggle { margin-left: auto; }
+  #transcript { flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 10px; }
+  .msg { max-width: 95%; }
+  .msg.user { align-self: flex-end; background: var(--bg3); border: 1px solid var(--line); border-radius: 8px 8px 2px 8px; padding: 6px 9px; }
+  .msg.user .ctx { font-size: 10px; color: var(--accent); margin-bottom: 2px; }
+  .msg.ai { align-self: flex-start; }
+  .msg.ai .who { font-size: 10px; color: var(--ai); font-weight: 700; margin-bottom: 2px; }
+  .msg.ai .body { background: rgba(176,124,255,.08); border: 1px solid var(--ai-dim); border-radius: 8px 8px 8px 2px; padding: 6px 9px; }
+  .msg.sys { align-self: center; color: var(--dim); font-size: 11px; font-style: italic; }
+
+  .runCard {
+    align-self: stretch; background: var(--bg3); border: 1px solid var(--ai-dim); border-radius: 8px; padding: 8px 10px;
+  }
+  .runCard .rhead { display: flex; align-items: center; gap: 8px; }
+  .spinner {
+    width: 12px; height: 12px; border: 2px solid var(--ai-dim); border-top-color: var(--ai);
+    border-radius: 50%; animation: spin 1s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .runCard .phrase { margin-top: 6px; font-size: 12px; color: var(--dim); font-style: italic; animation: phraseIn .5s ease; }
+  @keyframes phraseIn { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+  .runCard button { margin-top: 6px; }
+
+  .propCard {
+    align-self: stretch; border: 1px solid var(--ai); border-radius: 8px; overflow: hidden;
+  }
+  .propCard .phead {
+    background: rgba(176,124,255,.15); padding: 7px 10px; display: flex; align-items: center; gap: 8px;
+  }
+  .propCard .phead .ptag { background: var(--ai); color: #fff; font-size: 10px; font-weight: 700; border-radius: 3px; padding: 1px 5px; }
+  .propCard .phead .pname { font-weight: 600; font-size: 12px; flex: 1; }
+  .propCard.stale { border-color: var(--warn); }
+  .propCard.stale .phead { background: rgba(224,168,60,.12); }
+  .staleBadge { background: var(--warn); color: #000; font-size: 10px; font-weight: 700; border-radius: 3px; padding: 1px 5px; }
+  .propCard.resolved { opacity: .55; }
+  .propCard .pbody { padding: 6px 10px 8px; background: var(--bg3); }
+  .elRow { display: flex; align-items: center; gap: 7px; padding: 4px 0; border-bottom: 1px dashed var(--line); font-size: 12px; }
+  .elRow:last-of-type { border-bottom: none; }
+  .elRow .edesc { flex: 1; }
+  .elRow .edesc .esub { color: var(--dim); font-size: 10px; }
+  .elRow .ebtns { display: flex; gap: 3px; }
+  .elRow.accepted .edesc { color: var(--ok); }
+  .elRow.rejected .edesc { color: var(--dim); text-decoration: line-through; }
+  .propActions { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; align-items: center; }
+  .abToggle { display: flex; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+  .abToggle button { border: none; border-radius: 0; padding: 3px 10px; }
+  .abToggle button.on { background: var(--ai-dim); color: #fff; }
+
+  #composer { border-top: 1px solid var(--line); padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+  #ctxChip {
+    display: none; align-self: flex-start; font-size: 11px; color: var(--accent);
+    border: 1px solid var(--accent); border-radius: 10px; padding: 1px 8px;
+  }
+  #ctxChip.show { display: flex; gap: 6px; align-items: center; }
+  #ctxChip b { cursor: pointer; }
+  #composer .inputRow { display: flex; gap: 6px; }
+  #promptInput { flex: 1; background: var(--bg); border: 1px solid var(--line); color: var(--text); border-radius: 4px; padding: 6px 8px; font: inherit; }
+  #canned { display: flex; flex-wrap: wrap; gap: 4px; }
+  #canned button { font-size: 11px; padding: 2px 8px; border-radius: 10px; color: var(--dim); }
+
+  /* ---------- status bar / state drawer ---------- */
+  #statusbar { grid-area: statusbar; background: var(--bg2); border-top: 1px solid var(--line); font-size: 11px; color: var(--dim); display: flex; align-items: center; padding: 0 10px; gap: 14px; }
+  #statusbar b { color: var(--text); font-weight: 600; }
+  #stateDrawer {
+    position: fixed; right: 348px; bottom: 30px; width: 420px; max-height: 45vh; overflow: auto;
+    background: #101114; border: 1px solid var(--line); border-radius: 6px; padding: 8px; z-index: 50; display: none;
+  }
+  #stateDrawer.show { display: block; }
+  #stateDrawer pre { font: 10px/1.5 ui-monospace, monospace; color: #9adf9a; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+
+<div id="toolbar">
+  <span class="proto-badge">PROTOTYPE</span>
+  <span class="title">Duet — “Neon Nights” demo</span>
+  <div id="transport">
+    <button id="playBtn">▶ Play</button>
+    <span id="timeDisplay">bar 1.1</span>
+    <span style="color:var(--dim)">120 BPM · 4/4</span>
+  </div>
+  <div id="variantBox">
+    <button class="small" id="stateBtn">State</button>
+  </div>
+</div>
+
+<div id="timeline">
+  <div class="rulerWrap">
+    <div class="rulerCorner">TRACKS</div>
+    <div class="rulerBars" id="rulerBars"></div>
+  </div>
+  <div id="tracks"></div>
+  <div id="playhead" style="left:0"></div>
+</div>
+
+<div id="panel">
+  <div id="panelHead">
+    <div class="dot" id="statusDot"></div>
+    <span class="ptitle">Collaborator</span>
+    <button class="small offlineToggle" id="offlineBtn" title="Simulate a backend failure">Simulate error</button>
+  </div>
+  <div id="transcript"></div>
+  <div id="composer">
+    <span id="ctxChip"></span>
+    <div id="canned"></div>
+    <div class="inputRow">
+      <input id="promptInput" placeholder="Ask the Collaborator anything…">
+      <button class="ai" id="sendBtn">Ask</button>
+    </div>
+  </div>
+</div>
+
+<div id="mixer"></div>
+
+<div id="statusbar">
+  <span>Selection: <b id="selLabel">none</b></span>
+  <span>Pending Proposals: <b id="pendLabel">0</b></span>
+  <span style="margin-left:auto">Right-click a clip or track for the menu · drag clips/faders to make Proposals stale</span>
+</div>
+
+<div id="stateDrawer"><pre id="stateDump"></pre></div>
+<div id="ctxMenu"></div>
+
+<script>
+/* ================= in-memory project state ================= */
+const BARS = 32, BARW = 34;
+const state = {
+  playing: false, playhead: 0, selection: null, abMode: {}, // abMode[propId] = 'A'|'B'
+  tracks: [
+    { id: 't1', name: 'Drums',  color: 'var(--clip-drums)', gain: 0.0 },
+    { id: 't2', name: 'Bass',   color: 'var(--clip-audio)', gain: -1.0 },
+    { id: 't3', name: 'Keys',   color: 'var(--clip-midi)',  gain: -3.5, plugin: 'EQ Eight' },
+    { id: 't4', name: 'Lead',   color: 'var(--clip-midi)',  gain: -2.0 },
+    { id: 't5', name: 'Vox',    color: 'var(--clip-vox)',   gain: -0.5, plugin: 'Comp' },
+  ],
+  clips: [
+    { id: 'c1', track: 't1', name: 'Drum loop',   start: 0,  len: 32, type: 'audio' },
+    { id: 'c2', track: 't2', name: 'Bassline',    start: 4,  len: 20, type: 'audio' },
+    { id: 'c3', track: 't3', name: 'Keys verse',  start: 4,  len: 12, type: 'midi'  },
+    { id: 'c4', track: 't4', name: 'Lead hook',   start: 16, len: 8,  type: 'midi'  },
+    { id: 'c5', track: 't5', name: 'Vox chorus',  start: 16, len: 12, type: 'audio' },
+  ],
+  proposals: [],   // {id,name,status:'pending'|'stale'|'resolved', elements:[{id,desc,sub,kind,target,apply,revert,el-status}]}
+  run: null,
+  offline: false,
+  propCounter: 0,
+};
+
+/* ================= scripted Collaborator content ================= */
+const SCRIPTS = {
+  chorus: {
+    match: /chorus|empty|thicken|fuller/i,
+    steps: ['read_arrangement()', 'get_midi(Keys, Lead)', 'get_track_analysis(mix bus)'],
+    commentary: 'The chorus (bars 17–28) carries only Lead, Vox and the rhythm section — the mid range drops out because Keys stop at bar 16. I’d sustain a pad under the chorus and add a counter-line answering the vox phrases.',
+    proposal: {
+      name: 'Thicken the chorus',
+      elements: [
+        { kind: 'clip', desc: 'Add MIDI clip “Chorus pad” on Keys', sub: 'bars 17–28 · sustained Am–F–C–G voicings', mk: () => addClip({ id:'p_pad', track:'t3', name:'Chorus pad', start:16, len:12, type:'midi' }) },
+        { kind: 'clip', desc: 'Add MIDI clip “Counter-line” on Lead', sub: 'bars 25–28 · answers the vox phrase ends', mk: () => addClip({ id:'p_cl', track:'t4', name:'Counter-line', start:24, len:4, type:'midi' }) },
+      ],
+    },
+  },
+  mix: {
+    match: /mix|level|loud|muddy|balance/i,
+    steps: ['list_tracks()', 'get_track_analysis(all tracks)', 'get_plugin_chain(Keys, Vox)'],
+    commentary: 'Bass averages −8.1 LUFS against a −10.3 LUFS mix — it is crowding the vox. Keys have a 240 Hz buildup that adds mud. Small moves: pull Bass down, lift Vox slightly, and cut the low mids on Keys.',
+    proposal: {
+      name: 'Mix balance pass',
+      ab: true,
+      elements: [
+        { kind: 'mixer', desc: 'Bass gain −1.0 dB → −2.5 dB', sub: 'fader move', target: 't2', prop: -2.5 },
+        { kind: 'mixer', desc: 'Vox gain −0.5 dB → +0.7 dB', sub: 'fader move', target: 't5', prop: 0.7 },
+        { kind: 'plugin', desc: 'Keys · EQ Eight: −3 dB bell at 240 Hz', sub: 'plugin parameter', target: 't3', ptext: 'EQ 240Hz −3dB' },
+      ],
+    },
+  },
+  selection: {
+    steps: ['get_midi(selection)', 'get_track_analysis(selection)'],
+    commentary: sel => `“${sel.name}” sits alone in its register for most of its length. Harmonically it is fine — the notes outline the changes — but rhythmically it repeats one figure eight times. Want me to propose a variation for the back half?`,
+  },
+  fallback: {
+    steps: ['read_arrangement()', 'get_track_analysis(mix bus)'],
+    commentary: 'The arrangement reads clearly: intro (1–4), verse (5–16), chorus (17–28), outro (29–32). Strongest section is the chorus vocal; the verse could use motion in the low end around bar 12. Ask me for changes and I will propose them as edits you can audition.',
+  },
+};
+
+/* ================= helpers ================= */
+const $ = s => document.querySelector(s);
+function addClip(c) { c.proposed = true; state.clips.push(c); return c.id; }
+function el(html) { const d = document.createElement('div'); d.innerHTML = html; return d.firstElementChild; }
+function trackOf(id) { return state.tracks.find(t => t.id === id); }
+function fmtDb(v) { return (v > 0 ? '+' : '') + v.toFixed(1) + ' dB'; }
+
+/* ================= rendering ================= */
+function renderRuler() {
+  const r = $('#rulerBars'); r.innerHTML = '';
+  for (let b = 0; b < BARS; b += 4)
+    r.appendChild(el(`<div class="bar" style="left:${b * BARW}px">${b + 1}</div>`));
+  r.style.width = BARS * BARW + 'px';
+}
+
+function renderTracks() {
+  const host = $('#tracks'); host.innerHTML = '';
+  for (const t of state.tracks) {
+    const row = el(`<div class="track">
+      <div class="trackHead">
+        <span class="name">${t.name}</span>
+        <div class="btns"><button>M</button><button>S</button></div>
+      </div>
+      <div class="lane" data-track="${t.id}" style="width:${BARS * BARW}px"></div>
+    </div>`);
+    row.querySelector('.trackHead').oncontextmenu = e => {
+      e.preventDefault();
+      openCtxMenu(e, { type: 'track', id: t.id, name: t.name });
+    };
+    const lane = row.querySelector('.lane');
+    for (const c of state.clips.filter(c => c.track === t.id)) lane.appendChild(clipEl(c, t));
+    host.appendChild(row);
+  }
+}
+
+function clipEl(c, t) {
+  const stale = c.proposed && proposalForClip(c.id)?.status === 'stale';
+  const d = el(`<div class="clip ${c.proposed ? 'proposed' : ''} ${stale ? 'stale' : ''} ${state.selection?.id === c.id ? 'selected' : ''}"
+      style="left:${c.start * BARW}px; width:${c.len * BARW - 4}px; background:${t.color}" data-clip="${c.id}">
+      <span class="cname">${c.name}</span>
+      ${c.type === 'audio' ? waveSvg() : noteSvg()}
+      ${c.proposed ? `<span class="aiTag">${stale ? '✦ STALE' : '✦ AI'}</span>` : ''}
+    </div>`);
+  d.onmousedown = e => beginClipDrag(e, c);
+  d.onclick = e => { e.stopPropagation(); if (!dragMoved) setSelection({ type: 'clip', id: c.id, name: c.name, track: c.track }); };
+  d.oncontextmenu = e => {
+    e.preventDefault(); e.stopPropagation();
+    setSelection({ type: 'clip', id: c.id, name: c.name, track: c.track });
+    openCtxMenu(e, { type: 'clip', id: c.id, name: c.name, track: c.track });
+  };
+  return d;
+}
+function waveSvg() {
+  let p = '';
+  for (let x = 0; x < 100; x += 2) p += `${x},${18 + Math.sin(x * .7) * 9 * Math.abs(Math.sin(x * .13))} `;
+  return `<svg class="wave" viewBox="0 0 100 36" preserveAspectRatio="none"><polyline points="${p}" fill="none" stroke="rgba(255,255,255,.7)" stroke-width="1.2"/></svg>`;
+}
+function noteSvg() {
+  let rects = '';
+  for (let i = 0; i < 14; i++) rects += `<rect x="${i * 7}" y="${6 + (i * 13) % 22}" width="5" height="3" fill="rgba(255,255,255,.75)"/>`;
+  return `<svg class="notes" viewBox="0 0 100 36" preserveAspectRatio="none">${rects}</svg>`;
+}
+
+function renderMixer() {
+  const m = $('#mixer'); m.innerHTML = '';
+  for (const t of state.tracks) {
+    const eff = effectiveGain(t);
+    const ghost = pendingMixerTarget(t.id);
+    const strip = el(`<div class="strip" data-strip="${t.id}">
+      <span class="sname">${t.name}</span>
+      <div class="faderArea">
+        <div class="faderTrack">
+          <div class="faderHandle" style="top:${gainToY(eff.val)}px"></div>
+          ${ghost ? `<div class="faderGhost ${ghost.stale ? 'stale' : ''}" style="top:${gainToY(ghost.prop)}px"></div>` : ''}
+        </div>
+        <div class="meter"><div class="fill" style="height:0%"></div></div>
+      </div>
+      <span class="gainVal">${fmtDb(eff.val)}${eff.b ? ' (B)' : ''}</span>
+      <div class="pluginRow">${pluginRow(t)}</div>
+    </div>`);
+    strip.querySelector('.faderTrack').onmousedown = e => beginFaderDrag(e, t);
+    m.appendChild(strip);
+  }
+}
+function pluginRow(t) {
+  if (!t.plugin) return '&nbsp;';
+  const pel = pendingPluginTarget(t.id);
+  return t.plugin + (pel ? `<br><span class="pchange ${pel.stale ? 'stale' : ''}">✦ ${pel.ptext}</span>` : '');
+}
+function gainToY(db) { return 80 - ((db + 12) / 18) * 80; } // -12..+6 dB range
+function yToGain(y) { return Math.max(-12, Math.min(6, ((80 - y) / 80) * 18 - 12)); }
+
+function effectiveGain(t) {
+  // If a pending mix proposal is in B mode, hear the proposed value.
+  for (const p of state.proposals) {
+    if (p.status === 'resolved') continue;
+    if (state.abMode[p.id] !== 'B') continue;
+    const e = p.elements.find(e => e.kind === 'mixer' && e.target === t.id && e.elStatus === 'open');
+    if (e) return { val: e.prop, b: true };
+  }
+  return { val: t.gain, b: false };
+}
+function pendingMixerTarget(tid) {
+  for (const p of state.proposals) {
+    if (p.status === 'resolved') continue;
+    const e = p.elements.find(e => e.kind === 'mixer' && e.target === tid && e.elStatus === 'open');
+    if (e) return { prop: e.prop, stale: p.status === 'stale' };
+  }
+  return null;
+}
+function pendingPluginTarget(tid) {
+  for (const p of state.proposals) {
+    if (p.status === 'resolved') continue;
+    const e = p.elements.find(e => e.kind === 'plugin' && e.target === tid && e.elStatus === 'open');
+    if (e) return { ptext: e.ptext, stale: p.status === 'stale' };
+  }
+  return null;
+}
+function proposalForClip(cid) {
+  return state.proposals.find(p => p.status !== 'resolved' && p.elements.some(e => e.clipId === cid && e.elStatus === 'open'));
+}
+
+function renderStatus() {
+  $('#selLabel').textContent = state.selection ? `${state.selection.name} (${state.selection.type})` : 'none';
+  $('#pendLabel').textContent = state.proposals.filter(p => p.status !== 'resolved').length;
+  const chip = $('#ctxChip');
+  if (state.selection) {
+    chip.classList.add('show');
+    chip.innerHTML = `Context: ${state.selection.name} <b title="clear">✕</b>`;
+    chip.querySelector('b').onclick = () => { setSelection(null); };
+  } else chip.classList.remove('show');
+  renderCanned();
+  dumpState();
+}
+function renderCanned() {
+  const host = $('#canned'); host.innerHTML = '';
+  const opts = state.selection
+    ? [`What do you think of ${state.selection.name}?`, `Propose a variation for ${state.selection.name}`]
+    : ['The chorus feels empty — ideas?', 'Check my mix levels', 'How is the arrangement?'];
+  for (const o of opts) {
+    const b = el(`<button>${o}</button>`);
+    b.onclick = () => { $('#promptInput').value = o; sendPrompt(); };
+    host.appendChild(b);
+  }
+}
+function renderAll() { renderTracks(); renderMixer(); renderStatus(); }
+
+function dumpState() {
+  $('#stateDump').textContent = JSON.stringify({
+    selection: state.selection,
+    run: state.run ? { prompt: state.run.prompt, step: state.run.stepIdx } : null,
+    abMode: state.abMode,
+    proposals: state.proposals.map(p => ({
+      id: p.id, name: p.name, status: p.status,
+      elements: p.elements.map(e => ({ desc: e.desc, status: e.elStatus })),
+    })),
+    clips: state.clips.map(c => ({ id: c.id, name: c.name, track: c.track, start: c.start, proposed: !!c.proposed })),
+    gains: Object.fromEntries(state.tracks.map(t => [t.name, t.gain])),
+  }, null, 1);
+}
+
+/* ================= selection & context menu ================= */
+let dragMoved = false;
+function setSelection(sel) { state.selection = sel; renderAll(); }
+function openAsk() { $('#promptInput').focus(); renderStatus(); }
+$('#timeline').addEventListener('click', () => setSelection(null));
+
+function openCtxMenu(e, target) {
+  const menu = $('#ctxMenu');
+  const stock = ['Cut', 'Copy', 'Duplicate', 'Rename', 'Export…'];
+  menu.innerHTML = stock.map(s => `<div class="mi dim">${s}</div>`).join('') +
+    `<div class="sep"></div><div class="mi ai" id="miAsk">✦ Ask Collaborator</div>`;
+  menu.querySelector('#miAsk').onclick = () => {
+    closeCtxMenu();
+    setSelection(target);
+    openAsk();
+  };
+  menu.classList.add('show');
+  const mw = 180, mh = menu.offsetHeight || 200;
+  menu.style.left = Math.min(e.clientX, window.innerWidth - mw) + 'px';
+  menu.style.top = Math.min(e.clientY, window.innerHeight - mh) + 'px';
+}
+function closeCtxMenu() { $('#ctxMenu').classList.remove('show'); }
+document.addEventListener('click', closeCtxMenu);
+document.addEventListener('contextmenu', e => { if (!e.defaultPrevented) closeCtxMenu(); });
+
+/* ================= drags (producer edits → staleness) ================= */
+function beginClipDrag(e, c) {
+  if (c.proposed) return; // proposed clips are audition-only in this dummy
+  e.preventDefault(); dragMoved = false;
+  const startX = e.clientX, origStart = c.start;
+  function mv(ev) {
+    const dBars = Math.round((ev.clientX - startX) / BARW);
+    if (dBars !== 0) dragMoved = true;
+    c.start = Math.max(0, Math.min(BARS - c.len, origStart + dBars));
+    renderTracks();
+  }
+  function up() {
+    document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', up);
+    if (dragMoved) producerEdited({ kind: 'clip', clipId: c.id, track: c.track, what: `moved “${c.name}”` });
+    setTimeout(() => dragMoved = false, 0);
+  }
+  document.addEventListener('mousemove', mv); document.addEventListener('mouseup', up);
+}
+function beginFaderDrag(e, t) {
+  e.preventDefault();
+  const rect = e.currentTarget.getBoundingClientRect();
+  let moved = false;
+  function mv(ev) {
+    moved = true;
+    t.gain = Math.round(yToGain(ev.clientY - rect.top) * 10) / 10;
+    renderMixer(); dumpState();
+  }
+  function up() {
+    document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', up);
+    if (moved) producerEdited({ kind: 'mixer', track: t.id, what: `changed ${t.name} fader` });
+  }
+  document.addEventListener('mousemove', mv); document.addEventListener('mouseup', up);
+  mv(e);
+}
+
+/* producer edit touches pending proposals? → stale */
+function producerEdited(edit) {
+  for (const p of state.proposals) {
+    if (p.status !== 'pending') continue;
+    const touches = p.elements.some(e =>
+      e.elStatus === 'open' && (
+        (edit.kind === 'mixer' && (e.kind === 'mixer' || e.kind === 'plugin') && e.target === edit.track) ||
+        (edit.kind === 'clip' && e.kind === 'clip' && e.track === edit.track)
+      ));
+    if (touches) {
+      p.status = 'stale';
+      state.abMode[p.id] = 'A';
+      sysMsg(`Proposal “${p.name}” is stale — you ${edit.what} after it was made. It is still auditionable; ask for a redo to rebuild it against the current project.`);
+      p.cardRefresh?.();
+    }
+  }
+  renderAll();
+}
+
+/* ================= transport ================= */
+$('#playBtn').onclick = () => {
+  state.playing = !state.playing;
+  $('#playBtn').textContent = state.playing ? '■ Stop' : '▶ Play';
+  if (state.playing) requestAnimationFrame(tick);
+  else { state.playhead = 0; movePlayhead(); meters(0); }
+};
+let lastT = 0;
+function tick(ts) {
+  if (!state.playing) return;
+  if (!lastT) lastT = ts;
+  const dt = (ts - lastT) / 1000; lastT = ts;
+  state.playhead = (state.playhead + dt * 2) % BARS; // 2 bars/sec at 120bpm 4/4
+  movePlayhead(); meters();
+  requestAnimationFrame(tick);
+}
+function movePlayhead() {
+  $('#playhead').style.left = state.playhead * BARW + 'px';
+  $('#timeDisplay').textContent = 'bar ' + (Math.floor(state.playhead) + 1) + '.' + (Math.floor(state.playhead * 4) % 4 + 1);
+  lastT = state.playing ? lastT : 0;
+}
+function meters(force) {
+  document.querySelectorAll('.strip').forEach(s => {
+    const t = trackOf(s.dataset.strip);
+    const eff = effectiveGain(t).val;
+    const base = force === 0 || !state.playing ? 0 : 45 + Math.random() * 25;
+    const h = Math.max(0, Math.min(100, base + eff * 2.5));
+    s.querySelector('.fill').style.height = h + '%';
+  });
+}
+setInterval(() => { if (state.playing) meters(); }, 120);
+
+/* ================= Collaborator panel ================= */
+function userMsg(text, ctx) {
+  const m = el(`<div class="msg user">${ctx ? `<div class="ctx">◎ ${ctx}</div>` : ''}${text}</div>`);
+  $('#transcript').appendChild(m); scrollDown();
+}
+function aiMsg(text) {
+  const m = el(`<div class="msg ai"><div class="who">✦ COLLABORATOR</div><div class="body">${text}</div></div>`);
+  $('#transcript').appendChild(m); scrollDown();
+}
+function sysMsg(text) {
+  const m = el(`<div class="msg sys">${text}</div>`);
+  $('#transcript').appendChild(m); scrollDown();
+}
+function scrollDown() { const t = $('#transcript'); t.scrollTop = t.scrollHeight; }
+
+$('#sendBtn').onclick = sendPrompt;
+$('#promptInput').addEventListener('keydown', e => { if (e.key === 'Enter') sendPrompt(); });
+
+function sendPrompt() {
+  const text = $('#promptInput').value.trim();
+  if (!text) return;
+  $('#promptInput').value = '';
+  const ctx = state.selection ? `${state.selection.name}` : null;
+  userMsg(text, ctx);
+  if (state.offline) {
+    aiOffline();
+    return;
+  }
+  if (state.run) { sysMsg('A task is already running — this dummy runs one at a time.'); return; }
+  let script = state.selection ? SCRIPTS.selection :
+    Object.values(SCRIPTS).find(s => s.match && s.match.test(text)) || SCRIPTS.fallback;
+  startRun(text, script);
+}
+function aiOffline() {
+  const m = el(`<div class="msg sys" style="color:var(--bad)">⚠ The Collaborator isn't working right now — try again later.</div>`);
+  $('#transcript').appendChild(m); scrollDown();
+}
+
+const RUN_PHRASES = [
+  'putting headphones on…', 'listening closely…', 'reading the arrangement…',
+  'counting bars…', 'checking the levels…', 'humming along…',
+  'turning up the speakers…', 'tapping out the rhythm…',
+];
+function startRun(prompt, script) {
+  const card = el(`<div class="runCard">
+    <div class="rhead"><div class="spinner"></div><b>Working…</b>
+      <span style="color:var(--dim);font-size:11px;margin-left:auto">you can keep editing</span></div>
+    <div class="phrase"></div>
+    <button class="small danger">Cancel</button>
+  </div>`);
+  $('#transcript').appendChild(card); scrollDown();
+  const run = { prompt, script, stepIdx: 0, timers: [], card };
+  state.run = run; dumpState();
+
+  card.querySelector('button').onclick = () => {
+    run.timers.forEach(clearTimeout);
+    card.remove();
+    sysMsg('Task canceled. Nothing changed in the project.');
+    state.run = null; dumpState();
+  };
+
+  const total = script.steps.length * 900 + 700;
+  const firstPhrase = Math.floor(Math.random() * RUN_PHRASES.length);
+  for (let t = 0, i = 0; t < total; t += 1100, i++) {
+    run.timers.push(setTimeout(() => {
+      const old = card.querySelector('.phrase');
+      const fresh = el(`<div class="phrase">${RUN_PHRASES[(firstPhrase + i) % RUN_PHRASES.length]}</div>`);
+      old.replaceWith(fresh);
+      run.stepIdx = i; dumpState(); scrollDown();
+    }, t));
+  }
+  run.timers.push(setTimeout(() => {
+    card.remove(); state.run = null;
+    finishRun(script); dumpState();
+  }, total));
+}
+
+function finishRun(script) {
+  const commentary = typeof script.commentary === 'function' ? script.commentary(state.selection || { name: 'the project' }) : script.commentary;
+  aiMsg(commentary);
+  if (script.proposal) makeProposal(structuredClone ? JSON.parse(JSON.stringify(script.proposal, (k, v) => typeof v === 'function' ? undefined : v)) : script.proposal, script);
+}
+
+function makeProposal(pdata, script) {
+  const p = { id: 'P' + (++state.propCounter), name: pdata.name, status: 'pending', ab: pdata.ab, elements: [] };
+  // rebuild elements from the live script (functions were stripped by clone)
+  script.proposal.elements.forEach(src => {
+    const e = { kind: src.kind, desc: src.desc, sub: src.sub, target: src.target, prop: src.prop, ptext: src.ptext, elStatus: 'open' };
+    if (src.mk) { e.clipId = src.mk(); e.track = state.clips.find(c => c.id === e.clipId).track; }
+    p.elements.push(e);
+  });
+  state.abMode[p.id] = 'A';
+  state.proposals.push(p);
+  renderPropCard(p);
+  renderAll();
+  sysMsg(p.elements.some(e => e.kind === 'clip')
+    ? 'Proposed clips are now in the timeline (marked ✦). Press Play to audition them in context.'
+    : 'Proposed values are ghosted in the mixer. Use A/B while playing to compare.');
+}
+
+function renderPropCard(p) {
+  const card = el(`<div class="propCard" id="card_${p.id}"></div>`);
+  $('#transcript').appendChild(card);
+  const refresh = () => {
+    card.className = 'propCard ' + (p.status === 'stale' ? 'stale' : '') + (p.status === 'resolved' ? ' resolved' : '');
+    card.innerHTML = `
+      <div class="phead">
+        <span class="ptag">✦ PROPOSAL ${p.id}</span><span class="pname">${p.name}</span>
+        ${p.status === 'stale' ? '<span class="staleBadge">STALE</span>' : ''}
+        ${p.status === 'resolved' ? '<span style="font-size:10px;color:var(--dim)">resolved</span>' : ''}
+      </div>
+      <div class="pbody"></div>`;
+    const body = card.querySelector('.pbody');
+    p.elements.forEach(e => {
+      const row = el(`<div class="elRow ${e.elStatus === 'accepted' ? 'accepted' : ''} ${e.elStatus === 'rejected' ? 'rejected' : ''}">
+        <div class="edesc">${e.desc}<div class="esub">${e.sub || ''}</div></div>
+        <div class="ebtns">
+          ${e.elStatus === 'open' && p.status !== 'resolved' ? `<button class="small ok">✓</button><button class="small no">✗</button>` : `<span style="font-size:10px;color:var(--dim)">${e.elStatus}</span>`}
+        </div>
+      </div>`);
+      if (e.elStatus === 'open' && p.status !== 'resolved') {
+        row.querySelector('.ok').onclick = () => { acceptElement(p, e); refresh(); };
+        row.querySelector('.no').onclick = () => { rejectElement(p, e); refresh(); };
+      }
+      body.appendChild(row);
+    });
+    if (p.status !== 'resolved') {
+      const acts = el(`<div class="propActions"></div>`);
+      if (p.ab) {
+        const ab = el(`<div class="abToggle">
+          <button class="${state.abMode[p.id] === 'A' ? 'on' : ''}">A · current</button>
+          <button class="${state.abMode[p.id] === 'B' ? 'on' : ''}">B · proposed</button>
+        </div>`);
+        const [ba, bb] = ab.querySelectorAll('button');
+        ba.onclick = () => { state.abMode[p.id] = 'A'; refresh(); renderAll(); };
+        bb.onclick = () => { state.abMode[p.id] = 'B'; refresh(); renderAll(); };
+        acts.appendChild(ab);
+      }
+      const acceptAll = el(`<button class="small primary">Accept all</button>`);
+      acceptAll.onclick = () => { p.elements.filter(e => e.elStatus === 'open').forEach(e => acceptElement(p, e)); refresh(); };
+      const rejectAll = el(`<button class="small danger">Reject</button>`);
+      rejectAll.onclick = () => {
+        p.elements.filter(e => e.elStatus === 'open').forEach(e => rejectElement(p, e, true));
+        finalizeIfDone(p); refresh();
+        sysMsg(`Rejected. Tell the Collaborator why (type a reply) and it will revise the Proposal.`);
+        p.rejected = true;
+      };
+      acts.appendChild(acceptAll); acts.appendChild(rejectAll);
+      if (p.status === 'stale') {
+        const redo = el(`<button class="small ai">↻ Redo against current state</button>`);
+        redo.onclick = () => {
+          p.elements.filter(e => e.elStatus === 'open').forEach(e => rejectElement(p, e, true));
+          p.status = 'resolved'; refresh(); renderAll();
+          sysMsg(`Redoing “${p.name}” against the current project…`);
+          startRun('redo: ' + p.name, findScriptByName(p.name));
+        };
+        acts.appendChild(redo);
+      }
+      card.querySelector('.pbody').appendChild(acts);
+    }
+    dumpState();
+  };
+  p.cardRefresh = refresh;
+  refresh(); scrollDown();
+}
+function findScriptByName(name) {
+  return Object.values(SCRIPTS).find(s => s.proposal && s.proposal.name === name) || SCRIPTS.fallback;
+}
+
+function acceptElement(p, e) {
+  e.elStatus = 'accepted';
+  if (e.kind === 'clip') { const c = state.clips.find(c => c.id === e.clipId); if (c) delete c.proposed; }
+  if (e.kind === 'mixer') { trackOf(e.target).gain = e.prop; }
+  if (e.kind === 'plugin') { /* would set the plugin param; visual only here */ }
+  finalizeIfDone(p); renderAll();
+}
+function rejectElement(p, e, quiet) {
+  e.elStatus = 'rejected';
+  if (e.kind === 'clip') { state.clips = state.clips.filter(c => c.id !== e.clipId); }
+  if (!quiet) finalizeIfDone(p);
+  renderAll();
+}
+function finalizeIfDone(p) {
+  if (p.elements.every(e => e.elStatus !== 'open')) {
+    p.status = 'resolved'; delete state.abMode[p.id];
+    p.cardRefresh?.();
+  }
+  renderAll();
+}
+
+/* reply-to-revise: typing after a rejection revises the last rejected proposal */
+const origSend = sendPrompt;
+
+/* ================= offline toggle & variants ================= */
+$('#offlineBtn').onclick = () => {
+  state.offline = !state.offline;
+  $('#offlineBtn').textContent = state.offline ? 'Errors off' : 'Simulate error';
+  if (state.offline && state.run) {
+    state.run.timers.forEach(clearTimeout); state.run.card.remove(); state.run = null;
+    aiOffline();
+  }
+};
+$('#stateBtn').onclick = () => $('#stateDrawer').classList.toggle('show');
+
+/* ================= boot ================= */
+renderRuler(); renderAll();
+sysMsg('PROTOTYPE click-dummy. Try: ask “The chorus feels empty — ideas?” or “Check my mix levels”; right-click a clip or track → ✦ Ask Collaborator; drag a clip or fader while a Proposal is pending to see it go stale; simulate an error (top of panel).');
+</script>
+</body>
+</html>
