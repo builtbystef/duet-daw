@@ -7,7 +7,7 @@ priority: high
 labels:
     - roadmap
 created: 2026-08-07T06:01:34Z
-updated: 2026-08-08T03:52:59Z
+updated: 2026-08-08T05:14:12Z
 ---
 
 ## Goal
@@ -55,4 +55,5 @@ Duet DAW is a native C++ desktop application that a producer can genuinely make 
 - Subclassing `tracktion::engine::Plugin` directly for CLAP — rejected at node hvv3nn as the alternative to the `AudioPluginFormat` seam. It needs only six pure virtuals, but forfeits everything `ExternalPlugin` already does generically: parameter/automation binding, state persistence into the ValueTree, bus layout persistence, programs, latency, editor hosting and KnownPluginList integration all become hand-written. `EngineBehaviour::createCustomPlugin` is documented as a fallback for plugin *types*, not as a format seam.
 - Outside code contributions — rejected at node a3p83b (2026-08-08): no PRs are accepted, so no CLA exists and every line of Duet stays the maintainer's own, relicensable for a closed edition. Bug reports and issues stay welcome. Reopening contributions requires introducing a CLA first; the reverse door (un-relicensing accepted code) does not exist.
 - Rubber Band, SoundTouch and Elastique as the time-stretch backend — rejected at node lf8tnt on licensing. Rubber Band is GPLv2 with a paid commercial alternative and is incompatible with AGPLv3 JUCE without going commercial on both; SoundTouch is LGPL-2.1; Elastique requires an external commercial licence. Signalsmith Stretch is MIT, header-only, and already bundled with Tracktion Engine.
-
+- Showing raw tool-call traces to end users — rejected at node u64tso (2026-08-08): task runs display rotating friendly status phrases instead; tool-call visibility is development-mode information only.
+- A dedicated persistent "Collaborator is offline" UI state — rejected at node u64tso (2026-08-08), refining lxwoas: backend failure surfaces as a plain transient error line in the conversation. Fail-fast, nothing queues, DAW fully usable stay as decided.
