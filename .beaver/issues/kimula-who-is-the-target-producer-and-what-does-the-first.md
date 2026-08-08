@@ -9,7 +9,7 @@ labels:
     - session:grill
 parent: d9gioe
 created: 2026-08-07T06:01:43Z
-updated: 2026-08-07T06:25:15Z
+updated: 2026-08-08T07:15:38Z
 ---
 
 The scoping decision that everything else hangs on. One grill session, limited to:
@@ -43,3 +43,11 @@ MILESTONE-ONE CONTENTS:
 - Baseline: project save/load, offline export/bounce to WAV, tempo + metronome.
 
 WHY — this persona is the most likely to embrace an AI collaborator (works alone, iterates fast); Linux-first matches the developer's machine for the fastest loop; CLAP+VST3 cover what producers actually own while deferring platform-bound formats; each deferred item removes a large plumbing area without blocking the persona's core composing workflow.
+
+**claude** — 2026-08-08T07:15:38Z
+
+Amendment (2026-08-08, from node u24m3x's session): MILESTONE-ONE PLUGIN HOSTING NARROWS TO VST3. This note's contents said 'Plugin hosting: CLAP + VST3'. CLAP is now deferred to milestone two, at the user's decision, to reach a functional app sooner.
+
+VST3 comes essentially free through JUCE and Tracktion's ExternalPlugin; CLAP must be hand-written from scratch (hvv3nn found no usable hosting library exists at any licence), so the whole deferred cost was CLAP-specific. Nodes 89jlz1 and 00yd6o closed unresolved as a result.
+
+Everything else in the milestone-one contents stands. The built-in EQ, compressor, reverb, synth and sampler are unaffected — and they now carry more weight, since they are the plugins whose parameter semantics Duet owns outright (see u24m3x on plugin-parameter provenance).

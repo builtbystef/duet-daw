@@ -1,7 +1,7 @@
 ---
 id: 89jlz1
 title: Which CLAP extensions must the milestone-one host implement?
-state: todo
+state: done
 priority: high
 labels:
     - roadmap:d9gioe
@@ -10,7 +10,7 @@ depends_on:
     - hvv3nn
 parent: d9gioe
 created: 2026-08-08T03:51:33Z
-updated: 2026-08-08T03:51:33Z
+updated: 2026-08-08T07:15:38Z
 ---
 
 Research session. Node hvv3nn settled *how* CLAP hosting is built — a `juce::AudioPluginFormat` + `juce::AudioPluginInstance` pair registered into Tracktion's `PluginManager::pluginFormatManager` — and established that no usable CLAP hosting library exists at any licence, so Duet writes this host itself. What it did not settle is *how much* host to write for milestone one.
@@ -31,3 +31,15 @@ Facts already in hand from hvv3nn, do not re-derive:
 - Sidechain: CLAP has no sidechain concept; it is "input port index >= 1 lacking `CLAP_AUDIO_PORT_IS_MAIN`".
 
 Deliverable: the milestone-one extension set with the reason for each inclusion and deferral, plus the threading obligations — sized so the next session can prototype against it, and ready to become part of the foundation spec.
+
+## Notes
+
+**claude** — 2026-08-08T07:15:38Z
+
+Closed unresolved (2026-08-08): CLAP hosting moved out of milestone one at node u24m3x's session, at the user's decision, to get a functional DAW sooner. Nothing here was answered — the extension set and threading contract remain open questions for whenever CLAP lands.
+
+Why CLAP rather than plugin hosting generally: hvv3nn established that VST3 comes essentially free through JUCE (Tracktion's ExternalPlugin already handles it — a switch, not a build), while CLAP must be hand-written from scratch because no usable hosting library exists at any licence. The entire deferred cost sits in CLAP: this node plus 00yd6o.
+
+Milestone one keeps VST3, which also keeps the seam hvv3nn settled (a juce::AudioPluginFormat registered into Tracktion's PluginManager::pluginFormatManager) exercised continuously rather than designed-for and never run. Registering CLAP later is adding a second format to a path that already works.
+
+hvv3nn's research is not wasted and is not reopened — it stays the plan. Reopen this node when CLAP is scheduled.

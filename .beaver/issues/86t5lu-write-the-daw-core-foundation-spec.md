@@ -15,11 +15,9 @@ depends_on:
     - hvv3nn
     - skb4tp
     - rquzdc
-    - 89jlz1
-    - 00yd6o
 parent: d9gioe
 created: 2026-08-07T06:03:05Z
-updated: 2026-08-08T03:52:01Z
+updated: 2026-08-08T07:15:38Z
 ---
 
 Spec session for the foundation area: milestone scope (kimula), application foundation (1hn16k), engine layer (lf8tnt), toolchain (psmj4y), and the walking-skeleton findings (ddp1qt).

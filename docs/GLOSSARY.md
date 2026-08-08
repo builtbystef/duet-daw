@@ -8,5 +8,7 @@ The project's shared language. The rules: use one term for each concept — the 
 
 ## AI collaboration
 
-- **Collaborator** — the AI participant in the session. It sees the whole project state, consumes audio on demand, and works only when the Target Producer invokes it with a task. _Avoid: assistant, copilot, chatbot._
+- **Collaborator** — the AI participant in the session. It perceives the whole project through the Tool Vocabulary, never through audio, and works only when the Target Producer invokes it with a task. _Avoid: assistant, copilot, chatbot._
 - **Proposal** — a concrete set of project changes produced by the Collaborator that alters nothing until the Target Producer accepts it. The only way Collaborator output enters the project. _Avoid: suggestion, draft, AI edit._
+- **Tool Vocabulary** — the closed set of read-only tools through which the Collaborator perceives the project. Its perception-side counterpart to the Proposal's edit vocabulary. _Avoid: tools, API, context._
+- **Provenance** — where a fact given to the Collaborator came from: read from the project data model, measured from rendered audio, or estimated. Carried structurally in every tool result, so a guess is never indistinguishable from a fact. _Avoid: source, confidence, certainty._

@@ -1,7 +1,7 @@
 ---
 id: 00yd6o
 title: Does a CLAP juce::AudioPluginFormat pass through Tracktion's ExternalPlugin unchanged?
-state: todo
+state: done
 priority: high
 labels:
     - roadmap:d9gioe
@@ -11,7 +11,7 @@ depends_on:
     - ddp1qt
 parent: d9gioe
 created: 2026-08-08T03:51:55Z
-updated: 2026-08-08T03:51:55Z
+updated: 2026-08-08T07:15:38Z
 ---
 
 Prototype session (disposable code). Node hvv3nn's recommendation rests on one claim that was read from source but never executed: that Tracktion's `ExternalPlugin` is format-agnostic enough that a foreign `juce::AudioPluginFormat` becomes a first-class plugin in an `Edit` with sidechain, state, automation, bus layout and editor windows all working unchanged. The in-tree precedent (Tracktion's own Cmajor patch format, registered through the same public seam at `tracktion_PluginManager.cpp:74-77`) makes it very likely. "Very likely" is not what a milestone-one plugin layer should rest on, and if it is wrong the fallback — subclassing `tracktion::engine::Plugin` directly — is a much larger build that changes the foundation spec.
@@ -29,3 +29,11 @@ Also confirm the two known gaps hvv3nn identified are as small as they look: `pl
 Read hvv3nn's closing note first — every file and line reference needed is in it. Depends on ddp1qt because this needs a building JUCE 9 + Tracktion Engine project to sit in.
 
 Deliverable: a verdict on the seam, the list of what did not come free, and the corrected cost estimate for the CLAP host. The code is thrown away. If the seam does not hold, say so plainly — the foundation spec's plugin-hosting section depends on this answer, not on hvv3nn's.
+
+## Notes
+
+**claude** — 2026-08-08T07:15:38Z
+
+Closed unresolved (2026-08-08): CLAP hosting moved out of milestone one at node u24m3x's session — see 89jlz1's closing note for the reasoning. This prototype existed to prove the CLAP-as-juce::AudioPluginFormat seam before the foundation spec committed to it; with CLAP deferred, milestone one commits to VST3 through that same seam instead, which exercises it in production rather than in a prototype.
+
+Reopen when CLAP is scheduled. The seam design from hvv3nn stands unchanged.
