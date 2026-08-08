@@ -7,7 +7,7 @@ priority: high
 labels:
     - roadmap
 created: 2026-08-07T06:01:34Z
-updated: 2026-08-07T21:38:52Z
+updated: 2026-08-08T01:30:54Z
 ---
 
 ## Goal
@@ -16,28 +16,28 @@ Duet DAW is a native C++ desktop application that a producer can genuinely make 
 
 **Licensing posture (2026-08-07):** the project starts as open source, with the potential to become a commercial product later. Every choice of technology, library, and service must keep that path open — prefer permissive or dual-licensable dependencies; a copyleft-only dependency with no commercial-license option forecloses a commercial edition and needs explicit justification.
 
-**AI data strategy (2026-08-07):** the Collaborator perceives the project through deterministic analysis tools the DAW owns, never through audio. The model is given structured text — key, tempo, per-track loudness, spectral balance, MIDI as note lists, instrument identity, arrangement structure — computed by native code and delivered as tool results. The model does not listen to a rendered mix and does not infer musical facts a DSP routine can measure. The reasoning: a tool that measures is right every time and is cheap to test, where a model asked to hear is unverifiable and unevidenced — no vendor claims musical reasoning over audio (node sdfjqh). This makes the **project data model the entire AI surface**: every tool reads from it, so its scriptability is an AI requirement, not only an engine one (bears on node lf8tnt). It also makes the tool vocabulary a first-class design artifact alongside the edit vocabulary settled at node hll1mo.
+**AI data strategy (2026-08-07):** the Collaborator perceives the project through deterministic analysis tools the DAW owns, never through audio. The model is given structured text — key, tempo, per-track loudness, spectral balance, MIDI as note lists, instrument identity, arrangement structure — computed by native code and delivered as tool results. The model does not listen to a rendered mix and does not infer musical facts a DSP routine can measure. The reasoning: a tool that measures is right every time and is cheap to test, where a model asked to hear is unverifiable and unevidenced — no vendor claims musical reasoning over audio (node sdfjqh). This makes the **project data model the entire AI surface**: every tool reads from it, so its scriptability is an AI requirement, not only an engine one. It also makes the tool vocabulary a first-class design artifact alongside the edit vocabulary settled at node hll1mo.
+
+**Stack settled so far:** JUCE 9 as the application foundation (node 1hn16k) and Tracktion Engine as the engine layer (node lf8tnt) — both dual-licensed, so the open-source build is free and a commercial edition is a purchase-and-subscription decision rather than a rewrite. The engine's `Edit` is a `juce::ValueTree`, which is what makes the AI data strategy above practical: the project data model is traversable, observable, undoable and serialisable out of the box. Duet's own edit vocabulary sits as a layer in front of the engine (node skb4tp), which is also what keeps a future engine swap from being a rewrite.
 
 ## Frontier
 
-<!-- In-scope questions that are too vague to be nodes. They become nodes as the roadmap advances. -->
+<!-- In-scope questions that you can see, but cannot phrase sharply yet. They become nodes as the roadmap advances. -->
 
-- The Collaborator's tool vocabulary: which deterministic analyses the model can call, what each returns, and the closure principle that says the set is sufficient. The mirror of hll1mo's edit vocabulary, on the perception side.
+- The Collaborator's tool vocabulary: which deterministic analyses the model can call, what each returns, and the closure principle that says the set is sufficient. The mirror of hll1mo's edit vocabulary, on the perception side. Node lf8tnt sharpened the supply side — the tools read the engine's `Edit` ValueTree — but left one gap: Tracktion's level measurement is a runtime meter, and no offline deterministic per-track loudness API was found, so measured loudness may need building.
 - Whether the agent loop is native C++ or a bundled sidecar harness (pi is MIT and the strongest candidate; the cost is a second runtime inside an audio app). Not urgent — the tool contracts transfer either way.
-- Project persistence: what the session/project file format is, and how it versions.
-- Undo/redo model for a session that both the human and the AI edit — node hll1mo settled that one edit vocabulary is shared by both, which is the constraint this design starts from.
-- Real-time engine internals: thread model, lock-free UI↔audio communication, the project data model in memory.
+- Real-time engine internals beyond what adopting Tracktion Engine settles: the engine owns the audio graph, its rebuild-from-model behaviour, and its thread model, so what remains is Duet's own seam — how the UI and the Collaborator communicate with the engine's threads without blocking them.
 - Real-time safety rules for AI features — nothing the AI does may ever block or glitch the audio thread.
-- What the Collaborator carries across sessions (project memory, taste, prior feedback). Within-session conversation is settled at node hll1mo; only the cross-session part stays open.
+- What the Collaborator carries across sessions (project memory, taste, prior feedback). Within-session conversation is settled at node hll1mo; only the cross-session part stays open. Where it is stored is node rquzdc.
 - Milestone-two sequencing: when each feature deferred from milestone one lands — comping, punch-in, loop-recording, recorded automation modes (touch/latch/write), LV2/AU hosting, pre-fader sends, external hardware routing, a session/clip-launch grid view.
 - Testing strategy for real-time audio code.
 - Distribution, updates, and code signing per platform.
 - Windows-port audio backend: whether to ship ASIO at all, and on which terms. The free ASIO SDK route is GPLv3 and would infect the whole application; a closed Windows build needs Steinberg's proprietary agreement, whose text is not retrievable from Steinberg's own site (node 1hn16k, Unresolved). Not milestone-one work — Linux ships first, and JUCE's WASAPI backend covers Windows including exclusive and shared-low-latency modes.
-- The commercial edition itself: what it is and how it is sold. The licence and CLA half of this became node a3p83b; the product half stays here.
+- The commercial edition itself: what it is and how it is sold. The licence and CLA half of this became node a3p83b; the product half stays here. Node lf8tnt raised the price of that half — a closed edition now needs a JUCE licence plus a Tracktion Engine subscription maintained for as long as the binary is distributed.
 
 ## Out of scope
 
-<!-- Items excluded on purpose. The list only grows. One line for each item, with the node's ref when it was one. An item never moves back in. -->
+<!-- Items excluded on purpose. The list only grows. One line for each item, with the node's ref if it was a node. An item never moves back in. -->
 
 - Sending audio to the LLM — rejected 2026-08-07 under the AI data strategy: no vendor claims musical reasoning over audio (node sdfjqh), and every audio-derived fact worth having is measurable deterministically. A DSP routine that measures beats a model asked to listen.
 - Generative music models — rejected 2026-08-07: no MIDI/symbolic generation, no text-to-music, no stem or audio generation. The Collaborator reasons and proposes edits; it does not synthesise material. Node sdfjqh additionally found that most candidate weights are CC-BY-NC and unshippable under the licensing posture regardless.
@@ -48,3 +48,5 @@ Duet DAW is a native C++ desktop application that a producer can genuinely make 
 - Carla as the plugin-hosting layer — rejected at node 1hn16k: the only unified CLAP+VST3 hosting abstraction found, but GPLv2+, which the licensing posture rules out.
 - Ambient/unprompted AI observation — rejected at node hll1mo: the Collaborator never speaks or acts uninvited; it fails the taste bar (interrupts flow), and anything it would catch is available on demand by asking for feedback. The only unprompted signal is a finished task run.
 - Autonomous AI mutation of the project — rejected at node hll1mo: every Collaborator change enters the project only as a Proposal the producer accepts; nothing changes silently.
+- Writing the audio engine from scratch on bare JUCE — rejected at node lf8tnt. JUCE 9 supplies device I/O, format readers/writers, disk streaming, real-time primitives and (verified in source, against the common belief) automatic audio plugin delay compensation in `AudioProcessorGraph` — but it ships no mixer semantics at all (no fader, pan, send, bus or meter node exists), no time-stretch, no metronome, no automation-curve engine, no tempo/musical-time playhead, no session document model, no streaming sampler, and no offline render driver. All of that is milestone-one work, none of it is what differentiates this DAW, and Tracktion Engine's ValueTree-based `Edit` is a better fit for the AI seam than a scratch model would likely have become.
+- Rubber Band, SoundTouch and Elastique as the time-stretch backend — rejected at node lf8tnt on licensing. Rubber Band is GPLv2 with a paid commercial alternative and is incompatible with AGPLv3 JUCE without going commercial on both; SoundTouch is LGPL-2.1; Elastique requires an external commercial licence. Signalsmith Stretch is MIT, header-only, and already bundled with Tracktion Engine.
