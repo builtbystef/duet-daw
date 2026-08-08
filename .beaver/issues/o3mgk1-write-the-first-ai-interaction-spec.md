@@ -11,9 +11,10 @@ depends_on:
     - sdfjqh
     - lxwoas
     - u64tso
+    - u24m3x
 parent: d9gioe
 created: 2026-08-07T06:03:05Z
-updated: 2026-08-07T18:10:27Z
+updated: 2026-08-08T03:36:02Z
 ---
 
 Spec session for the AI area: interaction model (hll1mo), backend landscape (sdfjqh), and the chosen first interaction (lxwoas).
