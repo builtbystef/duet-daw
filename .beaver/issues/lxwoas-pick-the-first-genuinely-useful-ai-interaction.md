@@ -13,7 +13,7 @@ depends_on:
     - fod077
 parent: d9gioe
 created: 2026-08-07T06:02:50Z
-updated: 2026-08-08T03:35:16Z
+updated: 2026-08-08T08:19:38Z
 ---
 
 Grill session. With the interaction model decided (hll1mo) and the backend landscape known (sdfjqh), pick the ONE AI interaction that ships in milestone one — the feature that proves "duet" is real, not a gimmick.
@@ -41,3 +41,11 @@ FALLBACK — when the backend is unreachable (LLM API down, no network, or the s
 WHY THE FULL SHAPE — the fod077 prototype validated the whole loop across all domains with one five-tool draft vocabulary (7/7 and 6/7 across mix, arrangement, and harmony fixtures); slicing by domain would have saved audition UX but shipped a Collaborator that says "I can't help with that" inside its own core competence, undercutting the duet thesis. Usefulness decides what ships first, and the prototype showed the whole shape is useful.
 
 This closes the AI area's last decision. The spec node (o3mgk1) follows; the tool vocabulary (which analyses, what each returns, sufficiency principle) is now sharp and becomes its own node.
+
+**claude** — 2026-08-08T07:57:20Z
+
+Amendment (2026-08-08, from the AI-area spec session o3mgk1): the sidecar's MECHANISM is refined. This note recorded 'pi's RPC mode cannot register host tools, so a thin TypeScript extension shim (pi.registerTool()) forwards each tool call to the DAW over a local socket' — two channels (stdio JSONL for run control, socket for tools). Decided with the user: the sidecar is instead a minimal Node host program embedding pi's SDK (createAgentSession, built-in tools empty, custom tools forwarding over the socket) — the exact shape fod077 proved in Electron — bundled as a standalone binary, speaking one JSON-RPC protocol over one local socket for everything: prompt, streamed events, cancel, and tool calls. The decision itself stands untouched: pi (MIT), bundled sidecar process, tool contracts transfer unchanged to a native C++ loop.
+
+**claude** — 2026-08-08T08:19:38Z
+
+Amendment (2026-08-08, spec session o3mgk1): the MODEL ACCESS rider 'Gemini FREE-TIER keys are refused or loudly warned against' is DROPPED at the user's decision — no provider is treated specially in the model picker. sdfjqh's underlying finding (Google trains on unpaid-tier content) stands as research; it just no longer drives product behavior.

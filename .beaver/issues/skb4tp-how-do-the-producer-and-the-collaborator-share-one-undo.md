@@ -11,7 +11,7 @@ depends_on:
     - psmj4y
 parent: d9gioe
 created: 2026-08-08T01:29:11Z
-updated: 2026-08-08T01:29:11Z
+updated: 2026-08-08T08:20:18Z
 ---
 
 Prototype session (disposable code, headless — no GUI needed). Made sharp by node lf8tnt, which adopted Tracktion Engine, and constrained by node hll1mo, which settled that one edit vocabulary is shared by the producer and the Collaborator and that every Collaborator change enters the project only as a Proposal the producer accepts.
@@ -33,3 +33,9 @@ What the spike must demonstrate, headlessly:
 Also settle the seam question this exposes: how much of `tracktion::engine` is allowed to appear in Duet's own types. Node lf8tnt's recommendation rests on keeping the engine behind Duet's vocabulary so a future engine swap is not a rewrite; this session is where that boundary gets drawn concretely rather than aspirationally.
 
 Deliverable: the shape of the edit-vocabulary layer and the undo/transaction rules, with the spike's findings — ready to become an ADR and to feed both the foundation spec (86t5lu) and the AI-area spec.
+
+## Notes
+
+**claude** — 2026-08-08T08:20:18Z
+
+Constraint from the AI-area spec (js437t, 2026-08-08): accepting a Proposal — or a single cherry-picked element — must land in the shared undo history as ONE undoable action. The spec binds only this observable behavior; the mechanism is this node's to design.

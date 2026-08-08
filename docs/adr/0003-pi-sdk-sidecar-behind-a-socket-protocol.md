@@ -1,0 +1,3 @@
+# 0003 — The agent loop is a pi-SDK sidecar behind a local socket protocol
+
+Context: no native C++ agent framework exists, and hand-writing multi-provider auth, streaming, and session management in C++ is a project of its own; pi (MIT) supplies all of it, but runs on Node. Decision: a minimal Node host embedding pi's SDK ships inside the DAW install as a standalone binary and talks to the DAW's Collaborator service over newline-delimited JSON-RPC 2.0 on a local socket — every prompt, event, cancellation, and tool call crosses that one seam. Reason: the transport-independent tool contracts keep the escape hatch open (a native C++ loop can replace the sidecar without contract changes), so the second runtime is a removable convenience, not a commitment.
