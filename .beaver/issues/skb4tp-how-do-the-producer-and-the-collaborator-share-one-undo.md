@@ -1,7 +1,8 @@
 ---
 id: skb4tp
 title: How do the producer and the Collaborator share one undo history over Tracktion Engine's Edit?
-state: todo
+state: done
+assignee: claude
 priority: high
 labels:
     - roadmap:d9gioe
@@ -11,7 +12,7 @@ depends_on:
     - psmj4y
 parent: d9gioe
 created: 2026-08-08T01:29:11Z
-updated: 2026-08-09T20:26:13Z
+updated: 2026-08-09T22:44:43Z
 ---
 
 Prototype session (disposable code, headless — no GUI needed). Made sharp by node lf8tnt, which adopted Tracktion Engine, and constrained by node hll1mo, which settled that one edit vocabulary is shared by the producer and the Collaborator and that every Collaborator change enters the project only as a Proposal the producer accepts.
@@ -46,3 +47,25 @@ Two findings from ddp1qt (2026-08-09) that land directly on this node's design:
 1. Every programmatic clip insertion must pin its source reference: AudioTrack::insertWaveClip stores a path relative to the edit's TEMP directory ('../x.wav'), which silently plays silence. Fix proven in the skeleton: SourceFileReference::setToFile(file, PathStyle::alwaysAbsolute, false) — but the edit-vocabulary layer should decide the reference policy once, centrally, not per call site.
 2. Do not use EditFileOperations::save for project-less edits: it segfaults in EditSnapshot::refresh() (tracktion_EditSnapshot.cpp:227 null-derefs the ProjectItem; upstream bug, reproduced 3x, gdb-confirmed). The skeleton's working save path is edit->flushState() + write edit->state XML directly. Duet's save mechanism must go through the vocabulary layer's own path.
 Also proven here and relevant: 600+ structural mutations during playback produced zero xruns — the TreeWatcher rebuild this node's undo design leans on is confirmed inaudible.
+
+**claude** — 2026-08-09T22:44:34Z
+
+ANSWERED 2026-08-09 (prototype session; branch prototype/undo-vocabulary, dir prototype-undo-vocabulary/). Verdict from the user, after driving the interactive GUI: 'Tested it out, everything seems to work properly. Good with me.' 28/28 scripted assertions pass against pinned JUCE 9 + Tracktion develop.
+
+THE DESIGN — Duet's edit vocabulary as a layer over te::Edit:
+1. One class (spike: duet::ProjectEditor, DuetEdit.h) whose interface exposes ZERO tracktion/juce types: opaque uint64 TrackRef/ClipRef wrapping EditItemID::getRawID/fromRawID, time as seconds/beats doubles. The scenario runner and the GUI compiled against it without a single engine type — that is the engine seam, drawn concretely. Only DuetEdit.cpp includes tracktion_engine.h.
+2. Each edit op is expressed exactly once (insertAudioClip, moveClip, trimClip, addMidiNote, setAutomationPoint) and ALWAYS passes the Edit's UndoManager — never nullptr. insertAudioClip pins SourceFileReference alwaysAbsolute centrally (ddp1qt rule made policy).
+3. Actions are the ONLY transaction boundary: performAction(name, ops) = beginNewTransaction(name) + ops, synchronous on the message thread. NO closing beginNewTransaction — deliberate, so the engine's deferred tracked writes (finding 2 below) merge into the action that caused them. A producer gesture and acceptProposal (all ops of a Proposal) both go through performAction => undo parity and one-undo-step collapse hold BY CONSTRUCTION (proven: S1 parity, S2 5-op collapse to one named step, undo+redo digests identical).
+4. A Proposal is DATA (an op list with a newest-clip placeholder for intra-proposal references) until accepted; rejection discards the data => zero trace in project, undo and redo stacks (S3). Element cherry-pick = accepting a sub-list.
+5. Undo/redo route through edit->undo()/redo() (they stop recording first; transport properties are um=nullptr so undo can never stop/reposition the transport).
+6. Rolling transport: accept/undo/redo mid-playback works — clip+automation toggle audibly, loop wraps, transport survives, ZERO xruns across all cycles (S5 + user's GUI session).
+
+ENGINE FINDINGS the implementation and specs must honor:
+F1. Ops outside an action merge into the previous action's transaction, or land in an UNNAMED step after the engine's 350ms UndoTransactionTimer seals (timer fires when no mouse is down; message-loop quiet 350ms). Ops must therefore be private to the action mechanism. Edit::UndoTransactionInhibitor (RAII) exists to suspend the timer for long actions.
+F2. After any clip move/trim the engine schedules an ASYNC UNDO-TRACKED clip re-sort (ClipOwner.cpp:125, ValueTree::sort with the Edit um) that lands in whatever transaction is open at the next message pump — and CLEARS THE REDO STACK if it fires after an undo. Mitigations: actions stay open (no seal) so the sort joins its cause; suppressed during undo/redo by the engine itself.
+F3. Edit::flushState() WRITES WITH THE UNDO MANAGER (AutomatableEditItem::saveChangedParametersToState, tracktion_AutomatableEditItem.cpp:321): saving pollutes undo history with unnamed transactions and kills redo after an undo. Duet's save path (already custom per ddp1qt: flushState + direct XML write) must account for this — e.g. save at action boundaries and treat the flush transaction deliberately. Feeds rquzdc.
+F4. Undo/redo round trips PERMUTE ValueTree property order (juce undo re-appends restored properties). Any state digest/comparison must canonicalize (sort properties). Matters for tests.
+F5. Red herring resolved: transport dying ~3s after first playback is the DeviceManager's ONE-TIME async wave-device-list rebuild (handleAsyncUpdate -> releaseDeviceList -> clearNodes -> playhead stops -> transport timer stops transport), proven by a no-mutation control run. Headless/console contexts hit it; a GUI app finishes it before the user plays. Not undo-related. Also: the first play() after construction is ignored until the message loop runs (async context allocation) — retry play until isPlaying.
+F6. Local build caveat: full-parallel builds of this stack OOM-freeze a 15GB/12-core machine (~2GB per Tracktion TU); build with -j 4.
+
+Ready to become an ADR; feeds 86t5lu (foundation spec) and the AI-area spec js437t (accept-as-one-step mechanism is now proven).

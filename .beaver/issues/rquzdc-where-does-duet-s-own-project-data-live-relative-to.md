@@ -11,7 +11,7 @@ depends_on:
     - ddp1qt
 parent: d9gioe
 created: 2026-08-08T01:29:32Z
-updated: 2026-08-09T20:26:13Z
+updated: 2026-08-09T22:44:43Z
 ---
 
 Prototype session (disposable code). Made sharp by node lf8tnt: adopting Tracktion Engine settles the *engine's* persistence but not Duet's.
@@ -38,3 +38,7 @@ Deliverable: the persistence layering and versioning rules, with the round-trip 
 **claude** — 2026-08-09T20:26:13Z
 
 Rider answered at ddp1qt (2026-08-09): a custom property ('duetCustomProp') written on an engine-owned TRACK ValueTree node SURVIVES save/reload — proven through a full te::loadEditFromFile engine reload and through flushState + direct file write. Engine-owned tree nodes can carry Duet's custom properties. Caveat from the same session: the save must use Duet's own path (flushState + direct write), not EditFileOperations::save, which crashes for project-less edits (see ddp1qt closing note, bug 4).
+
+**claude** — 2026-08-09T22:44:43Z
+
+From skb4tp (2026-08-09), directly in this node's domain: Edit::flushState() writes parameter blobs WITH the Edit's UndoManager (AutomatableEditItem::saveChangedParametersToState, tracktion_AutomatableEditItem.cpp:321). Consequence: a save that flushes pollutes the undo history with an unnamed transaction and CLEARS THE REDO STACK if it runs after an undo. Duet's save path (flushState + direct XML write, per ddp1qt) must decide how to neutralize this — save at transaction boundaries, or snapshot without flushing (skb4tp's spike proved the vocabulary's own ops write through immediately, so a digest without flushState was sufficient there). Also: undo/redo can permute ValueTree property order, so any round-trip comparison must canonicalize properties.
