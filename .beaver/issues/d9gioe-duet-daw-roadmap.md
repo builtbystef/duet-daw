@@ -7,7 +7,7 @@ priority: high
 labels:
     - roadmap
 created: 2026-08-07T06:01:34Z
-updated: 2026-08-08T08:22:05Z
+updated: 2026-08-09T20:26:31Z
 ---
 
 ## Goal
@@ -36,7 +36,7 @@ Duet DAW is a native C++ desktop application that a producer can genuinely make 
 - What the Collaborator carries across sessions (project memory, taste, prior feedback). Within-session conversation is settled at node hll1mo; only the cross-session part stays open. Where it is stored is node rquzdc.
 - Milestone-two sequencing: when each feature deferred from milestone one lands — comping, punch-in, loop-recording, recorded automation modes (touch/latch/write), **CLAP hosting** (deferred 2026-08-08 at node u24m3x's session; the design is settled at hvv3nn, the open questions — including the CLAP thread-contract rules for a host — are preserved in the closing notes of 89jlz1 and 00yd6o), LV2/AU hosting, pre-fader sends, external hardware routing, a session/clip-launch grid view, concurrent Collaborator Task Runs (milestone one runs one at a time, spec js437t), and **out-of-process plugin hosting** — deferred out of milestone one at node hvv3nn, which found neither JUCE nor Tracktion has any such facility and no permissively-licensed implementation exists to copy. Building it means shared-memory audio transport plus a blocking semaphore round-trip inside every audio callback per bridged plugin, and it costs embedded plugin editors (Carla, the one open implementation, makes bridged GUIs transient rather than reparenting them). Milestone one gets its isolation from out-of-process *scanning* instead, which Tracktion already ships.
 - Testing strategy for real-time audio code.
-- Distribution, updates, and code signing per platform. The sidecar decision (node lxwoas) adds: bundling pi's standalone binary per platform, and its unmeasured disk/startup footprint (first measured in node ddp1qt).
+- Distribution, updates, and code signing per platform. The sidecar decision (node lxwoas) adds: bundling pi's standalone binary per platform, and its unmeasured disk/startup footprint (not measured in ddp1qt: the skeleton did not include the sidecar; measure at the first sidecar integration).
 - Windows-port audio backend: whether to ship ASIO at all, and on which terms. The free ASIO SDK route is GPLv3 and would infect the whole application; a closed Windows build needs Steinberg's proprietary agreement, whose text is not retrievable from Steinberg's own site (node 1hn16k, Unresolved). Not milestone-one work — Linux ships first, and JUCE's WASAPI backend covers Windows including exclusive and shared-low-latency modes.
 - The commercial edition itself: what it is and how it is sold. The licence and CLA half closed at node a3p83b; the product half stays here, with a working assumption from that session — same app as a closed edition, solo developer, tier pair JUCE Indie ($800 perpetual, to $300k) + Tracktion Engine Indie ($35/mo, to $200k organisation-wide gross revenue including funding). Pre-commercial checklist from a3p83b, all requiring Tracktion sales rather than research: whether perpetual Tracktion licences can be bought (subscription lapse ends the right to distribute shipped binaries), and how the organisation-wide revenue cap applies to an individual. Mitigation accepted: form a legal entity before shipping any closed binary, and contact Tracktion sales then.
 

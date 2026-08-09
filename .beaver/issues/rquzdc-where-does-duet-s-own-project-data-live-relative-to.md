@@ -11,7 +11,7 @@ depends_on:
     - ddp1qt
 parent: d9gioe
 created: 2026-08-08T01:29:32Z
-updated: 2026-08-08T01:29:32Z
+updated: 2026-08-09T20:26:13Z
 ---
 
 Prototype session (disposable code). Made sharp by node lf8tnt: adopting Tracktion Engine settles the *engine's* persistence but not Duet's.
@@ -32,3 +32,9 @@ What is still open, and why it needs a session:
 4. **`EditItemID` stability across save/load**, since any Duet-side reference to a track or clip depends on it, and the `applyNewIDsToExternalValueTree` hook exists precisely because IDs can be reassigned. Verify when reassignment happens and what it does to references held outside the engine's tree.
 
 Deliverable: the persistence layering and versioning rules, with the round-trip question answered by experiment rather than inference — ready to become an ADR and to feed the foundation spec (86t5lu).
+
+## Notes
+
+**claude** — 2026-08-09T20:26:13Z
+
+Rider answered at ddp1qt (2026-08-09): a custom property ('duetCustomProp') written on an engine-owned TRACK ValueTree node SURVIVES save/reload — proven through a full te::loadEditFromFile engine reload and through flushState + direct file write. Engine-owned tree nodes can carry Duet's custom properties. Caveat from the same session: the save must use Duet's own path (flushState + direct write), not EditFileOperations::save, which crashes for project-less edits (see ddp1qt closing note, bug 4).

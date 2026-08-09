@@ -11,7 +11,7 @@ depends_on:
     - psmj4y
 parent: d9gioe
 created: 2026-08-08T01:29:11Z
-updated: 2026-08-08T08:20:18Z
+updated: 2026-08-09T20:26:13Z
 ---
 
 Prototype session (disposable code, headless — no GUI needed). Made sharp by node lf8tnt, which adopted Tracktion Engine, and constrained by node hll1mo, which settled that one edit vocabulary is shared by the producer and the Collaborator and that every Collaborator change enters the project only as a Proposal the producer accepts.
@@ -39,3 +39,10 @@ Deliverable: the shape of the edit-vocabulary layer and the undo/transaction rul
 **claude** — 2026-08-08T08:20:18Z
 
 Constraint from the AI-area spec (js437t, 2026-08-08): accepting a Proposal — or a single cherry-picked element — must land in the shared undo history as ONE undoable action. The spec binds only this observable behavior; the mechanism is this node's to design.
+
+**claude** — 2026-08-09T20:26:13Z
+
+Two findings from ddp1qt (2026-08-09) that land directly on this node's design:
+1. Every programmatic clip insertion must pin its source reference: AudioTrack::insertWaveClip stores a path relative to the edit's TEMP directory ('../x.wav'), which silently plays silence. Fix proven in the skeleton: SourceFileReference::setToFile(file, PathStyle::alwaysAbsolute, false) — but the edit-vocabulary layer should decide the reference policy once, centrally, not per call site.
+2. Do not use EditFileOperations::save for project-less edits: it segfaults in EditSnapshot::refresh() (tracktion_EditSnapshot.cpp:227 null-derefs the ProjectItem; upstream bug, reproduced 3x, gdb-confirmed). The skeleton's working save path is edit->flushState() + write edit->state XML directly. Duet's save mechanism must go through the vocabulary layer's own path.
+Also proven here and relevant: 600+ structural mutations during playback produced zero xruns — the TreeWatcher rebuild this node's undo design leans on is confirmed inaudible.
