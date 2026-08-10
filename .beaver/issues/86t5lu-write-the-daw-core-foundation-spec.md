@@ -1,7 +1,8 @@
 ---
 id: 86t5lu
 title: Write the DAW-core foundation spec
-state: todo
+state: done
+assignee: claude
 priority: medium
 labels:
     - roadmap:d9gioe
@@ -17,7 +18,7 @@ depends_on:
     - rquzdc
 parent: d9gioe
 created: 2026-08-07T06:03:05Z
-updated: 2026-08-08T08:45:40Z
+updated: 2026-08-10T03:44:47Z
 ---
 
 Spec session for the foundation area: milestone scope (kimula), application foundation (1hn16k), engine layer (lf8tnt), toolchain (psmj4y), and the walking-skeleton findings (ddp1qt).
@@ -41,3 +42,17 @@ Constraints from node psmj4y (2026-08-08), which settled the toolchain — the f
 - TESTS: Catch2 v3 (BSL-1.0) for Duet's own code, via FetchContent + catch_discover_tests. Note for the testing-strategy work: JUCE ships juce::UnitTest + extras/UnitTestRunner, and Tracktion's own tests are juce::UnitTest subclasses inside its module sources collected by category — so any engine-level test that exercises Tracktion's own bodies needs a SECOND, separate runner target, not a Catch2 one.
 - CI: GitHub Actions, ubuntu-24.04 pinned (not -latest), Debug + Release, no compiler cache, ctest --output-on-failure, a 'checks-pass' gate job as the single required status check, actions pinned to full commit SHAs, ASan+UBSan and TSan+UBSan as two separate NIGHTLY configs (the toolchains forbid combining ASan and TSan), clang-format --dry-run --Werror on every push, clang-tidy scoped to Duet's own sources via compile_commands.json.
 - The full report with citations is in psmj4y's closing note; the command set for AGENTS.md and issue l1gtax is at its end.
+
+**claude** — 2026-08-10T03:44:47Z
+
+RESOLVED 2026-08-10. The foundation spec is published as issue b1j3me ('The Foundation — DAW-core substrate for milestone one', label spec), with blocking edges to all eight covered nodes (kimula, 1hn16k, lf8tnt, psmj4y, ddp1qt, hvv3nn, skb4tp, rquzdc). Implementation slices come from /create-issues b1j3me — build the sub-issues, never the spec issue.
+
+Gaps closed by interview this session (user-confirmed):
+- SPEC ALTITUDE: substrate only (app skeleton, model, vocabulary, persistence, threading, save, VST3 enablement). The producer-facing UI is its own area — grill → prototype nodes added at this session's DAG extension.
+- THREAD MODEL: message thread is the sole writer of the project model; Duet code never on the audio thread; workers for analysis/thumbnails/offline renders; Collaborator socket on its own thread marshalling to the message thread. Large Actions occupy the message thread — accepted for milestone one, with UndoTransactionInhibitor held for long Actions.
+- AUDITION MECHANISM (the js437t-bound gap): apply-and-revert on the real Edit via nullptr-UndoManager writes; revert exactness (canonicalized digest equality) is a spec acceptance criterion; accept reverts then re-applies through performAction. Pending Proposals are pure data — never saved, never block saving, no accept/reject prompt before save. Manual save auto-reverts a live Audition; autosave skips its tick during one.
+- SAVE POLICY: explicit save with dirty indication + autosave every 5 minutes when dirty to a recovery file in the project folder (industry band is 5–15 min: FL 5/10, Reaper commonly 5, Cubase 15; 5 chosen because in-process hosting makes crashes real). Recovery offered on next open.
+- UNDO DEPTH: 200 transactions (memory-trivial, KB per transaction), in-memory per session.
+- TESTING STRATEGY for RT audio: stays a Frontier item; the spec records only psmj4y's settled tooling.
+
+Companion records published this session: ADR 0004 (edit vocabulary, Actions as the only undo boundary), ADR 0005 (DUET tree, snapshot save, project folder), ARCHITECTURE.md updated to the module shape (duet_model / duet_persistence / duet_app), AGENTS.md ## Checks filled with the settled commands, issue l1gtax closed. Glossary gained Audition and Action.

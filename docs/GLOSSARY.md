@@ -14,3 +14,8 @@ The project's shared language. The rules: use one term for each concept — the 
 - **Provenance** — where a fact given to the Collaborator came from: read from the project data model, measured from rendered audio, or estimated. Carried structurally in every tool result, so a guess is never indistinguishable from a fact. _Avoid: source, confidence, certainty._
 - **Task Run** — one producer-initiated, non-blocking, cancelable execution of the Collaborator, from request to commentary and/or Proposal. _Avoid: query, request, job._
 - **Duet Loop** — the conversation mechanics around Proposals: revise-on-reply, rejection-with-a-reason as input, stale-marking when the producer's edits touch a pending Proposal, and per-element cherry-pick. _Avoid: feedback loop, chat._
+- **Audition** — the transient state in which a pending Proposal's changes are made audible in the project context for evaluation, without entering the project state or its undo history. Ends by acceptance, rejection, or stopping the audition. _Avoid: preview, ghost mode._
+
+## Editing
+
+- **Action** — one named producer-meaningful unit of project change and the only undo-transaction boundary. A producer gesture and an accepted Proposal are each one Action. _Avoid: command, operation batch._

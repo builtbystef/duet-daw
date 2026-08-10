@@ -1,11 +1,11 @@
 ---
 id: l1gtax
 title: Establish the checks when the C++ stack lands
-state: todo
+state: done
 labels:
     - maintenance
 created: 2026-08-07T05:50:11Z
-updated: 2026-08-08T08:45:40Z
+updated: 2026-08-10T03:44:30Z
 ---
 
 There is no code and no toolchain yet, so the four checks cannot be established. When the C++ stack (build system, GUI framework, test framework) is decided and the first code lands, set up:
@@ -31,3 +31,7 @@ Node psmj4y (2026-08-08) settled the toolchain, so the checks this issue must es
 - Typecheck: n/a, the compiler is the typechecker
 
 Caveat carried from psmj4y: ctest --preset combined with --test-dir carries an 'Added in version 3.30' note in the CMake docs and our floor is 3.22. If it misbehaves, invoke ctest directly with --test-dir, which is what Tracktion itself does (it defines no testPresets at all). Full reasoning and citations are in psmj4y's closing note.
+
+**claude** — 2026-08-10T03:44:30Z
+
+Closed at the foundation spec session (2026-08-10, node 86t5lu → spec b1j3me). The check commands are settled and recorded in AGENTS.md ## Checks: configure/build/test via CMake presets (Ninja Multi-Config, Catch2 v3 through ctest), clang-format --dry-run --Werror, clang-tidy driven from compile_commands.json over Duet sources only, build locally with -j 4. Recipe corrections from ddp1qt folded in: project() must declare VERSION; link atomic explicitly. The commands become executable when the first implementation slice of spec b1j3me lands the CMakePresets.json; the checks-pass CI gate is specified there.
