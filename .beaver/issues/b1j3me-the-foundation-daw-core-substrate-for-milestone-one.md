@@ -14,7 +14,7 @@ depends_on:
     - skb4tp
     - rquzdc
 created: 2026-08-10T03:43:27Z
-updated: 2026-08-10T03:43:27Z
+updated: 2026-08-10T18:32:39Z
 ---
 
 ## Problem Statement
@@ -140,3 +140,9 @@ Engine hazards the implementer must honor (all reproduced, sources: skb4tp/rquzd
 8. Build with `-j 4` on the dev machine (~2 GB per Tracktion TU).
 
 Companion records published with this spec: ADR 0004 (edit vocabulary and shared undo), ADR 0005 (persistence and project shape), the ARCHITECTURE.md update, and the toolchain commands in AGENTS.md (closing `l1gtax`).
+
+## Notes
+
+**claude** — 2026-08-10T18:32:39Z
+
+Amendment from UI grill s11o4w (2026-08-10): autosave becomes a Settings > Interface option (off/2/5/10 min) with DEFAULT 10 MIN, replacing this spec's fixed 5-minute interval. The recovery-file mechanism, manual-save semantics, and Audition interactions (autosave skips its tick during a live Audition) are unchanged.

@@ -9,7 +9,7 @@ labels:
     - session:grill
 parent: d9gioe
 created: 2026-08-07T06:01:43Z
-updated: 2026-08-08T07:15:38Z
+updated: 2026-08-10T18:32:39Z
 ---
 
 The scoping decision that everything else hangs on. One grill session, limited to:
@@ -51,3 +51,7 @@ Amendment (2026-08-08, from node u24m3x's session): MILESTONE-ONE PLUGIN HOSTING
 VST3 comes essentially free through JUCE and Tracktion's ExternalPlugin; CLAP must be hand-written from scratch (hvv3nn found no usable hosting library exists at any licence), so the whole deferred cost was CLAP-specific. Nodes 89jlz1 and 00yd6o closed unresolved as a result.
 
 Everything else in the milestone-one contents stands. The built-in EQ, compressor, reverb, synth and sampler are unaffected — and they now carry more weight, since they are the plugins whose parameter semantics Duet owns outright (see u24m3x on plugin-parameter provenance).
+
+**claude** — 2026-08-10T18:32:39Z
+
+Scope deltas from UI grill s11o4w (2026-08-10), settled against the user's UI mockup: piano roll ADDS scale highlighting + Fold view and a note-length control; browser ADDS search + favorites; Settings ADDS global interface scaling. Built-ins STAY 2 instruments + 3 effects — the mockup's third instrument ('Duet Drum Rack') and six-effect list are set dressing, not scope.
