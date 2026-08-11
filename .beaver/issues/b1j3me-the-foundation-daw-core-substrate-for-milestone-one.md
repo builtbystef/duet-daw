@@ -14,7 +14,7 @@ depends_on:
     - skb4tp
     - rquzdc
 created: 2026-08-10T03:43:27Z
-updated: 2026-08-10T18:32:39Z
+updated: 2026-08-11T01:24:09Z
 ---
 
 ## Problem Statement
@@ -96,7 +96,7 @@ A running Linux application: the Duet skeleton. The Target Producer can create a
 - C++20 set by hand on every Duet target (`target_compile_features(... cxx_std_20)`) — nothing upstream enforces it. Link `atomic` explicitly (GCC lowers Tracktion's 16-byte atomics to libatomic calls).
 - FetchContent, every pin a full commit SHA, **JUCE 9 declared before Tracktion** (`develop`, pinned commit), `TE_ADD_EXAMPLES OFF`. Flags: `JUCE_JACK=1`, `TRACKTION_ENABLE_TIMESTRETCH_SIGNALSMITH=1`, `JUCE_USE_CURL=0`, `JUCE_WEB_BROWSER=0`, `JUCE_PLUGINHOST_LADSPA=0`.
 - Linux x86_64 only; GCC 13 floor, Clang 18 secondary. Catch2 v3 for Duet's own code.
-- CI: GitHub Actions on pinned `ubuntu-24.04`, Debug + Release, no compiler cache, `checks-pass` gate as the single required check, actions pinned to full SHAs, `clang-format --dry-run --Werror` on push, clang-tidy over Duet sources only via `compile_commands.json`, ASan+UBSan and TSan+UBSan as two separate nightly configs.
+- CI: GitHub Actions on pinned `ubuntu-24.04`, Debug + Release, no compiler cache, `checks-pass` gate as the single required check, actions pinned to full SHAs, `clang-format --dry-run --Werror` on push, clang-tidy over Duet sources only via `compile_commands.json`, ASan+UBSan and TSan+UBSan as two separate nightly configs, plus the `linux-rtsan` third nightly (Testing Decisions below; amendment from ox1trt, 2026-08-10).
 
 ## Dependencies
 
@@ -116,14 +116,19 @@ No new dependencies beyond the set settled at psmj4y: JUCE 9, Tracktion Engine (
 - Load a file with `duetSchemaVersion` = current+1 → refusal naming the needed version; = current−1 → migrations run, then normal open.
 - Autosave tick while dirty → recovery file appears beside the project file; project file untouched.
 
-Real-time behavior (xrun-free mutation during playback) is prototype-verified and stays out of CI; the RT testing strategy is a Frontier item.
+**RT-audio testing** (settled 2026-08-10 at roadmap nodes bd11an and xciphe, recorded at ox1trt; ADR 0006):
+
+- **Trust boundary**: Tracktion Engine is trusted outright. Under test is only Duet's own code in the audio path — the built-in instruments and effects (the one place Duet code runs in the audio callback) and the worker-thread analysis DSP. Xrun-free mutation during playback stays prototype-verified evidence, not a regression test.
+- **RT safety** ("no allocations, no locks, no syscalls in the callback") is a coding standard enforced by review — the rules are the Real-time audio section of `docs/CODING_STANDARDS.md` — with **RealtimeSanitizer as the CI backstop**: a third independent nightly config `linux-rtsan` (Clang 20.1.8+ with compiler-rt; RTSan is driver-incompatible with ASan/TSan/UBSan/MSan, so it cannot join the existing nightlies; the Clang 18 floor governs what builds Duet, not what lints it). Every Duet callback target and the render-test executable compile and link with `-fsanitize=realtime`. Callback entry points (`AudioProcessor::processBlock` for JUCE-hosted processors, `Plugin::applyToBuffer` for native ones) are `noexcept` and carry `[[clang::nonblocking]]` via a feature-tested macro; offline rendering enters both seams with no audio device, which is what makes the nightly meaningful headlessly. The first RTSan implementation slice must prove the preset red/green: inject one known allocation into each callback seam, observe the failing test, remove it, observe the pass.
+- **Audio correctness** is offline render + **feature assertions with domain tolerances** — measured pitch, onset positions, RMS/spectral change — never golden files, fingerprints, or stored-sample comparison (renders proved bit-exact run-to-run on one host, but that holds within a host only and is not a contract). Known tolerance: Tracktion places note-ons at the start of their containing render block, so onset assertions allow up to one render block early. Render to a fresh destination per render (AudioFile cache), fixed sample rate/block size/bit depth, dithering off. The one sample comparison allowed is a **within-process determinism canary** in the ordinary suite: render the same Edit twice in one process, assert identical output — never against a stored file.
+- **Analysis DSP** validates against synthetic reference signals only (sines at known frequencies, R128 reference levels, clicks at known positions — ground truth by construction, no licensing). Corpus benchmarking stays on the Frontier until a routine disappoints in use.
+- Prior art: branch `prototype/offline-render-correctness` (both proven test patterns, 16/16), plus the trap list in xciphe's closing note.
 
 ## Out of Scope
 
 - The producer-facing UI: timeline, piano roll, mixer, transport chrome — its own roadmap area (grill → prototype nodes follow this spec).
 - Everything the milestone-one list defers: CLAP, comping, punch-in, loop-recording, recorded automation modes, pre-fader sends, out-of-process hosting, session grid.
 - The Collaborator service's internals — specified at js437t; this spec only guarantees its foundation-side obligations (thread contract, Audition, one-step accept, per-track render path).
-- Real-time-audio testing strategy (Frontier).
 - Built-in instruments and effects beyond what the engine ships — their design is future roadmap work.
 
 ## Further Notes
@@ -146,3 +151,7 @@ Companion records published with this spec: ADR 0004 (edit vocabulary and shared
 **claude** — 2026-08-10T18:32:39Z
 
 Amendment from UI grill s11o4w (2026-08-10): autosave becomes a Settings > Interface option (off/2/5/10 min) with DEFAULT 10 MIN, replacing this spec's fixed 5-minute interval. The recovery-file mechanism, manual-save semantics, and Audition interactions (autosave skips its tick during a live Audition) are unchanged.
+
+**claude** — 2026-08-11T01:24:09Z
+
+Amendment from RT-testing area record ox1trt (2026-08-10): the Testing Decisions section's 'RT testing strategy is a Frontier item' sentence is replaced with the settled doctrine — Tracktion trusted / only Duet audio code under test; RT safety as coding standard (docs/CODING_STANDARDS.md, Real-time audio section) with a linux-rtsan third nightly (Clang 20.1.8+, RTSan incompatible with the other sanitizers) proven red/green in its first slice; audio correctness as offline render + feature assertions with domain tolerances (onset up to one render block early), golden files banned, one within-process render-twice determinism canary allowed; analysis DSP validated against synthetic references only. Recorded as ADR 0006. Sources: nodes bd11an and xciphe.

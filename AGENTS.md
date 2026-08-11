@@ -1,7 +1,5 @@
 ## Checks
 
-The commands are settled (roadmap node psmj4y; spec b1j3me). They work once the first implementation slice lands the CMake presets — until then there is no code to check.
-
 - **Configure** — `cmake --preset linux-debug` (Ninja Multi-Config, exports `compile_commands.json`)
 - **Build** — `cmake --build --preset linux-debug` (locally always `-j 4` — full parallelism OOM-freezes the dev machine, ~2 GB per Tracktion TU)
 - **Test** — `ctest --preset linux-debug --output-on-failure` (Catch2 v3, Duet's own code)
