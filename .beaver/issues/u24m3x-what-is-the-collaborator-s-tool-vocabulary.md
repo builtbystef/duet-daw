@@ -15,7 +15,7 @@ updated: 2026-08-08T07:15:38Z
 Grill session. Node lxwoas chose the full Collaborator shape for milestone one, so the perception-side vocabulary must cover every domain the closure principle covers. Settle, as the mirror of hll1mo's edit vocabulary:
 
 - Which deterministic analyses the model can call, and what each returns (the tool contracts / schemas).
-- The closure principle that says the set is sufficient — the perception-side analogue of "a Proposal may contain exactly what the producer could do through the UI". Candidate phrasing to test in the interview: the model may read anything the producer can see or hear-as-a-measurement in the UI.
+- The closure principle that says the set is sufficient — the perception-side analogue of "a Suggestion may contain exactly what the producer could do through the UI". Candidate phrasing to test in the interview: the model may read anything the producer can see or hear-as-a-measurement in the UI.
 - Which analyses are computed versus read straight off the engine's Edit ValueTree.
 
 Inputs to read first:
@@ -56,7 +56,7 @@ Every estimated value arrives as an OBJECT, never a bare scalar:
 
 Project-read and measured values stay bare scalars. So a bare value is by construction a fact, and anything wearing a wrapper is a guess. Prose disclaimers in tool descriptions were rejected — they do not survive the model skimming, and a wrapper is mechanically checkable in tests.
 
-PROVENANCE REACHES THE PRODUCER, not only the model: a Proposal or comment that depended on an estimate is marked as such in the conversation panel, with the estimate and its confidence inspectable. Low confidence also changes the Collaborator's behaviour — it hedges in the reply, it does not silently proceed. This is a constraint on u64tso's settled UX, recorded here because it was discovered here.
+PROVENANCE REACHES THE PRODUCER, not only the model: a Suggestion or comment that depended on an estimate is marked as such in the conversation panel, with the estimate and its confidence inspectable. Low confidence also changes the Collaborator's behaviour — it hedges in the reply, it does not silently proceed. This is a constraint on u64tso's settled UX, recorded here because it was discovered here.
 
 ## The tool set — seven read-only tools
 
@@ -82,7 +82,7 @@ The fod077 fixtures showed plugin chains as 'EQ Eight' with parameters like lowS
 
 DECIDED: get_plugin_chain returns, per parameter, the vendor name, the normalised value, and THE PLUGIN'S OWN DISPLAY STRING — what its UI would show ('4.00:1', '-18.0 dB') — so the model reads the same text the producer reads. No unit inference, no Duet-side parameter dictionary, no per-plugin mapping table.
 
-Built-in and external plugins share ONE tool and one shape, and the tier does the work: Duet's own EQ/compressor/reverb return bare scalars with real units (tier 1, Duet defines the names), external plugins return the wrapper (tier 3, semantics pattern-matched from a display string). The Collaborator may both comment on and propose changes to external plugin parameters; such a Proposal inherits the estimate-marking above.
+Built-in and external plugins share ONE tool and one shape, and the tier does the work: Duet's own EQ/compressor/reverb return bare scalars with real units (tier 1, Duet defines the names), external plugins return the wrapper (tier 3, semantics pattern-matched from a display string). The Collaborator may both comment on and suggest changes to external plugin parameters; such a Suggestion inherits the estimate-marking above.
 
 ## Deterministic vs ML — decided per capability, not as a blanket
 

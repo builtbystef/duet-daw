@@ -12,7 +12,7 @@ updated: 2026-08-11T01:50:39Z
 
 ## What to build
 
-The remaining op domains of the vocabulary, so that the operation set covers everything js437t's propose vocabulary enumerates: MIDI notes, automation points, mixer values, and plugin parameters (against engine built-in plugins — external VST3s are a later slice). Transport control also lands here, written with no UndoManager so undo can never stop or reposition the transport. Time crosses the facade as plain seconds/beats doubles; every mutation goes through performAction.
+The remaining op domains of the vocabulary, so that the operation set covers everything js437t's suggest vocabulary enumerates: MIDI notes, automation points, mixer values, and plugin parameters (against engine built-in plugins — external VST3s are a later slice). Transport control also lands here, written with no UndoManager so undo can never stop or reposition the transport. Time crosses the facade as plain seconds/beats doubles; every mutation goes through performAction.
 
 ## Acceptance criteria
 

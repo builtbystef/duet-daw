@@ -23,17 +23,17 @@ The Target Producer works alone. There is no second pair of ears in the room: no
 
 ## Solution
 
-The Collaborator is a participant inside the session. The Target Producer asks it anything about the project — vague ("something's off in the drop") or precise ("give me a turnaround into bar 9") — from a docked conversation panel or from a right-click on any clip or track. The Collaborator interrogates the project itself, through read-only tools that return facts with known provenance; it never listens to audio and never receives a guess disguised as a fact. It answers with commentary, a Proposal, or both. A Proposal materializes in place — ghost clips in the timeline, ghost fader positions in the mixer — auditionable in context, A/B-able during playback, and enters the project only when the producer accepts it, whole or element by element. Rejection with a reason produces a revision. The producer's own edits always win; a Proposal whose target changed is marked stale, never auto-merged. Everything runs without blocking playback, editing, or recording.
+The Collaborator is a participant inside the session. The Target Producer asks it anything about the project — vague ("something's off in the drop") or precise ("give me a turnaround into bar 9") — from a docked conversation panel or from a right-click on any clip or track. The Collaborator interrogates the project itself, through read-only tools that return facts with known provenance; it never listens to audio and never receives a guess disguised as a fact. It answers with commentary, a Suggestion, or both. A Suggestion materializes in place — ghost clips in the timeline, ghost fader positions in the mixer — auditionable in context, A/B-able during playback, and enters the project only when the producer accepts it, whole or element by element. Rejection with a reason produces a revision. The producer's own edits always win; a Suggestion whose target changed is marked stale, never auto-merged. Everything runs without blocking playback, editing, or recording.
 
 ## User Stories
 
 1. As the Target Producer, I want to ask the Collaborator open questions about my project and get answers grounded in the project's actual state, so that I get a second pair of ears without leaving the session.
-2. As the Target Producer, I want the Collaborator's suggested changes delivered as Proposals that alter nothing until I accept them, so that I keep authorship of the track.
-3. As the Target Producer, I want proposed clips and mixer values to materialize in place, visibly marked and playable in context, so that I audition a suggestion instead of imagining it.
-4. As the Target Producer, I want an A/B toggle on mix-change Proposals during playback, so that I compare current and proposed by ear.
-5. As the Target Producer, I want to accept or reject a Proposal whole, or cherry-pick its elements, so that I keep the half of an idea that works.
-6. As the Target Producer, I want to reject with a typed reason and get a revised Proposal back, so that the exchange converges instead of restarting.
-7. As the Target Producer, I want a Proposal whose target I have since edited to be marked stale — still auditionable, never auto-merged — with a one-click redo against the current state, so that my live edits always win.
+2. As the Target Producer, I want the Collaborator's changes delivered as Suggestions that alter nothing until I accept them, so that I keep authorship of the track.
+3. As the Target Producer, I want a Suggestion's clips and mixer values to materialize in place, visibly marked and playable in context, so that I audition it instead of imagining it.
+4. As the Target Producer, I want an A/B toggle on mix-change Suggestions during playback, so that I compare current and suggested by ear.
+5. As the Target Producer, I want to accept or reject a Suggestion whole, or cherry-pick its elements, so that I keep the half of an idea that works.
+6. As the Target Producer, I want to reject with a typed reason and get a revised Suggestion back, so that the exchange converges instead of restarting.
+7. As the Target Producer, I want a Suggestion whose target I have since edited to be marked stale — still auditionable, never auto-merged — with a one-click redo against the current state, so that my live edits always win.
 8. As the Target Producer, I want to keep playing and editing while a Task Run is in progress, and to cancel it at any time, so that the Collaborator never blocks my flow.
 9. As the Target Producer, I want to invoke the Collaborator from a clip or track's context menu with that item as implicit context, so that asking about *this thing here* takes one gesture.
 10. As the Target Producer, I want to use my own model-provider subscription or API key and pick the model, so that I control cost, privacy, and quality.
@@ -45,7 +45,7 @@ The Collaborator is a participant inside the session. The Target Producer asks i
 
 ### Architecture: three parts, one seam
 
-- **Collaborator service** — a C++ module in the DAW. Owns the socket server, run lifecycle, tool dispatch, the analysis layer and its cache, the Proposal manager, and the estimate ledger.
+- **Collaborator service** — a C++ module in the DAW. Owns the socket server, run lifecycle, tool dispatch, the analysis layer and its cache, the Suggestion manager, and the estimate ledger.
 - **Sidecar** — a minimal Node host program embedding pi's SDK (`createAgentSession`, built-in tools empty, all tools custom), bundled into the DAW install as a standalone binary, invisible to the user. It owns the agent loop, provider auth, model switching, and streaming. (Refined from lxwoas's recorded RPC+shim shape; decided in this session — one protocol on one socket, the embedding shape fod077 proved.)
 - **Socket protocol** — newline-delimited JSON-RPC 2.0 over a local socket (Unix domain socket on Linux). The DAW is the server; it spawns the sidecar with the socket path as an argument. Every prompt, streamed event, cancellation, and tool call crosses this one seam. The tool contracts are transport-independent: they transfer unchanged to a native C++ loop if the sidecar ever disappoints (the recorded escape hatch).
 
@@ -83,7 +83,7 @@ OpeningContext {
 }
 ```
 
-Selection and transport are opening context, not tools: they describe the producer, are true at run start and nowhere else (u24m3x). The system prompt is Duet's own — Collaborator identity, the provenance rules, the hedging instruction, Proposal guidance — never pi's coding-agent identity.
+Selection and transport are opening context, not tools: they describe the producer, are true at run start and nowhere else (u24m3x). The system prompt is Duet's own — Collaborator identity, the provenance rules, the hedging instruction, Suggestion guidance — never pi's coding-agent identity.
 
 ### Tool Vocabulary contracts
 
@@ -139,18 +139,18 @@ Buses are tracks: master and groups are read through the same tools. Spectral ba
 
 There are no diagnostic tools, no pre-seeded state, no selection/transport tools (all settled at u24m3x). The model starts blind and asks; everything it knows is in the trace.
 
-### The `propose` tool and the edit-operation vocabulary
+### The `suggest` tool and the edit-operation vocabulary
 
-A Proposal is emitted through one write-tool, callable at most once per Task Run for a new Proposal (revisions replace — below). Commentary is plain assistant text; a run may produce commentary, a Proposal, or both.
+A Suggestion is emitted through one write-tool, callable at most once per Task Run for a new Suggestion (revisions replace — below). Commentary is plain assistant text; a run may produce commentary, a Suggestion, or both.
 
 ```
-propose { summary: string,
+suggest { summary: string,
           elements: [{ description: string, operations: EditOperation[] }] }
-        → { proposalId } | validation error (unknown ids, out-of-range values;
+        → { suggestionId } | validation error (unknown ids, out-of-range values;
                                              the model may correct and retry)
 ```
 
-An **element** is one human-meaningful change (the row with ✓/✗ on the Proposal card) and may bundle several operations — "sidechain the bass to the kick" is one element carrying add-plugin, set-params, and set-sidechain-source operations. Elements must be independently applicable; cherry-pick granularity is the element.
+An **element** is one human-meaningful change (the row with ✓/✗ on the Suggestion card) and may bundle several operations — "sidechain the bass to the kick" is one element carrying add-plugin, set-params, and set-sidechain-source operations. Elements must be independently applicable; cherry-pick granularity is the element.
 
 `EditOperation` is a tagged union mirroring exactly what the Target Producer can do through the milestone-one UI (the closure principle, hll1mo; surface from kimula):
 
@@ -197,22 +197,22 @@ project.setTimeSignature { numerator, denominator }
 
 No operation creates audio content: the Collaborator can move, trim, loop, duplicate, and delete existing audio clips but cannot introduce new audio (no generation — Out of scope on the roadmap root). Quantize and similar UI conveniences are expressible as `midi.modifyNotes`.
 
-### Proposal manager
+### Suggestion manager
 
 States: **pending → accepted | rejected | superseded**, orthogonal flag **stale**.
 
-- Multiple pending Proposals coexist independently.
-- **Stale**: any producer edit that touches an entity referenced by a pending Proposal's operations flips that Proposal (and its ghost marks) stale — still auditionable, never auto-merged. "↻ Redo against current state" resolves the stale Proposal as superseded and starts a fresh run with the original request plus the intervening reality.
-- **Cherry-pick**: accepting an element materializes exactly that element's operations; rejecting an element removes its ghost marks. A card resolves when every element is resolved. "Accept all" / "Reject" are the whole-Proposal fast paths.
-- **Revision**: replying to a pending Proposal supersedes it with the revised one; replying to a rejected Proposal yields a new pending Proposal. Rejection-with-a-reason is first-class input to the revision run.
-- **Undo requirement**: accepting a Proposal (or an element) lands in the shared undo history as one undoable action. The mechanism belongs to the shared-undo design (open node skb4tp); this spec only binds the observable behavior.
-- Proposals and the conversation are in-memory per app session; both die with the app. Persistence across restarts arrives with the project-data decision (open node rquzdc), not here.
+- Multiple pending Suggestions coexist independently.
+- **Stale**: any producer edit that touches an entity referenced by a pending Suggestion's operations flips that Suggestion (and its ghost marks) stale — still auditionable, never auto-merged. "↻ Redo against current state" resolves the stale Suggestion as superseded and starts a fresh run with the original request plus the intervening reality.
+- **Cherry-pick**: accepting an element materializes exactly that element's operations; rejecting an element removes its ghost marks. A card resolves when every element is resolved. "Accept all" / "Reject" are the whole-Suggestion fast paths.
+- **Revision**: replying to a pending Suggestion supersedes it with the revised one; replying to a rejected Suggestion yields a new pending Suggestion. Rejection-with-a-reason is first-class input to the revision run.
+- **Undo requirement**: accepting a Suggestion (or an element) lands in the shared undo history as one undoable action. The mechanism belongs to the shared-undo design (open node skb4tp); this spec only binds the observable behavior.
+- Suggestions and the conversation are in-memory per app session; both die with the app. Persistence across restarts arrives with the project-data decision (open node rquzdc), not here.
 
 Audition mechanics — how ghost clips and ghost values technically enter the playback graph without entering the project state — are bound here only behaviorally (in-place, playable in context, A/B for mix changes, producer edits win); the mechanism is foundation-area work (86t5lu, skb4tp).
 
 ### Estimate marking
 
-Mechanical taint, never model self-report: the Collaborator service keeps a per-run **estimate ledger** of every wrapped value returned to the model (`estimate_audio_content` results, `ExternalParam.displayString`). Once the ledger is non-empty, every subsequent `propose` and all subsequent commentary in that run is marked "based on estimates," with the ledger inspectable from the panel. The system prompt additionally instructs hedging when confidence is low, but the marking never depends on the model's cooperation. Over-marking (a run that glanced at an estimate, then proposed something unrelated) is accepted; narrowing it later is a presentation change, not a contract change.
+Mechanical taint, never model self-report: the Collaborator service keeps a per-run **estimate ledger** of every wrapped value returned to the model (`estimate_audio_content` results, `ExternalParam.displayString`). Once the ledger is non-empty, every subsequent `suggest` and all subsequent commentary in that run is marked "based on estimates," with the ledger inspectable from the panel. The system prompt additionally instructs hedging when confidence is low, but the marking never depends on the model's cooperation. Over-marking (a run that glanced at an estimate, then suggested something unrelated) is accepted; narrowing it later is a presentation change, not a contract change.
 
 ### Task Run lifecycle
 
@@ -233,7 +233,7 @@ Nothing the Collaborator does may ever block or glitch the audio thread — by c
 - The socket is serviced by a dedicated Collaborator-service thread.
 - Project-model reads for tool results execute on the message thread (the service thread marshals and waits); they are reads of the authoritative state, never of a second copy.
 - Tier-2/3 analysis and offline renders run on worker threads.
-- No AI-related code shares a lock with the audio callback. Proposal audition plays through the engine's ordinary playback mechanisms.
+- No AI-related code shares a lock with the audio callback. Suggestion audition plays through the engine's ordinary playback mechanisms.
 
 ### Model access
 
@@ -241,7 +241,7 @@ Bring-your-own credentials through pi's provider layer: subscription OAuth or AP
 
 ### Conversation panel and surfaces
 
-As settled at u64tso, normative here: docked right; producer messages carry a selection context chip; Collaborator commentary in accent bubbles; quick-suggestion chips adapt to selection; a Task Run is a card with spinner, "you can keep editing" hint, Cancel, and rotating friendly status phrases. Raw tool calls are development-mode only. Inline entry is "✦ Ask Collaborator" in the ordinary right-click context menu of a clip or track (no floating affordances; clicking a clip only selects it); it sets the implicit context and focuses the composer. Timeline proposal-state: ~60% opacity + glowing accent ring + ✦ badge, auditionable, not draggable. Mixer proposal-state: ghost fader handle at the proposed value; ✦-marked parameter lines under the strip; A/B toggle (A current / B proposed) swaps heard values during playback.
+As settled at u64tso, normative here: docked right; producer messages carry a selection context chip; Collaborator commentary in accent bubbles; quick-prompt chips adapt to selection; a Task Run is a card with spinner, "you can keep editing" hint, Cancel, and rotating friendly status phrases. Raw tool calls are development-mode only. Inline entry is "✦ Ask Collaborator" in the ordinary right-click context menu of a clip or track (no floating affordances; clicking a clip only selects it); it sets the implicit context and focuses the composer. Timeline suggestion-state: ~60% opacity + glowing accent ring + ✦ badge, auditionable, not draggable. Mixer suggestion-state: ghost fader handle at the suggested value; ✦-marked parameter lines under the strip; A/B toggle (A current / B suggested) swaps heard values during playback.
 
 ## Dependencies
 
@@ -256,14 +256,14 @@ As settled at u64tso, normative here: docked right; producer messages carry a se
 
 Three seams, outermost first (agreed in this session):
 
-1. **The socket protocol** — the primary seam. A test harness plays sidecar against the real Collaborator service: drives every tool against a fixture project and asserts the contracts above; submits `propose` calls and asserts validation (unknown ids, out-of-range values rejected with correctable errors); asserts the estimate ledger's taint behavior (a run that received a wrapped value → subsequent Proposal marked); asserts run lifecycle (cancel, failure, single-active-run). No LLM, no Node, no UI. This seam doubles as the escape-hatch guarantee: anything that speaks the protocol can replace the sidecar.
+1. **The socket protocol** — the primary seam. A test harness plays sidecar against the real Collaborator service: drives every tool against a fixture project and asserts the contracts above; submits `suggest` calls and asserts validation (unknown ids, out-of-range values rejected with correctable errors); asserts the estimate ledger's taint behavior (a run that received a wrapped value → subsequent Suggestion marked); asserts run lifecycle (cancel, failure, single-active-run). No LLM, no Node, no UI. This seam doubles as the escape-hatch guarantee: anything that speaks the protocol can replace the sidecar.
 2. **The deterministic analysis routines as pure functions** — waveform in, measurements out. Worked examples:
    - A full-scale 1 kHz sine: peak 0 dBFS, RMS −3.01 dB, crest factor 3.01 dB; a square wave: crest 0 dB.
    - ITU-R BS.1770 / EBU R128 conformance: the EBU Tech 3341 test signals with their published expected LUFS values (e.g. the −23.0 LUFS reference cases within ±0.1 LU).
    - YIN: a 440 Hz sine → f0 440 Hz within ±1 cent; silence → no pitch.
    - Onsets: a rendered click pattern at known beat positions → onset times within a few milliseconds.
    - Key estimation: a rendered C-major triad progression → an `Estimate` wrapper (never a bare value) with value "C major" and plausible confidence.
-3. **The Proposal manager's C++ interface** — the state machine: pending/accepted/rejected/superseded transitions, stale flagging on a targeting edit, cherry-pick leaving the remainder pending, revision superseding, accept-as-one-undoable-action (behavioral assertion against the undo seam once skb4tp lands).
+3. **The Suggestion manager's C++ interface** — the state machine: pending/accepted/rejected/superseded transitions, stale flagging on a targeting edit, cherry-pick leaving the remainder pending, revision superseding, accept-as-one-undoable-action (behavioral assertion against the undo seam once skb4tp lands).
 
 Good tests here assert external behavior only: protocol responses, measured values, state transitions — never internal call sequences. The fod077 fixtures, updated to these schemas (their recorded bugs fixed: consistent pitch naming, the fixture-f pad/Rhodes rub made deliberate or removed), become regression fixtures served through the protocol seam. Prior art: none — this is the project's first code area.
 
@@ -274,7 +274,7 @@ Good tests here assert external behavior only: protocol responses, measured valu
 - Local-model fallback (lxwoas); any dedicated persistent offline UI state (u64tso).
 - Diagnostic tools; pre-seeded project state; selection/transport tools (u24m3x).
 - Concurrent Task Runs (this session): one run at a time in milestone one.
-- Conversation/Proposal persistence across app restarts (open node rquzdc) and cross-session memory (Frontier).
+- Conversation/Suggestion persistence across app restarts (open node rquzdc) and cross-session memory (Frontier).
 - The shared undo mechanism (open node skb4tp) and the technical audition mechanism (foundation area, 86t5lu) — this spec binds their observable behavior only.
 - Raw tool-call traces for end users (u64tso — development mode only).
 - CLAP hosting (deferred to milestone two; `get_plugin_chain.format` gains a value then).

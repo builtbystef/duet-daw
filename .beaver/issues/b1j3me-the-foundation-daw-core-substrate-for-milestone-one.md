@@ -23,15 +23,15 @@ Nothing of Duet exists yet as product code. Every milestone-one feature — and 
 
 ## Solution
 
-A running Linux application: the Duet skeleton. The Target Producer can create a project (a folder), edit it through one edit vocabulary with reliable undo, hear edits land glitch-free during playback, save explicitly and be autosaved, recover after a crash, and load VST3 plugins scanned crash-safely out of process. The Collaborator's foundation-side obligations are met: Proposals audition in context without entering project state, accepting one lands as a single undoable Action, and the threading contract the AI spec assumes holds by construction.
+A running Linux application: the Duet skeleton. The Target Producer can create a project (a folder), edit it through one edit vocabulary with reliable undo, hear edits land glitch-free during playback, save explicitly and be autosaved, recover after a crash, and load VST3 plugins scanned crash-safely out of process. The Collaborator's foundation-side obligations are met: Suggestions audition in context without entering project state, accepting one lands as a single undoable Action, and the threading contract the AI spec assumes holds by construction.
 
 ## User Stories
 
 1. As the Target Producer, I want to create and open projects that are self-contained folders, so that a project travels with its recordings and imports.
-2. As the Target Producer, I want every edit — mine or an accepted Proposal's — to be one named undo step with full undo/redo parity, so that nothing the Collaborator does is harder to revert than my own gestures.
+2. As the Target Producer, I want every edit — mine or an accepted Suggestion's — to be one named undo step with full undo/redo parity, so that nothing the Collaborator does is harder to revert than my own gestures.
 3. As the Target Producer, I want to edit while the transport rolls without glitches or xruns, so that editing never interrupts listening.
 4. As the Target Producer, I want explicit save plus a 5-minute autosave with crash recovery, so that a plugin crash costs me minutes, not a session.
-5. As the Target Producer, I want to Audition a Proposal in context and A/B it, so that I can judge changes by ear before accepting, with zero trace if I reject.
+5. As the Target Producer, I want to Audition a Suggestion in context and A/B it, so that I can judge changes by ear before accepting, with zero trace if I reject.
 6. As the Target Producer, I want VST3 plugins scanned in a separate process, so that one broken plugin cannot take down the app or force rescans.
 7. As the Target Producer, I want a project saved by a newer Duet refused with a clear version message rather than silently damaged.
 
@@ -45,7 +45,7 @@ A running Linux application: the Duet skeleton. The Target Producer can create a
 
 **The vocabulary and Actions** (from skb4tp, verbatim as proven):
 
-- Each edit operation is expressed exactly once and always writes through the Edit's `UndoManager` — never `nullptr` (the sole exceptions: transport properties and Audition writes, below). The operation set covers the edit domains enumerated in js437t's `propose` vocabulary (tracks, clips, MIDI notes, automation points, mixer values, plugin parameters).
+- Each edit operation is expressed exactly once and always writes through the Edit's `UndoManager` — never `nullptr` (the sole exceptions: transport properties and Audition writes, below). The operation set covers the edit domains enumerated in js437t's `suggest` vocabulary (tracks, clips, MIDI notes, automation points, mixer values, plugin parameters).
 - **Actions are the only transaction boundary**:
 
   ```cpp
@@ -59,14 +59,14 @@ A running Linux application: the Duet skeleton. The Target Producer can create a
   ```
 
   `performAction` calls `beginNewTransaction(name)`, runs the ops synchronously on the message thread, and deliberately does **not** seal afterwards, so the engine's deferred undo-tracked writes (the async clip re-sort, `ClipOwner`) merge into the Action that caused them. `Edit::UndoTransactionInhibitor` is held for long Actions. Raw ops are private to the Action mechanism — callable only inside `performAction` — because naked ops merge into foreign transactions or land in unnamed timer-sealed steps.
-- A producer gesture and an accepted Proposal both go through `performAction`, so undo parity and one-step collapse hold by construction. Undo depth: **200 transactions**, in-memory per session.
+- A producer gesture and an accepted Suggestion both go through `performAction`, so undo parity and one-step collapse hold by construction. Undo depth: **200 transactions**, in-memory per session.
 - Undo/redo route through `Edit::undo()/redo()`; transport properties are written with `nullptr` UndoManager so undo can never stop or reposition the transport.
 - Source-file references are pinned **deliberately on every programmatic clip insertion** (never the engine default, which silently resolves to the TEMP directory): stored project-relative within the project folder.
 
-**Proposal and Audition** (mechanism owned here; observable behavior bound by js437t):
+**Suggestion and Audition** (mechanism owned here; observable behavior bound by js437t):
 
-- A Proposal is **data** — an ordered op list with placeholder refs for intra-Proposal references — until accepted. Rejection discards data: zero trace in project, undo, and redo stacks. Pending Proposals are never saved and never block saving.
-- **Audition is apply-and-revert on the real Edit**: entering Audition applies the Proposal's ops with `nullptr` UndoManager (invisible to producer undo); leaving it reverts them exactly. A/B toggle is apply/revert. Accepting first reverts the Audition, then re-applies through `performAction`.
+- A Suggestion is **data** — an ordered op list with placeholder refs for intra-Suggestion references — until accepted. Rejection discards data: zero trace in project, undo, and redo stacks. Pending Suggestions are never saved and never block saving.
+- **Audition is apply-and-revert on the real Edit**: entering Audition applies the Suggestion's ops with `nullptr` UndoManager (invisible to producer undo); leaving it reverts them exactly. A/B toggle is apply/revert. Accepting first reverts the Audition, then re-applies through `performAction`.
 - Revert exactness is an acceptance criterion: the canonicalized state digest after revert equals the digest before Audition (canonicalized because undo/redo and revert may permute ValueTree property order).
 - Save interplay: a manual save auto-reverts a live Audition first; the autosave timer skips its tick while an Audition is live.
 
@@ -81,7 +81,7 @@ A running Linux application: the Duet skeleton. The Target Producer can create a
 
 **Thread model** (binding for all Duet code, including the Collaborator service per js437t):
 
-- The **message thread is the sole writer of the project model** — every vocabulary op, every `performAction`, every accepted Proposal. UI reads the model on the message thread.
+- The **message thread is the sole writer of the project model** — every vocabulary op, every `performAction`, every accepted Suggestion. UI reads the model on the message thread.
 - **Duet code never runs on the audio thread.** Model→graph handoff is the engine's TreeWatcher rebuild (proven inaudible under 600+ mutations during playback).
 - **Worker threads** for analysis, waveform thumbnails, and offline renders (including the per-track render path js437t's tier-2 analysis needs, via the engine's Renderer). The Collaborator's socket has its own thread and marshals model reads to the message thread.
 - Accepted consequence for milestone one: a very large Action briefly occupies the message thread; no background-mutation scheme exists.
@@ -111,7 +111,7 @@ No new dependencies beyond the set settled at psmj4y: JUCE 9, Tracktion Engine (
 **Worked examples**:
 
 - `performAction("Add drum loop", 5 ops)` → exactly one new undo step named "Add drum loop"; `undo()` → canonicalized digest equals the pre-action digest; `redo()` → equals the post-action digest.
-- Audition enter → audible state contains the Proposal's changes; Audition revert → canonicalized digest equals pre-Audition digest; project file on disk unchanged throughout.
+- Audition enter → audible state contains the Suggestion's changes; Audition revert → canonicalized digest equals pre-Audition digest; project file on disk unchanged throughout.
 - Save with automation-diverged parameter → reload restores the explicit value exactly, and the in-session redo stack survives the save.
 - Load a file with `duetSchemaVersion` = current+1 → refusal naming the needed version; = current−1 → migrations run, then normal open.
 - Autosave tick while dirty → recovery file appears beside the project file; project file untouched.

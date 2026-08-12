@@ -15,9 +15,9 @@ created: 2026-08-08T01:29:11Z
 updated: 2026-08-09T22:44:43Z
 ---
 
-Prototype session (disposable code, headless — no GUI needed). Made sharp by node lf8tnt, which adopted Tracktion Engine, and constrained by node hll1mo, which settled that one edit vocabulary is shared by the producer and the Collaborator and that every Collaborator change enters the project only as a Proposal the producer accepts.
+Prototype session (disposable code, headless — no GUI needed). Made sharp by node lf8tnt, which adopted Tracktion Engine, and constrained by node hll1mo, which settled that one edit vocabulary is shared by the producer and the Collaborator and that every Collaborator change enters the project only as a Suggestion the producer accepts.
 
-The question: what does Duet's edit vocabulary look like as a layer over `tracktion::engine::Edit`, such that a human edit and an accepted Proposal are indistinguishable to undo, and one undo step means one thing a producer would recognise?
+The question: what does Duet's edit vocabulary look like as a layer over `tracktion::engine::Edit`, such that a human edit and an accepted Suggestion are indistinguishable to undo, and one undo step means one thing a producer would recognise?
 
 Three findings from lf8tnt make this urgent rather than theoretical:
 
@@ -26,10 +26,10 @@ Three findings from lf8tnt make this urgent rather than theoretical:
 3. **Undo automatically rebuilds the audio graph**, because undo is itself a ValueTree mutation and `Edit::TreeWatcher` triggers `restartPlayback()` on tree changes. This is the property that makes the whole design tractable — verify it holds for the operations Duet actually exposes, including while the transport is rolling.
 
 What the spike must demonstrate, headlessly:
-- A small set of Duet edit operations (insert clip, move clip, trim clip, add MIDI note, set an automation point) expressed once, callable from both a simulated producer action and a simulated accepted Proposal, with identical undo behaviour.
-- A multi-step Proposal collapsing to exactly one undo step, and undoing cleanly in one action.
+- A small set of Duet edit operations (insert clip, move clip, trim clip, add MIDI note, set an automation point) expressed once, callable from both a simulated producer action and a simulated accepted Suggestion, with identical undo behaviour.
+- A multi-step Suggestion collapsing to exactly one undo step, and undoing cleanly in one action.
 - Undo and redo while the transport is rolling, without a glitch or a stale graph.
-- What happens to the undo stack when a Proposal is rejected — the design should make rejection cost nothing, so confirm nothing entered the history.
+- What happens to the undo stack when a Suggestion is rejected — the design should make rejection cost nothing, so confirm nothing entered the history.
 
 Also settle the seam question this exposes: how much of `tracktion::engine` is allowed to appear in Duet's own types. Node lf8tnt's recommendation rests on keeping the engine behind Duet's vocabulary so a future engine swap is not a rewrite; this session is where that boundary gets drawn concretely rather than aspirationally.
 
@@ -39,7 +39,7 @@ Deliverable: the shape of the edit-vocabulary layer and the undo/transaction rul
 
 **claude** — 2026-08-08T08:20:18Z
 
-Constraint from the AI-area spec (js437t, 2026-08-08): accepting a Proposal — or a single cherry-picked element — must land in the shared undo history as ONE undoable action. The spec binds only this observable behavior; the mechanism is this node's to design.
+Constraint from the AI-area spec (js437t, 2026-08-08): accepting a Suggestion — or a single cherry-picked element — must land in the shared undo history as ONE undoable action. The spec binds only this observable behavior; the mechanism is this node's to design.
 
 **claude** — 2026-08-09T20:26:13Z
 
@@ -55,8 +55,8 @@ ANSWERED 2026-08-09 (prototype session; branch prototype/undo-vocabulary, dir pr
 THE DESIGN — Duet's edit vocabulary as a layer over te::Edit:
 1. One class (spike: duet::ProjectEditor, DuetEdit.h) whose interface exposes ZERO tracktion/juce types: opaque uint64 TrackRef/ClipRef wrapping EditItemID::getRawID/fromRawID, time as seconds/beats doubles. The scenario runner and the GUI compiled against it without a single engine type — that is the engine seam, drawn concretely. Only DuetEdit.cpp includes tracktion_engine.h.
 2. Each edit op is expressed exactly once (insertAudioClip, moveClip, trimClip, addMidiNote, setAutomationPoint) and ALWAYS passes the Edit's UndoManager — never nullptr. insertAudioClip pins SourceFileReference alwaysAbsolute centrally (ddp1qt rule made policy).
-3. Actions are the ONLY transaction boundary: performAction(name, ops) = beginNewTransaction(name) + ops, synchronous on the message thread. NO closing beginNewTransaction — deliberate, so the engine's deferred tracked writes (finding 2 below) merge into the action that caused them. A producer gesture and acceptProposal (all ops of a Proposal) both go through performAction => undo parity and one-undo-step collapse hold BY CONSTRUCTION (proven: S1 parity, S2 5-op collapse to one named step, undo+redo digests identical).
-4. A Proposal is DATA (an op list with a newest-clip placeholder for intra-proposal references) until accepted; rejection discards the data => zero trace in project, undo and redo stacks (S3). Element cherry-pick = accepting a sub-list.
+3. Actions are the ONLY transaction boundary: performAction(name, ops) = beginNewTransaction(name) + ops, synchronous on the message thread. NO closing beginNewTransaction — deliberate, so the engine's deferred tracked writes (finding 2 below) merge into the action that caused them. A producer gesture and acceptSuggestion (all ops of a Suggestion) both go through performAction => undo parity and one-undo-step collapse hold BY CONSTRUCTION (proven: S1 parity, S2 5-op collapse to one named step, undo+redo digests identical).
+4. A Suggestion is DATA (an op list with a newest-clip placeholder for intra-suggestion references) until accepted; rejection discards the data => zero trace in project, undo and redo stacks (S3). Element cherry-pick = accepting a sub-list.
 5. Undo/redo route through edit->undo()/redo() (they stop recording first; transport properties are um=nullptr so undo can never stop/reposition the transport).
 6. Rolling transport: accept/undo/redo mid-playback works — clip+automation toggle audibly, loop wraps, transport survives, ZERO xruns across all cycles (S5 + user's GUI session).
 

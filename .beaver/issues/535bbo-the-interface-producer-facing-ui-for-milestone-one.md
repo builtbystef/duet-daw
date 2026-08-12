@@ -14,7 +14,7 @@ updated: 2026-08-10T22:39:45Z
 
 ## Problem Statement
 
-The milestone-one DAW core (spec b1j3me) and the Collaborator (spec js437t) are fully specified, but the Target Producer has no surface to work on: nothing to arrange in, no piano roll to edit notes in, no mixer, no place where a Proposal becomes visible. Every settled capability is invisible until the interface exists.
+The milestone-one DAW core (spec b1j3me) and the Collaborator (spec js437t) are fully specified, but the Target Producer has no surface to work on: nothing to arrange in, no piano roll to edit notes in, no mixer, no place where a Suggestion becomes visible. Every settled capability is invisible until the interface exists.
 
 ## Solution
 
@@ -28,7 +28,7 @@ A single main window in the "Graphite" visual language: an achromatic workstatio
 4. As the Target Producer, I want a mixer with faders, pan, mute/solo, meters, I/O routing, and insert chains, so that I can mix without leaving the bottom panel.
 5. As the Target Producer, I want to draw automation in expandable lanes under tracks, so that parameters move over time.
 6. As the Target Producer, I want a browser with search and favorites over my samples, the built-in devices, and my VST3 plugins, so that inserting an instrument or effect is one drag.
-7. As the Target Producer, I want Proposals rendered as teal ghosts in place — on the timeline, in the mixer — so that I can see and Audition exactly what the Collaborator wants to change before it enters the project.
+7. As the Target Producer, I want Suggestions rendered as teal ghosts in place — on the timeline, in the mixer — so that I can see and Audition exactly what the Collaborator wants to change before it enters the project.
 8. As the Target Producer, I want dark and light modes that follow my OS on first launch, so that the app fits my environment.
 9. As the Target Producer, I want my view (zoom, scroll, panel layout, track heights) restored when I reopen a project, so that I resume where I left off.
 10. As the Target Producer, I want to hit record in a brand-new untitled project without saving first, so that no dialog stands between me and a take.
@@ -97,16 +97,16 @@ double snapBeats (double beats, GridSpec grid, bool altHeld);
 
 - **Graphite theme, both modes** (OS preference on first launch; switchable in Settings > Interface). The token set and both palettes are the mockup's `app/globals.css`, with the r4m858 amendments:
   - dark-mode text brightened one step: primary `#d2d2d2`, secondary `#9e9e9e`, muted `#828282`, disabled `#5c5c5c`; dark surfaces, borders, and track colors unchanged; light mode exactly as the mockup.
-- **Collaborator accent — teal, reserved exclusively**: dark `#4aa294`, light `#0e7c70`. Used for ✦ badges, proposal ghosts/glow, ghost fader handles, commentary accents; never anywhere else. Semantic info/success/warning/danger keep their own hues (stale stays amber).
+- **Collaborator accent — teal, reserved exclusively**: dark `#4aa294`, light `#0e7c70`. Used for ✦ badges, suggestion ghosts/glow, ghost fader handles, commentary accents; never anywhere else. Semantic info/success/warning/danger keep their own hues (stale stays amber).
 - **8 desaturated user-assignable track colors** (token set).
 - **Inter** (OFL), bundled, tabular numerals for time displays. Thin workstation scrollbars. Mid-density flat surfaces.
 - **Interface scale**: global setting in Settings > Interface, **default 1.25×** (the mockup's pixel sizes read too small at 1:1; verified at r4m858).
 
-### Proposal rendering (approved at r4m858)
+### Suggestion rendering (approved at r4m858)
 
 - Ghost clips: teal fill ~12% alpha, dashed teal border, 3-ring soft glow; on Audition the fill intensifies to ~26% with a solid border. Ghost clip names carry a teal ✦ prefix.
 - Mixer: ghost fader as a translucent teal handle with glow; a per-strip "A: CURRENT / B: PROPOSED" chip visible only while auditioning.
-- Proposal card: teal glow border; per-element cherry-pick checkboxes; Audition / Accept / Reject buttons (the button says **"Audition"**, per the glossary). Elements excluded by cherry-pick render at ~35% intensity.
+- Suggestion card: teal glow border; per-element cherry-pick checkboxes; Audition / Accept / Reject buttons (the button says **"Audition"**, per the glossary). Elements excluded by cherry-pick render at ~35% intensity.
 - Mechanics (cherry-pick, stale-amber, redo-against-current, rejection-with-reason, History section) are js437t's; this spec only styles them.
 
 ### Persistence of UI state
@@ -174,4 +174,4 @@ Prior art: none — this module lands with the first product code. The prototype
 - **Standing references**: the mockup repo (`~/Code/temp/duet-daw-ui-mockup`, its own git repo — `app/globals.css` is the token source of truth) and the prototype branch `prototype/milestone-ui` (directory `prototype-ui/`). Where this spec and the mockup disagree, this spec and the r4m858 amendments win.
 - **Prototype-level findings that save an implementer time** (r4m858): JUCE artefact output lands in `build/duet_ui_prototype_artefacts/`; a same-bounds `setBounds` skips `resized()`, so tab-visibility changes must be refreshed explicitly.
 - The message thread is the sole writer of the project model (b1j3me); all view-models live on the message thread. Meters/playhead repaint from atomics the engine publishes — no locks in paint.
-- Glossary discipline: Collaborator, Proposal, Audition, Action, Duet Loop, Target Producer — as defined in the glossary; the Audition button label is "Audition".
+- Glossary discipline: Collaborator, Suggestion, Audition, Action, Duet Loop, Target Producer — as defined in the glossary; the Audition button label is "Audition".

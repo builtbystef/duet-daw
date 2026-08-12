@@ -51,7 +51,7 @@ The costs accepted, in order of how much they should worry us:
 - **You cannot upstream fixes**: the project does not accept third-party pull requests, and bug reports go to a forum rather than the issue tracker.
 - **`tracktion_graph` self-describes as experimental** with an unstable API, and the last tag is 15 months old while `develop` (the default branch, ~1.5 minor versions ahead) is where the live work happens. Pinning a commit, not a tag, is the practical consequence.
 
-**The mitigation that makes this reversible enough to accept:** keep Duet's own edit vocabulary (node hll1mo) and the Collaborator's tool vocabulary as a seam in front of the engine, rather than letting `tracktion::engine` types leak through the application. The seam is worth building for the AI design regardless — it is where the Proposal model and shared undo live — and it doubles as the thing that keeps a future engine swap from being a rewrite.
+**The mitigation that makes this reversible enough to accept:** keep Duet's own edit vocabulary (node hll1mo) and the Collaborator's tool vocabulary as a seam in front of the engine, rather than letting `tracktion::engine` types leak through the application. The seam is worth building for the AI design regardless — it is where the Suggestion model and shared undo live — and it doubles as the thing that keeps a future engine swap from being a rewrite.
 
 ## Findings
 

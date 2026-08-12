@@ -29,7 +29,7 @@ Read those nodes' closing notes, interview to close remaining gaps (likely surfa
 
 **claude** — 2026-08-08T08:20:18Z
 
-Constraints from the AI-area spec (js437t, 2026-08-08), which binds behavior whose mechanisms are foundation-area work: (1) proposal-state audition — ghost clips and ghost mixer values playable in context, A/B toggle for mix changes — needs a mechanism for entering the playback graph without entering the project state; (2) the Collaborator service's threading assumptions (socket on its own thread, project-model reads marshalled to the message thread, analysis on worker threads, nothing on the audio thread) must fit the thread model this spec settles; (3) tier-2 analysis needs a per-track offline render path through the engine.
+Constraints from the AI-area spec (js437t, 2026-08-08), which binds behavior whose mechanisms are foundation-area work: (1) suggestion-state audition — ghost clips and ghost mixer values playable in context, A/B toggle for mix changes — needs a mechanism for entering the playback graph without entering the project state; (2) the Collaborator service's threading assumptions (socket on its own thread, project-model reads marshalled to the message thread, analysis on worker threads, nothing on the audio thread) must fit the thread model this spec settles; (3) tier-2 analysis needs a per-track offline render path through the engine.
 
 **claude** — 2026-08-08T08:45:40Z
 
@@ -50,7 +50,7 @@ RESOLVED 2026-08-10. The foundation spec is published as issue b1j3me ('The Foun
 Gaps closed by interview this session (user-confirmed):
 - SPEC ALTITUDE: substrate only (app skeleton, model, vocabulary, persistence, threading, save, VST3 enablement). The producer-facing UI is its own area — grill → prototype nodes added at this session's DAG extension.
 - THREAD MODEL: message thread is the sole writer of the project model; Duet code never on the audio thread; workers for analysis/thumbnails/offline renders; Collaborator socket on its own thread marshalling to the message thread. Large Actions occupy the message thread — accepted for milestone one, with UndoTransactionInhibitor held for long Actions.
-- AUDITION MECHANISM (the js437t-bound gap): apply-and-revert on the real Edit via nullptr-UndoManager writes; revert exactness (canonicalized digest equality) is a spec acceptance criterion; accept reverts then re-applies through performAction. Pending Proposals are pure data — never saved, never block saving, no accept/reject prompt before save. Manual save auto-reverts a live Audition; autosave skips its tick during one.
+- AUDITION MECHANISM (the js437t-bound gap): apply-and-revert on the real Edit via nullptr-UndoManager writes; revert exactness (canonicalized digest equality) is a spec acceptance criterion; accept reverts then re-applies through performAction. Pending Suggestions are pure data — never saved, never block saving, no accept/reject prompt before save. Manual save auto-reverts a live Audition; autosave skips its tick during one.
 - SAVE POLICY: explicit save with dirty indication + autosave every 5 minutes when dirty to a recovery file in the project folder (industry band is 5–15 min: FL 5/10, Reaper commonly 5, Cubase 15; 5 chosen because in-process hosting makes crashes real). Recovery offered on next open.
 - UNDO DEPTH: 200 transactions (memory-trivial, KB per transaction), in-memory per session.
 - TESTING STRATEGY for RT audio: stays a Frontier item; the spec records only psmj4y's settled tooling.

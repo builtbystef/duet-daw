@@ -51,7 +51,7 @@ Other vendors are deliberately out of this run. This node tests whether the *app
 
 2. **Encode only what a deterministic tool could really produce.** Key, tempo, time signature, bar count, arrangement sections, and per track: instrument identity, role, RMS/peak/LUFS, spectral balance in bands, MIDI as note lists (pitch, start, duration, velocity), plugin chain with parameter values. If a field could not be computed by native DSP or read from the project model, it does not belong in the fixture — including it fakes the experiment.
 
-3. **Ask for both** a critique and a Proposal-shaped set of concrete edits, so the output is testable against node hll1mo's Proposal vocabulary as well as for musical sense.
+3. **Ask for both** a critique and a Suggestion-shaped set of concrete edits, so the output is testable against node hll1mo's Suggestion vocabulary as well as for musical sense.
 
 4. **Judge as a producer, not as an engineer.** Sort each response into: *acted on it*, *true but useless*, *generic advice any forum post would give*, *wrong*. Generic advice is the failure mode to watch for — "try sidechaining the bass to the kick" is what a model says when it has understood nothing. The control fixture catches the other failure mode: inventing problems to look useful.
 
@@ -97,7 +97,7 @@ Run review (2026-08-07). 14 runs in prototype-llm-music-reasoning/runs/: 7 fixtu
 
 ## Scoreboard
 
-- GPT-5.6 Terra: 7/7 (6 acted-on-it + control pass). Terse, minimal, correct; proposals always in the Proposal shape with exact parameter values.
+- GPT-5.6 Terra: 7/7 (6 acted-on-it + control pass). Terse, minimal, correct; suggestions always in the Suggestion shape with exact parameter values.
 - Grok 4.5: 6/7 + 1 partial fail on the control. Richer analysis, more bonus-level catches (shared fundamental, melody-compatible turnaround, call/response structure), but over-critiques when invited to.
 - Zero responses in "generic forum advice". Zero flat "wrong". Nobody proposed sidechaining as a reflex — where it was proposed, the fixture actually lacked one and parameters were specific to the measured data.
 
@@ -107,7 +107,7 @@ Both models interrogated rather than demanded everything: every run opened list_
 
 ## Verdict
 
-**The direction survives.** Given structured tool-produced data and no audio, both models said things a producer would act on, grounded in the actual numbers, with concrete parameter-level edits in Proposal shape. The fixture schemas and the five-tool vocabulary are validated as the first draft of the Collaborator's tool vocabulary → feed into lxwoas.
+**The direction survives.** Given structured tool-produced data and no audio, both models said things a producer would act on, grounded in the actual numbers, with concrete parameter-level edits in Suggestion shape. The fixture schemas and the five-tool vocabulary are validated as the first draft of the Collaborator's tool vocabulary → feed into lxwoas.
 
 ## Caveats and follow-ups
 
