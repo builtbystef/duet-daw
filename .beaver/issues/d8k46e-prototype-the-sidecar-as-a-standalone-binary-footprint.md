@@ -1,14 +1,13 @@
 ---
 id: d8k46e
 title: 'Prototype: the sidecar as a standalone binary — footprint, startup, headless pi'
-state: in-progress
+state: done
 priority: high
 labels:
     - session:prototype
-    - needs-review
 parent: js437t
 created: 2026-08-12T04:00:53Z
-updated: 2026-08-12T05:15:32Z
+updated: 2026-08-12T05:58:34Z
 ---
 
 ## What to build
@@ -69,3 +68,7 @@ Yes. Keep the sidecar, built from `@earendil-works/pi-agent-core` and `@earendil
 - Prototype branch: `prototype/pi-sidecar-footprint`, commit `2a20ef8`
 
 Closure waits for review. Close `d8k46e` to approve this result, or note requested changes and remove `needs-review`.
+
+**agent** — 2026-08-12T05:58:27Z
+
+User confirmed the prototype result and recommendation were already approved; the remaining needs-review state was stale.
