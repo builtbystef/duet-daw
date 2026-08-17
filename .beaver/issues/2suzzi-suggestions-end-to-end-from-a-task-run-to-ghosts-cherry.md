@@ -9,7 +9,7 @@ depends_on:
     - 0wdwin
 parent: js437t
 created: 2026-08-12T04:03:58Z
-updated: 2026-08-12T04:03:58Z
+updated: 2026-08-17T04:12:08Z
 ---
 
 ## What to build
@@ -31,3 +31,9 @@ This slice wires the rendering and the manager to real runs; it implements neith
 - [ ] A Suggestion arriving while the transport rolls does not interrupt playback.
 - [ ] The whole loop is exercised against a real backend on a fixture project and recorded as a note: request, Suggestion, audition, cherry-pick, revision, stale, redo.
 - [ ] Closure waits for user review.
+
+## Notes
+
+**claude** — 2026-08-17T04:12:08Z
+
+Authority note (2026-08-17): the mechanics criteria repeated here are integration checks. aw5t9l owns the state machine, em487d the Audition mechanism, 0wdwin the rendering; a failure here that reproduces at one of those seams belongs to that ticket.

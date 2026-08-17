@@ -5,9 +5,10 @@ state: todo
 priority: high
 depends_on:
     - s1jzd4
+    - aty85a
 parent: 535bbo
 created: 2026-08-12T03:50:49Z
-updated: 2026-08-12T03:50:49Z
+updated: 2026-08-17T04:09:35Z
 ---
 
 ## What to build

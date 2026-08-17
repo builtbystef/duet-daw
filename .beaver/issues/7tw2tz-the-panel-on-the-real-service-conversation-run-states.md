@@ -9,7 +9,7 @@ depends_on:
     - 4jipx2
 parent: js437t
 created: 2026-08-12T04:03:44Z
-updated: 2026-08-12T04:03:44Z
+updated: 2026-08-17T04:12:26Z
 ---
 
 ## What to build
@@ -30,3 +30,9 @@ A canceled run leaves the "task canceled, nothing changed" line; a failed one le
 - [ ] In a development build the raw tool-call trace of a run is inspectable with tool names, arguments, and results; in an ordinary build it is absent and only the status phrases appear.
 - [ ] The development-only conversation source is gone from the shipping path.
 - [ ] Closure waits for user review.
+
+## Notes
+
+**claude** — 2026-08-17T04:12:26Z
+
+Scope note (2026-08-17): the panel's History section — applied/resolved Suggestions, in-memory per session (kept at s11o4w, mechanics js437t's) — is in-scope of this slice, fed by the Suggestion manager's resolved list. No other ticket covers it.

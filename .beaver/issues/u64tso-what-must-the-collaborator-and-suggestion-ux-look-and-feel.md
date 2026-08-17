@@ -12,7 +12,7 @@ depends_on:
     - lxwoas
 parent: d9gioe
 created: 2026-08-07T18:10:08Z
-updated: 2026-08-08T05:13:53Z
+updated: 2026-08-17T04:12:37Z
 ---
 
 Prototype session. The interaction model is settled (node hll1mo's closing note); the user explicitly deferred the concrete UX for dedicated deliberation — the bar is that the AI interactions feel useful and easy to use mid-flow, not bolted on.
@@ -48,3 +48,7 @@ STALE — approved as prototyped: a producer edit touching a pending Suggestion'
 BACKEND FAILURE — simplified from lxwoas's "visible offline state": NO dedicated offline banner or persistent offline UI. A failed task drops a plain error line in the conversation ("The Collaborator isn't working right now — try again later"). Still fail-fast, nothing queues, the DAW keeps working — only the presentation is a simple transient error, like any AI app.
 
 Feeds the AI-area spec (o3mgk1).
+
+**claude** — 2026-08-17T04:12:37Z
+
+Pointer (2026-08-17): two visuals settled here were superseded at r4m858 / spec 535bbo — ghost clips are teal fill ~12% alpha with dashed teal border (26% while auditioning), not ~60% opacity; per-element controls are checkboxes, not ✓/✗ glyphs; the dark-mode accent is #4aa294. The mechanics settled here (cherry-pick, stale-amber + redo, rejection-with-reason, rotating status phrases, context-menu entry) stand.

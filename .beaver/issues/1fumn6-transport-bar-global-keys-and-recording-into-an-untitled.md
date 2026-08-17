@@ -7,9 +7,10 @@ depends_on:
     - ce17ym
     - 5he6vd
     - s1jzd4
+    - nfjr5x
 parent: 535bbo
 created: 2026-08-12T03:50:00Z
-updated: 2026-08-12T03:50:00Z
+updated: 2026-08-17T04:09:59Z
 ---
 
 ## What to build
@@ -32,3 +33,9 @@ With record wired, story 10 closes end to end: a producer who has just launched 
 - [ ] The project name shows in the bar with an unsaved-changes marker that appears on the first Action and clears on save.
 - [ ] Story 10, worked: launch with no prior project, arm the seeded audio track, press R, play a few seconds of input, press R again — a recorded clip appears on that track, its audio file is inside the untitled project's audio folder, and no dialog appeared at any point.
 - [ ] Every bare-letter key of this slice types its character instead of acting while the project-name field or the BPM field has focus.
+
+## Notes
+
+**claude** — 2026-08-17T04:09:59Z
+
+Scope split (2026-08-17): the recording vocabulary and engine wiring (record-arm, input selection, monitoring, take-as-one-Action, latency compensation) now live in foundation slice nfjr5x, which this issue depends on. This slice wires the transport-bar UI and the record-into-untitled-project flow on top of those ops; it builds none of them.

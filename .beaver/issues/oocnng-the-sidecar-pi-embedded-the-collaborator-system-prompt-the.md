@@ -8,7 +8,7 @@ depends_on:
     - xy9438
 parent: js437t
 created: 2026-08-12T04:03:20Z
-updated: 2026-08-12T04:03:20Z
+updated: 2026-08-17T04:12:26Z
 ---
 
 ## What to build
@@ -28,3 +28,9 @@ The system prompt is Duet's own: the Collaborator's identity, the provenance rul
 - [ ] The binary runs on a machine with no Node installed, and its size and cold-start latency are within the range the prototype recorded.
 - [ ] The sidecar is invisible in normal use: no console window, no stray output on the DAW's streams, and its crash or absence never takes the DAW down.
 - [ ] An end-to-end run against a real provider on a fixture project produces commentary grounded in tool results, recorded as a note with the tool trace.
+
+## Notes
+
+**claude** — 2026-08-17T04:12:26Z
+
+Scope note (2026-08-17): drafting the Collaborator system prompt text is in-scope here, bound by js437t: Duet's own identity (never pi's coding-agent identity — including replacing pi-ai's silent 'helpful assistant' default recorded at d8k46e), the provenance rules, the low-confidence hedging instruction, Suggestion guidance, and prompt-cache discipline (frozen content first, volatile deltas last, no timestamps in stable prefixes).

@@ -5,9 +5,10 @@ state: todo
 priority: high
 depends_on:
     - 5he6vd
+    - nfjr5x
 parent: 535bbo
 created: 2026-08-12T03:49:23Z
-updated: 2026-08-12T03:49:23Z
+updated: 2026-08-17T04:09:59Z
 ---
 
 ## What to build
@@ -28,3 +29,9 @@ Track lifecycle is producer-driven from the header: drag a header to reorder, do
 - [ ] Height, worked: dragging a header's bottom edge from 80 px to 120 px changes only that track's height; save and reopen returns 120 px, and the resize is not on the undo stack and does not dirty the document.
 - [ ] A track added while a project is open gets a view entry with the default height, and a deleted track's view entry does not outlive it.
 - [ ] Vertical zoom (Ctrl+Shift+scroll) scales track heights together and persists with the rest of the view state.
+
+## Notes
+
+**claude** — 2026-08-17T04:09:59Z
+
+Scope note (2026-08-17): the header's record-arm toggle drives the arm op from foundation slice nfjr5x (now a dependency); this slice does not implement arming itself.

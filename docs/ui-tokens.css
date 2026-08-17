@@ -1,0 +1,300 @@
+/* ===========================================================================
+   Duet UI tokens — vendored from the standing visual reference.
+
+   Verbatim copy of app/globals.css from the Target Producer's mockup repo
+   (~/Code/temp/duet-daw-ui-mockup, commit 70122ce5a06e401fa8e8d1fcad62f9bda185a796,
+   2026-08-10), vendored 2026-08-17 so the token source of truth lives inside
+   this repository (spec 535bbo names the mockup; slice xxv9ng consumes this).
+
+   The r4m858 prototype amendments OVERRIDE the values below wherever they
+   conflict (r4m858 and spec 535bbo are authoritative):
+
+     - Dark-mode text brightened one step:
+         --text-primary   #d2d2d2   (was #b8b8b8)
+         --text-secondary #9e9e9e   (was #888888)
+         --text-muted     #828282   (was #6e6e6e)
+         --text-disabled  #5c5c5c   (was #4d4d4d)
+       Dark surfaces, borders, and track colors unchanged; light mode exactly
+       as below.
+     - Collaborator accent (absent from this sheet — it predates the teal
+       decision): dark #4aa294, light #0e7c70. Reserved exclusively for the
+       Collaborator; never reuse the achromatic accent-* tokens for it.
+     - Default interface scale 1.25x (the px sizes below read too small at 1:1).
+
+   Tailwind/shadcn plumbing (@import, @theme, the shadcn bridge, @layer rules)
+   is mockup infrastructure — only the raw token values transfer to duet_gui.
+   =========================================================================== */
+
+@import 'tailwindcss';
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  /* Duet surfaces */
+  --color-canvas: var(--surface-canvas);
+  --color-surface: var(--surface-default);
+  --color-raised: var(--surface-raised);
+  --color-interactive: var(--surface-interactive);
+
+  /* Border */
+  --color-hairline: var(--border-default);
+
+  /* Text */
+  --color-ink: var(--text-primary);
+  --color-ink2: var(--text-secondary);
+  --color-ink3: var(--text-muted);
+  --color-ink4: var(--text-disabled);
+
+  /* Accent */
+  --color-strong: var(--accent-strong);
+  --color-acc: var(--accent-default);
+  --color-bright: var(--accent-bright);
+
+  /* Semantic */
+  --color-info: var(--semantic-info);
+  --color-success: var(--semantic-success);
+  --color-warning: var(--semantic-warning);
+  --color-danger: var(--semantic-danger);
+
+  /* shadcn/ui token bridge — maps the library's palette onto Duet surfaces
+     so shadcn components inherit the workstation look without overrides. */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-mono-inter), ui-monospace, monospace;
+
+  --radius-sm: 3px;
+  --radius-md: 4px;
+  --radius-lg: 6px;
+  --radius-xl: 8px;
+}
+
+/* ---------------------------------------------------------------------------
+   Derived tokens.
+
+   Everything below is expressed in terms of the palette tokens that each theme
+   block further down defines, so a theme only ever declares raw colours — never
+   the shadcn bridge, and never a component-level value.
+   --------------------------------------------------------------------------- */
+:root {
+  --background: var(--surface-canvas);
+  --foreground: var(--text-primary);
+  --card: var(--surface-default);
+  --card-foreground: var(--text-primary);
+  --popover: var(--surface-raised);
+  --popover-foreground: var(--text-primary);
+  --primary: var(--accent-strong);
+  --primary-foreground: var(--on-accent);
+  --secondary: var(--surface-interactive);
+  --secondary-foreground: var(--text-primary);
+  --muted: var(--surface-raised);
+  --muted-foreground: var(--text-muted);
+  --accent: var(--surface-interactive);
+  --accent-foreground: var(--text-primary);
+  --destructive: var(--semantic-danger);
+  --destructive-foreground: var(--on-accent);
+  --border: var(--border-default);
+  --input: var(--surface-interactive);
+  --ring: var(--accent-default);
+}
+
+/* ===========================================================================
+   PALETTE — Graphite
+
+   Achromatic chrome: no hue in the surfaces, and contrast alone carries
+   emphasis, so the accent is near-white on dark and near-black on light. The
+   track colours are pulled well down in saturation to match.
+
+   Dark is the base; the light block below overrides only what changes. The
+   token set is:
+
+     surfaces   canvas / default / raised / interactive
+     rules      border-default / border-subtle
+     text       primary / secondary / muted / disabled
+     accent     strong / default / bright  (+ on-accent for text over it)
+     semantic   info / success / warning / danger
+     content    track-* (8 clip colours) + on-track
+     chrome     grid-* (timeline rules), meter-track, key-black/white,
+                overlay-* (piano-roll shading), shadow-color, scrollbar-hover
+
+   `on-track` is the ink colour that sits on a filled track colour, so light
+   mode flips it to white without touching a single component.
+   =========================================================================== */
+:root {
+  --surface-canvas: #0a0a0a;
+  --surface-default: #101010;
+  --surface-raised: #181818;
+  --surface-interactive: #212121;
+  --border-default: #282828;
+  --border-subtle: #1c1c1c;
+
+  --text-primary: #b8b8b8;
+  --text-secondary: #888888;
+  --text-muted: #6e6e6e;
+  --text-disabled: #4d4d4d;
+
+  --accent-strong: #c9c9c9;
+  --accent-default: #dedede;
+  --accent-bright: #f4f4f4;
+  --on-accent: #0a0a0a;
+
+  --semantic-info: #7ba7cc;
+  --semantic-success: #74b57f;
+  --semantic-warning: #cfa055;
+  --semantic-danger: #cc6560;
+
+  --track-orange: #ab7c4c;
+  --track-coral: #ac6558;
+  --track-mint: #5f9b81;
+  --track-cyan: #52909e;
+  --track-yellow: #a09354;
+  --track-red: #a45555;
+  --track-purple: #806fa3;
+  --track-blue: #5b7ba5;
+  --on-track: #0a0a0a;
+
+  --grid-fine: rgba(255, 255, 255, 0.03);
+  --grid-beat: rgba(255, 255, 255, 0.055);
+  --grid-bar: rgba(255, 255, 255, 0.12);
+  --meter-track: rgba(255, 255, 255, 0.05);
+  --key-black: #0e0e0e;
+  --key-white: #1d1d1d;
+  --overlay-strong: rgba(0, 0, 0, 0.42);
+  --overlay-soft: rgba(0, 0, 0, 0.22);
+  --overlay-scrim: rgba(0, 0, 0, 0.3);
+  --shadow-color: rgba(0, 0, 0, 0.68);
+  --scrollbar-hover: #313131;
+}
+
+[data-mode='light'] {
+  --surface-canvas: #eeeeee;
+  --surface-default: #f8f8f8;
+  --surface-raised: #ffffff;
+  --surface-interactive: #e3e3e3;
+  --border-default: #d5d5d5;
+  --border-subtle: #e8e8e8;
+
+  --text-primary: #1a1a1a;
+  --text-secondary: #4a4a4a;
+  --text-muted: #6b6b6b;
+  --text-disabled: #9a9a9a;
+
+  --accent-strong: #1f1f1f;
+  --accent-default: #2e2e2e;
+  --accent-bright: #454545;
+  --on-accent: #fafafa;
+
+  --semantic-info: #2c6f9e;
+  --semantic-success: #2d8340;
+  --semantic-warning: #96691a;
+  --semantic-danger: #ac3e39;
+
+  --track-orange: #946420;
+  --track-coral: #9c4c3f;
+  --track-mint: #35785f;
+  --track-cyan: #2f6f7d;
+  --track-yellow: #7d6a26;
+  --track-red: #94403f;
+  --track-purple: #635383;
+  --track-blue: #43618a;
+  --on-track: #fbfbfb;
+
+  --grid-fine: rgba(0, 0, 0, 0.045);
+  --grid-beat: rgba(0, 0, 0, 0.075);
+  --grid-bar: rgba(0, 0, 0, 0.15);
+  --meter-track: rgba(0, 0, 0, 0.08);
+  --key-black: #e0e0e0;
+  --key-white: #fcfcfc;
+  --overlay-strong: rgba(0, 0, 0, 0.09);
+  --overlay-soft: rgba(0, 0, 0, 0.045);
+  --overlay-scrim: rgba(0, 0, 0, 0.06);
+  --shadow-color: rgba(0, 0, 0, 0.16);
+  --scrollbar-hover: #c4c4c4;
+}
+
+/* Native form controls, scrollbars and caret follow the active mode. */
+:root,
+[data-mode='dark'] {
+  color-scheme: dark;
+}
+[data-mode='light'] {
+  color-scheme: light;
+}
+
+@layer base {
+  * {
+    border-color: var(--border-default);
+  }
+  html,
+  body {
+    background-color: var(--surface-canvas);
+    color: var(--text-primary);
+  }
+  body {
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    overscroll-behavior: none;
+  }
+  ::selection {
+    background: color-mix(in srgb, var(--accent-default) 45%, transparent);
+  }
+}
+
+/* Thin, workstation-style scrollbars */
+@layer utilities {
+  .daw-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: var(--surface-interactive) transparent;
+  }
+  .daw-scroll::-webkit-scrollbar {
+    width: 9px;
+    height: 9px;
+  }
+  .daw-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .daw-scroll::-webkit-scrollbar-thumb {
+    background: var(--surface-interactive);
+    border-radius: 6px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  .daw-scroll::-webkit-scrollbar-thumb:hover {
+    background: var(--scrollbar-hover);
+    background-clip: content-box;
+  }
+  .tabular {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: 'tnum';
+  }
+  .no-select {
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  /* Section eyebrow — repeated across panels, dialogs and the plugin editor */
+  .eyebrow {
+    font-size: 9px;
+    line-height: 1;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-disabled);
+  }
+}

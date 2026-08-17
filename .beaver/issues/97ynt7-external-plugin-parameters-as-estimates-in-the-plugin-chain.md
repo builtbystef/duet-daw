@@ -8,7 +8,7 @@ depends_on:
     - aty85a
 parent: js437t
 created: 2026-08-12T04:02:25Z
-updated: 2026-08-12T04:02:25Z
+updated: 2026-08-17T04:10:28Z
 ---
 
 ## What to build
@@ -25,4 +25,4 @@ Each plugin in the chain also reports its format, so the model can tell the two 
 - [ ] Plugins appear in chain order, and a disabled plugin reports itself disabled while still listing its parameters.
 - [ ] A plugin that is missing or fails to load appears in the chain with its name and is reported as unavailable, never omitted silently.
 - [ ] No plugin scan and no plugin load happens as a side effect of a tool call: only plugins already in the project's chains are reported.
-- [ ] A VST3 that crashes or hangs while being read does not take the DAW or the run down; the run gets an error result it can survive.
+- [ ] A parameter read that fails on an already-hosted plugin (an error or exception surfaced through the hosting layer) returns an error result the run survives: the run continues, and the DAW keeps working. Crash isolation is explicitly not asserted — hosting is in-process (b1j3me, hvv3nn; only scanning is out of process), so a plugin that brings the process down brings the DAW down; surviving that arrives only with milestone-two out-of-process hosting.

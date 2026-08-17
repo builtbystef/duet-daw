@@ -5,9 +5,10 @@ state: todo
 priority: medium
 depends_on:
     - cwz0of
+    - em487d
 parent: js437t
 created: 2026-08-12T04:03:08Z
-updated: 2026-08-12T04:03:08Z
+updated: 2026-08-17T04:09:35Z
 ---
 
 ## What to build

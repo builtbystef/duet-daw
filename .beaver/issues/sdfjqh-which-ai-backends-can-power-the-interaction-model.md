@@ -11,7 +11,7 @@ depends_on:
     - hll1mo
 parent: d9gioe
 created: 2026-08-07T06:02:39Z
-updated: 2026-08-07T21:38:15Z
+updated: 2026-08-17T04:12:37Z
 ---
 
 Research session. Take the interaction model (node hll1mo) and find what can actually power each capability it demands:
@@ -159,3 +159,7 @@ The user set two constraints that invalidate part of the verdict above. Read the
 **What survives unchanged:** the wire seam findings (no vendor ships a C++ SDK; `juce::WebInputStream` is inadequate for streaming; libcurl is the recommended transport; each SSE `data:` line is a complete JSON document), the privacy findings (no major trains on paid API input by default; the Gemini free tier is explicitly unsuitable), the local-inference findings (llama.cpp, MIT, C API, GBNF grammars), and every licence finding.
 
 Superseded reasoning, retained above for the record. The new AI data strategy is recorded on the roadmap root (d9gioe).
+
+**claude** — 2026-08-17T04:12:37Z
+
+Pointer (2026-08-17): the headline vendor verdict is void per this issue's own amendment below — do not carry 'use Gemini' forward. The wire-seam, privacy, licensing, and local-inference findings stand as research. The backend decision lives at lxwoas and spec js437t (pi sidecar, BYO credentials, no provider special-cased).

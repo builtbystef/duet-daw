@@ -8,7 +8,7 @@ depends_on:
     - 6zog6s
 parent: b1j3me
 created: 2026-08-11T01:52:13Z
-updated: 2026-08-11T01:52:13Z
+updated: 2026-08-17T04:12:26Z
 ---
 
 ## What to build
@@ -23,3 +23,9 @@ The third nightly per spec b1j3me / ADR 0006 (nodes bd11an, ox1trt): a linux-rts
 - [ ] Red/green proof, recorded as a note on this issue: inject one heap allocation into each seam's callback → the rtsan test run fails for each; remove them → it passes. Both runs' evidence (local or CI) is linked or quoted.
 - [ ] CI runs linux-rtsan as a third independent nightly job alongside the ASan+UBSan and TSan+UBSan nightlies.
 - [ ] No sanitizer suppressions for Duet code; any exact upstream-function suppression carries a documented false positive (per the coding standards).
+
+## Notes
+
+**claude** — 2026-08-17T04:12:26Z
+
+Scope note (2026-08-17): acquiring the Clang 20.1.8+ toolchain on the ubuntu-24.04 runner is part of this slice (for example a pinned LLVM apt source — verify the exact mechanism at implementation and record it in the closing note). The Clang 18 floor still governs what builds Duet; 20.1.8+ is the lint toolchain only.

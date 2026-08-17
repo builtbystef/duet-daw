@@ -5,9 +5,10 @@ state: todo
 priority: medium
 depends_on:
     - nelbwc
+    - aty85a
 parent: 535bbo
 created: 2026-08-12T03:50:16Z
-updated: 2026-08-12T03:50:16Z
+updated: 2026-08-17T04:09:35Z
 ---
 
 ## What to build

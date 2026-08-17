@@ -2,6 +2,7 @@
 id: b1j3me
 title: The Foundation — DAW-core substrate for milestone one
 state: todo
+priority: high
 labels:
     - spec
 depends_on:
@@ -14,7 +15,7 @@ depends_on:
     - skb4tp
     - rquzdc
 created: 2026-08-10T03:43:27Z
-updated: 2026-08-11T01:24:09Z
+updated: 2026-08-17T04:12:08Z
 ---
 
 ## Problem Statement
@@ -30,7 +31,7 @@ A running Linux application: the Duet skeleton. The Target Producer can create a
 1. As the Target Producer, I want to create and open projects that are self-contained folders, so that a project travels with its recordings and imports.
 2. As the Target Producer, I want every edit — mine or an accepted Suggestion's — to be one named undo step with full undo/redo parity, so that nothing the Collaborator does is harder to revert than my own gestures.
 3. As the Target Producer, I want to edit while the transport rolls without glitches or xruns, so that editing never interrupts listening.
-4. As the Target Producer, I want explicit save plus a 5-minute autosave with crash recovery, so that a plugin crash costs me minutes, not a session.
+4. As the Target Producer, I want explicit save plus configurable autosave with crash recovery, so that a plugin crash costs me minutes, not a session.
 5. As the Target Producer, I want to Audition a Suggestion in context and A/B it, so that I can judge changes by ear before accepting, with zero trace if I reject.
 6. As the Target Producer, I want VST3 plugins scanned in a separate process, so that one broken plugin cannot take down the app or force rescans.
 7. As the Target Producer, I want a project saved by a newer Duet refused with a clear version message rather than silently damaged.
@@ -77,7 +78,7 @@ A running Linux application: the Duet skeleton. The Target Producer can create a
 - The DUET tree carries `duetSchemaVersion` (int). On load, migrations run oldest-first, one step per version, before anything reads the tree. A file newer than the app is refused, naming the needed version. The application version is stamped into the Engine's PropertyStorage.
 - `EditItemID` is the durable key for all Duet-side references (proven stable across save/reload; engine reassigns only actual in-file collisions, keeping the original's ID).
 - A project is a **folder**: the edit file plus an `audio/` subdirectory for recordings and imports, paths project-relative.
-- **Save policy**: explicit save with dirty indication; autosave **every 5 minutes when dirty** to a single recovery file inside the project folder (never overwriting the project file), offered for restore on next open when newer than the project file.
+- **Save policy**: explicit save with dirty indication; autosave when dirty on a configurable interval — a Settings > Interface option (off/2/5/10 minutes, **default 10**; amended from the original fixed 5 minutes at UI grill s11o4w) — to a single recovery file inside the project folder (never overwriting the project file), offered for restore on next open when newer than the project file.
 
 **Thread model** (binding for all Duet code, including the Collaborator service per js437t):
 
@@ -155,3 +156,7 @@ Amendment from UI grill s11o4w (2026-08-10): autosave becomes a Settings > Inter
 **claude** — 2026-08-11T01:24:09Z
 
 Amendment from RT-testing area record ox1trt (2026-08-10): the Testing Decisions section's 'RT testing strategy is a Frontier item' sentence is replaced with the settled doctrine — Tracktion trusted / only Duet audio code under test; RT safety as coding standard (docs/CODING_STANDARDS.md, Real-time audio section) with a linux-rtsan third nightly (Clang 20.1.8+, RTSan incompatible with the other sanitizers) proven red/green in its first slice; audio correctness as offline render + feature assertions with domain tolerances (onset up to one render block early), golden files banned, one within-process render-twice determinism canary allowed; analysis DSP validated against synthetic references only. Recorded as ADR 0006. Sources: nodes bd11an and xciphe.
+
+**claude** — 2026-08-17T04:12:08Z
+
+Decision (2026-08-17): the milestone-one 'built-in' instruments and effects are engine-shipped plugins surfaced through the Duet facade — the engine's 4OSC and sampler as the two instruments; its EQ, compressor, and reverb as the three effects. No Duet-authored DSP runs in the audio callback in milestone one; the Testing Decisions' 'built-in instruments and effects' clause applies from the moment Duet-authored devices exist (until then uaqfnv's seam tests use test-only processors, as that slice already states). Duet-authored replacements stay future roadmap work, per this spec's Out of Scope. Also today: the autosave amendment (setting off/2/5/10, default 10) is folded into the body, which is now authoritative; and recording gained its own slice, nfjr5x.

@@ -13,7 +13,7 @@ depends_on:
     - fod077
 parent: d9gioe
 created: 2026-08-07T06:02:50Z
-updated: 2026-08-08T08:19:38Z
+updated: 2026-08-17T04:12:37Z
 ---
 
 Grill session. With the interaction model decided (hll1mo) and the backend landscape known (sdfjqh), pick the ONE AI interaction that ships in milestone one — the feature that proves "duet" is real, not a gimmick.
@@ -49,3 +49,7 @@ Amendment (2026-08-08, from the AI-area spec session o3mgk1): the sidecar's MECH
 **claude** — 2026-08-08T08:19:38Z
 
 Amendment (2026-08-08, spec session o3mgk1): the MODEL ACCESS rider 'Gemini FREE-TIER keys are refused or loudly warned against' is DROPPED at the user's decision — no provider is treated specially in the model picker. sdfjqh's underlying finding (Google trains on unpaid-tier content) stands as research; it just no longer drives product behavior.
+
+**claude** — 2026-08-17T04:12:37Z
+
+Pointer (2026-08-17): the 'immediate, clearly visible Collaborator-offline state in the panel' rider was refined at u64tso and spec js437t — backend failure surfaces as a plain transient error line in the conversation; there is no dedicated persistent offline UI state. The fail-fast semantics (nothing queues, no retry loop, DAW fully usable) are unchanged.

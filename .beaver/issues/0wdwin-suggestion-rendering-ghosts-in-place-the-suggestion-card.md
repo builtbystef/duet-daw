@@ -7,9 +7,10 @@ depends_on:
     - 4jipx2
     - 2ch0cm
     - em487d
+    - aw5t9l
 parent: 535bbo
 created: 2026-08-12T03:51:44Z
-updated: 2026-08-12T03:51:44Z
+updated: 2026-08-17T04:12:08Z
 ---
 
 ## What to build
@@ -34,3 +35,9 @@ The buttons drive the foundation's Suggestion and Audition mechanism; this slice
 - [ ] The audition button is labelled "Audition", and the card's language uses the glossary's terms throughout.
 - [ ] Every state above is reachable from a fabricated Suggestion with no AI backend, no socket and no network.
 - [ ] Closure waits for user review.
+
+## Notes
+
+**claude** — 2026-08-17T04:12:08Z
+
+Authority note (2026-08-17): the Duet Loop mechanics this slice's criteria repeat (cherry-pick, stale, one-Action accept) are owned by aw5t9l — its criteria are authoritative, and it is now a dependency. This slice's repeats verify the rendering integration only; a failure that reproduces at the manager's seam belongs to aw5t9l.

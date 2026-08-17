@@ -8,7 +8,7 @@ depends_on:
     - xxv9ng
 parent: js437t
 created: 2026-08-12T04:03:32Z
-updated: 2026-08-12T04:03:32Z
+updated: 2026-08-17T04:12:08Z
 ---
 
 ## What to build
@@ -28,3 +28,9 @@ Credentials belong to the provider layer, never to Duet's project data. The mode
 - [ ] An invalid API key surfaces as a plain message — at entry or at the first run — never as a silent failure or a hang.
 - [ ] No credential is written into a project folder or into any file the project's persistence owns.
 - [ ] Removing a provider's credentials returns its models to unauthenticated, and if the selected model was one of them the picker falls back rather than leaving an unusable selection.
+
+## Notes
+
+**claude** — 2026-08-17T04:12:08Z
+
+Decision (2026-08-17): the recommended default model is gpt-5.6-terra (as js437t and lxwoas recorded; fod077 7/7). d8k46e's runs on gpt-5.6-luna were credential circumstance, not a revision. Selected when its provider is authenticated; otherwise the first configured provider, per spec.

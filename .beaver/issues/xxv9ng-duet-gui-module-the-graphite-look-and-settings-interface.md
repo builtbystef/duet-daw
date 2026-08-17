@@ -7,7 +7,7 @@ depends_on:
     - sea14w
 parent: 535bbo
 created: 2026-08-12T03:48:12Z
-updated: 2026-08-12T03:48:12Z
+updated: 2026-08-17T04:13:08Z
 ---
 
 ## What to build
@@ -30,3 +30,9 @@ Standing visual reference: the Target Producer's mockup repo at `~/Code/temp/due
 - [ ] The Settings window opens with an Interface tab carrying theme and interface scale; both values round-trip through the app-global settings interface across a restart.
 - [ ] Scrollbars are the thin workstation form and surfaces are mid-density and flat, in both modes.
 - [ ] Closure waits for user review.
+
+## Notes
+
+**claude** — 2026-08-17T04:13:08Z
+
+Pointer (2026-08-17): the token stylesheet is now vendored at docs/ui-tokens.css (verbatim copy of the mockup's app/globals.css @ 70122ce, with a header listing the r4m858 amendments that override it). Build the token set from that file — the out-of-repo mockup is no longer required for this slice and is unreachable from a sandbox. The mockup repo remains the pixel reference for layout and screens.

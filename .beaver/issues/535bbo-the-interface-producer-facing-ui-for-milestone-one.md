@@ -2,13 +2,14 @@
 id: 535bbo
 title: The Interface — producer-facing UI for milestone one
 state: todo
+priority: high
 labels:
     - spec
 depends_on:
     - s11o4w
     - r4m858
 created: 2026-08-10T22:39:45Z
-updated: 2026-08-10T22:39:45Z
+updated: 2026-08-17T04:13:08Z
 ---
 
 
@@ -175,3 +176,9 @@ Prior art: none — this module lands with the first product code. The prototype
 - **Prototype-level findings that save an implementer time** (r4m858): JUCE artefact output lands in `build/duet_ui_prototype_artefacts/`; a same-bounds `setBounds` skips `resized()`, so tab-visibility changes must be refreshed explicitly.
 - The message thread is the sole writer of the project model (b1j3me); all view-models live on the message thread. Meters/playhead repaint from atomics the engine publishes — no locks in paint.
 - Glossary discipline: Collaborator, Suggestion, Audition, Action, Duet Loop, Target Producer — as defined in the glossary; the Audition button label is "Audition".
+
+## Notes
+
+**claude** — 2026-08-17T04:13:08Z
+
+Pointer (2026-08-17): the mockup's token source of truth (app/globals.css) is vendored at docs/ui-tokens.css with the r4m858 amendments documented in its header, so the visual tokens travel with this repository. The mockup repo and branch prototype/milestone-ui remain the standing references for layout, screens, and pixel judgment.

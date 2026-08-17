@@ -8,7 +8,7 @@ depends_on:
     - 4r7nlj
 parent: js437t
 created: 2026-08-12T04:01:44Z
-updated: 2026-08-12T04:01:44Z
+updated: 2026-08-17T04:12:26Z
 ---
 
 ## What to build
@@ -30,3 +30,9 @@ Reads execute on the message thread, the sole writer of the project model; the s
 - [ ] Every tool result is produced by reading the authoritative project model on the message thread; no tool code runs on the audio thread and none of it takes a lock the audio callback can take.
 - [ ] Prompt-cache discipline: the same project state serializes byte-identically twice, with stable content ahead of volatile content and no timestamps anywhere in a result.
 - [ ] The fixture corpus is served end to end through the protocol seam, and every fixture's expected values are asserted from it.
+
+## Notes
+
+**claude** — 2026-08-17T04:12:26Z
+
+Scope note (2026-08-17): rebuilding the fod077 fixtures as real project files — their two recorded defects fixed (fixture-a pitch naming, fixture-f pad/Rhodes rub) and their shapes updated to the settled schemas (Estimate wrapper, get_automation, display-string plugin params) — is in-scope of this slice, as its criteria already assume.

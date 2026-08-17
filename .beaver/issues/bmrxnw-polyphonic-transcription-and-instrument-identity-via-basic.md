@@ -8,7 +8,7 @@ depends_on:
     - lxt41c
 parent: js437t
 created: 2026-08-12T04:02:37Z
-updated: 2026-08-12T04:02:37Z
+updated: 2026-08-17T04:12:26Z
 ---
 
 ## What to build
@@ -26,3 +26,9 @@ Any attribution or notice obligation the weights' licence carries is honoured he
 - [ ] Transcription runs on a worker thread and is cached and invalidated on the same terms as the rest of the analysis layer.
 - [ ] With the ML runtime disabled at build time, the module still builds and the DAW still runs: the notes and instrument aspects report themselves unavailable, and key and chords keep working unchanged.
 - [ ] The attribution and notice obligations recorded by the weights' licence research are satisfied in the build and in the repository's notices.
+
+## Notes
+
+**claude** — 2026-08-17T04:12:26Z
+
+Scope note (2026-08-17): this slice owns the ONNX Runtime + RTNeural build integration — the prebuilt-tarball IMPORTED target (never find_package; psmj4y verified the shipped config package is broken) and RTNeural via FetchContent with its default Eigen backend, all behind one CMake option (DUET_ENABLE_POLYPHONIC_TRANSCRIPTION) so u24m3x's escape hatch stays a -D flag. sea14w deliberately excludes both dependencies.

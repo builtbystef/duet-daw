@@ -11,7 +11,7 @@ depends_on:
     - kimula
 parent: d9gioe
 created: 2026-08-07T06:02:05Z
-updated: 2026-08-07T18:09:55Z
+updated: 2026-08-17T04:12:37Z
 ---
 
 Grill session on the product's USP, limited to the interaction model — not backends, not implementation:
@@ -46,3 +46,7 @@ DUET LOOP — the panel holds a running within-session conversation; replying to
 TERMS — "Collaborator" and "Suggestion" recorded in docs/GLOSSARY.md.
 
 WHY — user-initiated task runs match how the user wants AI to work and avoid the Clippy failure; Suggestions preserve trust and authorship in a creative tool; full sight plus audio-on-demand is what makes feedback real; the closure principle keeps the AI seam honest and one undo model possible; in-place, in-context audition is the product thesis — a duet, not a chatbot with an export button.
+
+**claude** — 2026-08-17T04:12:37Z
+
+Pointer (2026-08-17): the closing note's 'consumes rendered audio (a clip, a track, the mix) on demand' line is superseded — the Collaborator never receives audio (AI data strategy 2026-08-07; ADR 0002; corrected at u24m3x). Everything else in the verdict stands.

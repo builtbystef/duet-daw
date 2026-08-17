@@ -8,7 +8,7 @@ depends_on:
     - 3vwusn
 parent: b1j3me
 created: 2026-08-11T01:51:30Z
-updated: 2026-08-11T01:51:30Z
+updated: 2026-08-17T04:12:08Z
 ---
 
 ## What to build
@@ -26,3 +26,9 @@ The Suggestion mechanism the Collaborator spec (js437t) depends on, per spec b1j
 - [ ] The autosave timer skips its tick while an Audition is live and resumes after.
 - [ ] A pending (unaccepted) Suggestion is absent from the saved file and does not block explicit save.
 - [ ] Audition works while the transport rolls (enter, A/B, and revert during playback without stopping it).
+
+## Notes
+
+**claude** — 2026-08-17T04:12:08Z
+
+Boundary clarification (2026-08-17): this slice's Suggestion stays a flat ordered op list with placeholder refs — do not add element semantics here. Element grouping (the cherry-pick unit, js437t) is the Suggestion manager's layer (aw5t9l): the manager holds elements and hands this mechanism the subset of ops to apply. Cherry-pick at this seam is 'apply a sub-list', exactly as skb4tp proved.
