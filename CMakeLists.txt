@@ -12,6 +12,19 @@ project(Duet VERSION 0.1.0 LANGUAGES C CXX)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# A compiler cache, when the machine has one. Every Duet translation unit pulls
+# the whole JUCE and Tracktion header set, so recompiling one that nothing has
+# changed costs the same as compiling it the first time; ccache turns that into
+# a hash lookup. Set here rather than in a preset because it must hold for the
+# vendored trees too, and it is deliberately optional — a machine without ccache
+# builds exactly as before.
+find_program(DUET_CCACHE ccache)
+if(DUET_CCACHE)
+    set(CMAKE_C_COMPILER_LAUNCHER "${DUET_CCACHE}")
+    set(CMAKE_CXX_COMPILER_LAUNCHER "${DUET_CCACHE}")
+    message(STATUS "Duet: compiling through ccache (${DUET_CCACHE})")
+endif()
+
 include(FetchContent)
 
 # JUCE is declared before Tracktion Engine on purpose. Tracktion guards its own
