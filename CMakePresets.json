@@ -28,11 +28,46 @@
       "displayName": "Linux (Ninja Multi-Config, Release by default)",
       "inherits": "linux-base",
       "cacheVariables": { "CMAKE_DEFAULT_BUILD_TYPE": "Release" }
+    },
+    {
+      "name": "linux-sanitizer-base",
+      "hidden": true,
+      "inherits": "linux-base",
+      "cacheVariables": {
+        "CMAKE_CONFIGURATION_TYPES": "Debug",
+        "CMAKE_DEFAULT_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "linux-asan",
+      "displayName": "Linux nightly: AddressSanitizer + UndefinedBehaviorSanitizer",
+      "inherits": "linux-sanitizer-base",
+      "binaryDir": "${sourceDir}/build/linux-asan",
+      "cacheVariables": {
+        "CMAKE_C_FLAGS": "-fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer",
+        "CMAKE_CXX_FLAGS": "-fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer",
+        "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=address,undefined",
+        "CMAKE_SHARED_LINKER_FLAGS": "-fsanitize=address,undefined"
+      }
+    },
+    {
+      "name": "linux-tsan",
+      "displayName": "Linux nightly: ThreadSanitizer + UndefinedBehaviorSanitizer",
+      "inherits": "linux-sanitizer-base",
+      "binaryDir": "${sourceDir}/build/linux-tsan",
+      "cacheVariables": {
+        "CMAKE_C_FLAGS": "-fsanitize=thread,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer",
+        "CMAKE_CXX_FLAGS": "-fsanitize=thread,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer",
+        "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=thread,undefined",
+        "CMAKE_SHARED_LINKER_FLAGS": "-fsanitize=thread,undefined"
+      }
     }
   ],
   "buildPresets": [
     { "name": "linux-debug",   "configurePreset": "linux-debug",   "configuration": "Debug" },
-    { "name": "linux-release", "configurePreset": "linux-release", "configuration": "Release" }
+    { "name": "linux-release", "configurePreset": "linux-release", "configuration": "Release" },
+    { "name": "linux-asan",    "configurePreset": "linux-asan",    "configuration": "Debug" },
+    { "name": "linux-tsan",    "configurePreset": "linux-tsan",    "configuration": "Debug" }
   ],
   "testPresets": [
     {
@@ -45,6 +80,18 @@
       "name": "linux-release",
       "configurePreset": "linux-release",
       "configuration": "Release",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "linux-asan",
+      "configurePreset": "linux-asan",
+      "configuration": "Debug",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "linux-tsan",
+      "configurePreset": "linux-tsan",
+      "configuration": "Debug",
       "output": { "outputOnFailure": true }
     }
   ]

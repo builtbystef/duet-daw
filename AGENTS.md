@@ -8,6 +8,24 @@
 - **Typecheck** — n/a; the compiler is the typechecker
 - **Run** — `pw-jack ./build/modules/duet_app/duet_app_artefacts/Debug/Duet` (pipewire-jack is not the system-wide libjack on the dev machine, so the wrapper is required)
 
+### CI
+
+`.github/workflows/ci.yml` runs the checks above on every push and aggregates
+them into one required status, `checks-pass` — the only status branch protection
+points at. Adding a job to that workflow means adding it to the `needs` list of
+`checks-pass`, which is what makes the new job able to fail the gate.
+
+`.github/workflows/nightly.yml` runs the two sanitizer configurations that the
+push gate is too slow to carry, and both have presets, so reproducing a nightly
+report locally is one command:
+
+- **ASan + UBSan** — `cmake --preset linux-asan && cmake --build --preset linux-asan -j 4 && ctest --preset linux-asan`
+- **TSan + UBSan** — the same three with `linux-tsan`
+
+They build into `build/linux-asan` and `build/linux-tsan`, each with its own copy
+of the vendored trees, so neither disturbs the ordinary build. CI configures with
+`-D DUET_CCACHE_ENABLED=OFF`; leave it on locally.
+
 ### While iterating
 
 Every check above is the one to run before a commit. Measured on the dev machine on 2026-08-18: rebuilding `duet_tests` after a real edit to `Session.cpp` takes about 11 s, and a full lint sweep about 80 s. Linting is the check worth arranging a session around; compiling is not, and a change that only speeds up the compiler is not worth much here.

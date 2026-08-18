@@ -1,0 +1,111 @@
+# Duet's push gate. Spec b1j3me settled its shape: Debug and Release both built
+# and tested, format and lint enforced, no compiler cache, and one required
+# status — checks-pass — for branch protection to point at.
+#
+# Every action is pinned to a full commit SHA. A tag can be moved; a SHA cannot.
+#
+# There is no pull_request trigger on purpose. A push to a branch produces these
+# check runs, and branch protection reads them on the pull request, so adding the
+# second trigger would only build every branch twice. Outside contributions are
+# out of the question anyway (ADR 0001), so no fork ever needs a run.
+name: CI
+
+on:
+  push:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  format:
+    name: format
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.0.0
+
+      # Ubuntu 24.04 ships no unversioned alias for the clang tools.
+      - name: Install clang-format
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes clang-format-18
+
+      # git ls-files is the selector, not a path pattern: the vendored JUCE and
+      # Tracktion trees live under the ignored build/, so it cannot reach them.
+      - name: Check the formatting of Duet's sources
+        run: clang-format-18 --dry-run --Werror $(git ls-files '*.cpp' '*.h')
+
+  build-and-test:
+    name: build-and-test (${{ matrix.configuration }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - configuration: Debug
+            preset: linux-debug
+          - configuration: Release
+            preset: linux-release
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.0.0
+
+      - uses: ./.github/actions/linux-build-env
+
+      # DUET_CCACHE_ENABLED=OFF is the "no compiler cache" decision, stated
+      # rather than left to whether the runner image happens to ship ccache.
+      - name: Configure
+        run: cmake --preset ${{ matrix.preset }} -D DUET_CCACHE_ENABLED=OFF
+
+      - name: Build
+        run: cmake --build --preset ${{ matrix.preset }} -j ${{ env.DUET_BUILD_JOBS }}
+
+      # The runner has no audio hardware; the one test that needs a device skips
+      # itself when there is none, and everything else renders offline.
+      - name: Test
+        run: ctest --preset ${{ matrix.preset }}
+
+  lint:
+    name: lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.0.0
+
+      - uses: ./.github/actions/linux-build-env
+
+      - name: Install clang-tidy
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes clang-tidy-18
+
+      # Configure only. clang-tidy needs the compile database and the fetched
+      # sources, both of which exist after configuring; nothing Duet compiles
+      # includes a header that the build generates.
+      - name: Configure
+        run: cmake --preset linux-debug -D DUET_CCACHE_ENABLED=OFF
+
+      # The script filters the compile database to Duet's own sources, so the
+      # vendored trees are unreachable rather than merely unmatched.
+      - name: Lint Duet's sources
+        run: ./scripts/lint.sh
+
+  # The one required status. Branch protection points at this job and nothing
+  # else; adding a job above means adding it to `needs` here.
+  checks-pass:
+    name: checks-pass
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    if: always()
+    needs: [format, build-and-test, lint]
+    steps:
+      - name: Require every check to have succeeded
+        run: |
+          results='${{ toJSON(needs) }}'
+          echo "$results"
+          echo "$results" | jq --exit-status 'all(.[]; .result == "success")' > /dev/null

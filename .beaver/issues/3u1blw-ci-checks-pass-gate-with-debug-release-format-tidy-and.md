@@ -1,13 +1,14 @@
 ---
 id: 3u1blw
 title: 'CI: checks-pass gate with Debug+Release, format, tidy, and sanitizer nightlies'
-state: todo
+state: in-progress
+assignee: claude
 priority: high
 depends_on:
     - sea14w
 parent: b1j3me
 created: 2026-08-11T01:50:08Z
-updated: 2026-08-18T07:12:32Z
+updated: 2026-08-18T23:29:09Z
 ---
 
 ## What to build

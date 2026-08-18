@@ -1,0 +1,51 @@
+# The sanitizer nightlies. Spec b1j3me settled two configurations here —
+# ASan+UBSan and TSan+UBSan — as separate runs, because the two are mutually
+# exclusive at link time. The third nightly the spec names, linux-rtsan, needs a
+# Clang the runner image does not ship and is its own slice.
+#
+# These are deliberately not part of checks-pass: they are a slow backstop that
+# reports in the morning, not a gate on a push.
+name: Nightly sanitizers
+
+on:
+  schedule:
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sanitize:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: asan+ubsan
+            preset: linux-asan
+          - name: tsan+ubsan
+            preset: linux-tsan
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.0.0
+
+      - uses: ./.github/actions/linux-build-env
+
+      # The sanitizer flags live in the preset, so the same configuration is one
+      # command away on the dev machine when a nightly reports something.
+      - name: Configure
+        run: cmake --preset ${{ matrix.preset }} -D DUET_CCACHE_ENABLED=OFF
+
+      - name: Build
+        run: cmake --build --preset ${{ matrix.preset }} -j ${{ env.DUET_BUILD_JOBS }}
+
+      - name: Test
+        run: ctest --preset ${{ matrix.preset }}
+        env:
+          # A sanitizer report has to name the frame that caused it, and the
+          # test binary has to fail rather than log and carry on.
+          ASAN_OPTIONS: halt_on_error=1
+          TSAN_OPTIONS: halt_on_error=1
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1

@@ -18,11 +18,19 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # a hash lookup. Set here rather than in a preset because it must hold for the
 # vendored trees too, and it is deliberately optional — a machine without ccache
 # builds exactly as before.
-find_program(DUET_CCACHE ccache)
-if(DUET_CCACHE)
-    set(CMAKE_C_COMPILER_LAUNCHER "${DUET_CCACHE}")
-    set(CMAKE_CXX_COMPILER_LAUNCHER "${DUET_CCACHE}")
-    message(STATUS "Duet: compiling through ccache (${DUET_CCACHE})")
+#
+# CI turns the option off rather than relying on the runner not having ccache:
+# spec b1j3me settled that CI builds cold, and a cache that appears in a future
+# runner image would quietly undo that.
+option(DUET_CCACHE_ENABLED "Compile through ccache when the machine has one" ON)
+
+if(DUET_CCACHE_ENABLED)
+    find_program(DUET_CCACHE ccache)
+    if(DUET_CCACHE)
+        set(CMAKE_C_COMPILER_LAUNCHER "${DUET_CCACHE}")
+        set(CMAKE_CXX_COMPILER_LAUNCHER "${DUET_CCACHE}")
+        message(STATUS "Duet: compiling through ccache (${DUET_CCACHE})")
+    endif()
 endif()
 
 include(FetchContent)

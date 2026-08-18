@@ -1,0 +1,36 @@
+name: Linux build environment
+description: >
+  The apt packages a Duet build needs on ubuntu-24.04, and the job count the
+  runner can afford — in one place, so every job builds the same way.
+
+runs:
+  using: composite
+  steps:
+    - name: Install the build dependencies
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install --no-install-recommends --yes \
+          ninja-build \
+          libasound2-dev libjack-jackd2-dev \
+          libfreetype-dev libfontconfig1-dev \
+          libx11-dev libxcomposite-dev libxcursor-dev libxext-dev \
+          libxinerama-dev libxrandr-dev libxrender-dev \
+          libglu1-mesa-dev mesa-common-dev
+
+    # A Tracktion translation unit peaks near 2 GB, so the runner's memory caps
+    # the build long before its core count does — the same reason AGENTS.md
+    # pins -j 4 on the dev machine. GitHub's standard runners come in two sizes
+    # (2 cores / 7 GB for private repositories, 4 / 16 for public ones), so the
+    # number is measured here rather than written down.
+    - name: Choose the build job count
+      shell: bash
+      run: |
+        cores=$(nproc)
+        gigabytes=$(awk '/MemTotal/ { print int($2 / 1024 / 1024) }' /proc/meminfo)
+        by_memory=$(( gigabytes / 2 ))
+        [ "$by_memory" -lt 1 ] && by_memory=1
+        jobs=$cores
+        [ "$jobs" -gt "$by_memory" ] && jobs=$by_memory
+        echo "Runner: ${cores} cores, ${gigabytes} GB — building with -j ${jobs}"
+        echo "DUET_BUILD_JOBS=${jobs}" >> "$GITHUB_ENV"
