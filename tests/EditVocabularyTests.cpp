@@ -16,7 +16,7 @@ using duet::testing::TempProject;
 TEST_CASE ("an Action enters the undo history as one step under its own name")
 {
     const TempProject project;
-    Session session { project.folder() };
+    Session session { project.editFile() };
 
     session.performAction ("Add a drum track", [] (auto& ops) { ops.addTrack ("Drums"); });
 
@@ -30,7 +30,7 @@ TEST_CASE (
 {
     const TempProject project;
     const auto loop = project.writeTone ("drum-loop.wav", 2.0, 220.0);
-    Session session { project.folder() };
+    Session session { project.editFile() };
 
     const auto before = session.stateDigest();
 
@@ -63,7 +63,7 @@ TEST_CASE ("two Actions undo and redo back to the states they started from")
 {
     const TempProject project;
     const auto tone = project.writeTone ("tone.wav", 1.0, 440.0);
-    Session session { project.folder() };
+    Session session { project.editFile() };
 
     const auto initial = session.stateDigest();
 
@@ -92,7 +92,7 @@ TEST_CASE ("the vocabulary covers the track and clip operations, each as one Act
 {
     const TempProject project;
     const auto tone = project.writeTone ("tone.wav", 4.0, 330.0);
-    Session session { project.folder() };
+    Session session { project.editFile() };
 
     TrackRef drums = duet::model::noTrack;
     TrackRef bass = duet::model::noTrack;
@@ -161,7 +161,7 @@ TEST_CASE ("an inserted clip refers to its source inside the project, and plays 
 {
     const TempProject project;
     const auto tone = project.writeTone ("tone.wav", 2.0, 440.0);
-    Session session { project.folder() };
+    Session session { project.editFile() };
 
     session.performAction (
         "Insert the tone",
@@ -185,7 +185,7 @@ TEST_CASE ("the engine's deferred clip re-sort joins the Action that caused it")
 {
     const TempProject project;
     const auto tone = project.writeTone ("tone.wav", 1.0, 440.0);
-    Session session { project.folder() };
+    Session session { project.editFile() };
 
     ClipRef first = duet::model::noClip;
 
@@ -225,7 +225,7 @@ TEST_CASE ("the engine's deferred clip re-sort joins the Action that caused it")
 TEST_CASE ("the undo history holds the newest two hundred Actions")
 {
     const TempProject project;
-    Session session { project.folder() };
+    Session session { project.editFile() };
     const auto track = session.tracks().front().track;
 
     for (int take = 0; take <= 200; ++take)
@@ -262,7 +262,7 @@ TEST_CASE ("the operations cannot be reached outside an Action")
 TEST_CASE ("an Action off the message thread fails loudly and changes nothing")
 {
     const TempProject project;
-    Session session { project.folder() };
+    Session session { project.editFile() };
 
     bool refused = false;
 
@@ -290,7 +290,7 @@ TEST_CASE ("the state digest is stable across an undo and redo round trip")
 {
     const TempProject project;
     const auto tone = project.writeTone ("tone.wav", 2.0, 440.0);
-    Session session { project.folder() };
+    Session session { project.editFile() };
 
     session.performAction (
         "Lay out the loop",
@@ -319,7 +319,7 @@ TEST_CASE ("a headless session plays through the engine's one-time device rebuil
 {
     const TempProject project;
     const auto tone = project.writeTone ("tone.wav", 8.0, 440.0);
-    Session session { project.folder() };
+    Session session { project.editFile() };
 
     session.performAction (
         "Lay out the loop",

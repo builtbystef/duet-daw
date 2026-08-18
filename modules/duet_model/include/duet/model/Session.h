@@ -103,6 +103,16 @@ public:
     void trimClip (ClipRef clip, double newLengthSeconds);
     void deleteClip (ClipRef clip);
 
+    /** Sets a track's fader level, in decibels: the explicit value, the one the
+        producer chose and the one a save has to bring back.
+    */
+    void setTrackVolumeDb (TrackRef track, double db);
+
+    /** Adds a point to the automation curve of a track's fader — the level, in
+        decibels, that automation drives the fader to at that time.
+    */
+    void addVolumeAutomationPoint (TrackRef track, double timeSeconds, double db);
+
 private:
     friend class Session;
 
@@ -120,14 +130,21 @@ private:
 class Session
 {
 public:
-    /** Opens an empty session for a project living in the given folder.
+    /** Opens an empty session on a project's edit file.
 
-        Nothing is written to the folder: the path tells the model where the
-        project's files are, so that clip source references inside it are stored
-        relative to it. Creating and opening real projects is the persistence
-        facade's work.
+        Nothing is read and nothing is written: the path tells the model which
+        file the project keeps its state in, and the folder that holds that file
+        is the project folder, which clip source references inside it are stored
+        relative to. Naming the file, and creating and opening real projects, is
+        the persistence facade's work.
     */
-    explicit Session (std::filesystem::path projectFolder);
+    explicit Session (std::filesystem::path editFile);
+
+    /** Opens a session on an edit file that is already there, and reads it.
+        Null when there is nothing readable at that path.
+    */
+    [[nodiscard]] static std::unique_ptr<Session> openExisting (std::filesystem::path editFile);
+
     ~Session();
 
     Session (const Session&) = delete;
@@ -173,6 +190,22 @@ public:
     /** How far the edit's content reaches, in seconds. Zero when it is empty. */
     [[nodiscard]] double editLengthSeconds() const;
 
+    /** A track's fader level in decibels, as the project stores it: what the
+        producer set, whatever automation is doing to the fader right now.
+    */
+    [[nodiscard]] double trackVolumeDb (TrackRef track) const;
+
+    /** The fader level automation is driving a track to right now, in decibels.
+        Equal to trackVolumeDb until playback hands the fader to a curve.
+    */
+    [[nodiscard]] double liveTrackVolumeDb (TrackRef track) const;
+
+    /** Calls back after every change this session makes to the project — an
+        Action, an undo, or a redo — so that the persistence facade can know the
+        project has changes that are not on disk. One callback at a time.
+    */
+    void onProjectChanged (std::function<void()> callback);
+
     /** A digest of the whole project state, independent of the order in which
         its properties happen to be stored.
 
@@ -209,6 +242,19 @@ public:
 
 private:
     friend class EditOps;
+
+    // The one way through the engine seam, for the one module that needs it.
+    // Its header is not on this module's public include path.
+    friend struct EngineAccess;
+
+    /** Tells the two constructors apart: one starts a project, one reads one. */
+    struct FromFile
+    {
+    };
+
+    Session (std::filesystem::path editFile, FromFile readIt);
+
+    void startUndoHistory();
 
     struct Impl;
     std::unique_ptr<Impl> impl;

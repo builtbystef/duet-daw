@@ -10,7 +10,7 @@ using Catch::Matchers::WithinAbs;
 TEST_CASE ("a new session opens one empty audio track at 120 bpm")
 {
     const duet::testing::TempProject project;
-    const duet::model::Session session { project.folder() };
+    const duet::model::Session session { project.editFile() };
 
     REQUIRE (session.audioTrackCount() == 1);
     REQUIRE_THAT (session.tempoBpm(), WithinAbs (120.0, 0.001));
@@ -21,7 +21,7 @@ TEST_CASE ("a new session opens one empty audio track at 120 bpm")
 TEST_CASE ("the demo phrase gives the session eight seconds to play")
 {
     const duet::testing::TempProject project;
-    duet::model::Session session { project.folder() };
+    duet::model::Session session { project.editFile() };
     session.loadDemoContent();
 
     REQUIRE_THAT (session.editLengthSeconds(), WithinAbs (8.0, 0.001));

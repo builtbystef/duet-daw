@@ -18,8 +18,9 @@ namespace duet::testing
 {
 /** A project folder under the system temp directory, deleted with this object.
 
-    Only the folder shape belongs to the model's slice; creating and opening
-    real projects is the persistence facade's work (issue 1c8sjh).
+    A bare folder of the right shape, for suites that want one without going
+    through the persistence facade, and the room to make real projects in: a
+    path below folder() is a fresh project folder that this object cleans up.
 */
 class TempProject
 {
@@ -31,6 +32,9 @@ public:
     TempProject& operator= (const TempProject&) = delete;
 
     [[nodiscard]] const std::filesystem::path& folder() const { return projectFolder; }
+
+    /** The edit file a session opened on this folder edits. */
+    [[nodiscard]] std::filesystem::path editFile() const;
 
     /** Writes a sine tone into the project's audio subdirectory, and returns
         the file it wrote.

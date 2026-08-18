@@ -43,6 +43,11 @@ TempProject::~TempProject()
     std::filesystem::remove_all (projectFolder, ignored);
 }
 
+std::filesystem::path TempProject::editFile() const
+{
+    return duet::persistence::editFile (projectFolder);
+}
+
 std::filesystem::path TempProject::writeTone (std::string_view fileName,
                                               double lengthSeconds,
                                               double frequencyHz) const

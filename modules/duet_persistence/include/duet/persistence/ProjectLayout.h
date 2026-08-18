@@ -10,4 +10,17 @@ namespace duet::persistence
 {
 /** The recordings-and-imports subdirectory of a project folder. */
 std::filesystem::path audioDirectory (const std::filesystem::path& projectFolder);
+
+/** The file a project keeps its state in: the engine's edit and, inside it,
+    Duet's own DUET tree. Everything the project stores relative paths against.
+*/
+std::filesystem::path editFile (const std::filesystem::path& projectFolder);
+
+/** Where a save writes before it renames the result onto the edit file.
+
+    A save that dies halfway leaves this file behind and the project file as it
+    was, so a file at this path is the remains of an interrupted save and never
+    a project.
+*/
+std::filesystem::path partialSaveFile (const std::filesystem::path& projectFolder);
 } // namespace duet::persistence

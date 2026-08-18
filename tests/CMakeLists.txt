@@ -8,6 +8,7 @@ add_subdirectory(support)
 add_executable(duet_tests
     EditVocabularyTests.cpp
     ProjectLayoutTests.cpp
+    ProjectTests.cpp
     SessionTests.cpp)
 
 target_compile_features(duet_tests PRIVATE cxx_std_20)
