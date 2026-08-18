@@ -1,0 +1,56 @@
+# Duet's lint. Run over Duet's own sources only, driven by compile_commands.json:
+#   clang-tidy-18 -p build/ <duet sources>
+# Never through CMAKE_CXX_CLANG_TIDY, which would lint the vendored JUCE and
+# Tracktion trees as well.
+#
+# The starting point is every check Duet's code passes. A check is switched off
+# only with the reason written beside it — mostly where a check argues with an
+# idiom that JUCE, the engine, or Catch2 imposes on the code.
+Checks: >
+  bugprone-*,
+  cert-*,
+  clang-analyzer-*,
+  concurrency-*,
+  cppcoreguidelines-*,
+  misc-*,
+  modernize-*,
+  performance-*,
+  portability-*,
+  readability-*,
+  -bugprone-easily-swappable-parameters,
+  -cppcoreguidelines-avoid-do-while,
+  -cppcoreguidelines-avoid-magic-numbers,
+  -cppcoreguidelines-owning-memory,
+  -misc-include-cleaner,
+  -misc-non-private-member-variables-in-classes,
+  -misc-use-anonymous-namespace,
+  -modernize-use-trailing-return-type,
+  -readability-braces-around-statements,
+  -readability-identifier-length,
+  -readability-magic-numbers
+
+# -bugprone-easily-swappable-parameters: advisory only, and it fires on honest
+#   two-coordinate signatures the domain has plenty of.
+# -cppcoreguidelines-avoid-do-while, -misc-use-anonymous-namespace: both fire
+#   inside Catch2's TEST_CASE and REQUIRE macro expansions, not on our code.
+# -cppcoreguidelines-owning-memory: JUCE hands ownership across raw pointers by
+#   design (setContentOwned, addAndMakeVisible), so this check rejects the
+#   framework's own calling convention.
+# -misc-include-cleaner: JUCE and Tracktion modules are consumed through one
+#   umbrella header each; this check demands the internal headers instead.
+# -misc-non-private-member-variables-in-classes: fires on the member that
+#   JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR generates.
+# -readability-braces-around-statements: the JUCE house style in .clang-format
+#   writes single-statement bodies without braces.
+# -*-magic-numbers, -readability-identifier-length: too noisy against audio code,
+#   where short names and literal constants are the domain's own vocabulary.
+# -modernize-use-trailing-return-type: a style preference this project does not hold.
+
+CheckOptions:
+  # JUCE's non-copyable macro declares the copy operations; a class that also has
+  # a destructor is complete without hand-written move operations.
+  cppcoreguidelines-special-member-functions.AllowMissingMoveFunctions: true
+
+WarningsAsErrors: '*'
+HeaderFilterRegex: '.*/(modules|tests)/duet.*'
+FormatStyle: file

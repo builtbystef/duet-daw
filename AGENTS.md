@@ -3,10 +3,10 @@
 - **Configure** — `cmake --preset linux-debug` (Ninja Multi-Config, exports `compile_commands.json`)
 - **Build** — `cmake --build --preset linux-debug` (locally always `-j 4` — full parallelism OOM-freezes the dev machine, ~2 GB per Tracktion TU)
 - **Test** — `ctest --preset linux-debug --output-on-failure` (Catch2 v3, Duet's own code)
-- **Format** — `clang-format -i` over Duet sources; check with `clang-format --dry-run --Werror`
-- **Lint** — `clang-tidy -p build/ <duet sources>` — never `CMAKE_CXX_CLANG_TIDY`, which would lint the vendored JUCE/Tracktion trees
+- **Format** — `clang-format-18 -i $(git ls-files '*.cpp' '*.h')`; check with `clang-format-18 --dry-run --Werror $(git ls-files '*.cpp' '*.h')` (the versioned binary is what Ubuntu installs; `git ls-files` never reaches the vendored trees, which live under the ignored `build/`)
+- **Lint** — `clang-tidy-18 -p build/ $(git ls-files 'modules/*.cpp' 'tests/*.cpp')` — never `CMAKE_CXX_CLANG_TIDY`, which would lint the vendored JUCE/Tracktion trees
 - **Typecheck** — n/a; the compiler is the typechecker
-- **Run** — the app is launched via `pw-jack` on the dev machine (pipewire-jack is not the system-wide libjack)
+- **Run** — `pw-jack ./build/modules/duet_app/duet_app_artefacts/Debug/Duet` (pipewire-jack is not the system-wide libjack on the dev machine, so the wrapper is required)
 
 ## Project docs & tracker
 
