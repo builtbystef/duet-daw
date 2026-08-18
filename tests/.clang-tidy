@@ -1,0 +1,13 @@
+# The suites' lint: everything the project lints elsewhere, minus the two checks
+# that argue with Catch2's macros rather than with the tests.
+InheritParentConfig: true
+
+Checks: >
+  -clang-analyzer-optin.core.EnumCastOutOfRange,
+  -readability-function-cognitive-complexity
+
+# -clang-analyzer-optin.core.EnumCastOutOfRange: fires inside Catch2's own
+#   ResultDisposition flag arithmetic, which REQUIRE_FALSE expands into.
+# -readability-function-cognitive-complexity: TEST_CASE expands into a function,
+#   and each assertion macro adds branches to it, so the number it reports
+#   measures Catch2's machinery and not the test that reads as a list of steps.

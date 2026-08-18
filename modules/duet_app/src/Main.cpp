@@ -2,6 +2,7 @@
 
 #include <juce_gui_extra/juce_gui_extra.h>
 
+#include <filesystem>
 #include <memory>
 
 namespace duet::app
@@ -77,7 +78,14 @@ private:
                + juce::String::formatted (" — %.2f s", session.playbackPositionSeconds());
     }
 
-    duet::model::Session session;
+    // The shell has no project lifecycle yet (issue 1c8sjh), so the session
+    // points at a scratch folder: enough for the model to know where a project's
+    // files would live, and nothing is written there.
+    duet::model::Session session { std::filesystem::path {
+        juce::File::getSpecialLocation (juce::File::tempDirectory)
+            .getChildFile ("Duet Untitled")
+            .getFullPathName()
+            .toStdString() } };
 
     juce::TextButton playButton { "Play" };
     juce::TextButton stopButton { "Stop" };

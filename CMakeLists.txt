@@ -50,6 +50,11 @@ target_compile_definitions(duet_engine_config INTERFACE
     JUCE_USE_CURL=0
     JUCE_WEB_BROWSER=0
     JUCE_PLUGINHOST_LADSPA=0
+    # Headless tests drive the engine's deferred work — the async clip re-sort
+    # above all — by running the message loop for a fixed time, and JUCE gates
+    # its only timed pump behind this flag. It permits the API; it forces no
+    # modal behaviour on the app.
+    JUCE_MODAL_LOOPS_PERMITTED=1
 )
 target_link_libraries(duet_engine_config INTERFACE
     tracktion::tracktion_engine
