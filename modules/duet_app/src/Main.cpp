@@ -1,16 +1,20 @@
 #include <duet/persistence/Project.h>
 
+#include <duet/model/Session.h>
+
 #include <juce_gui_extra/juce_gui_extra.h>
 
+#include <array>
 #include <filesystem>
 #include <memory>
+#include <string_view>
 
 namespace duet::app
 {
 namespace
 {
     constexpr int windowWidth = 720;
-    constexpr int windowHeight = 260;
+    constexpr int windowHeight = 330;
     constexpr int statusRefreshMs = 100;
     constexpr int rowHeight = 40;
     constexpr int buttonWidth = 110;
@@ -45,15 +49,27 @@ public:
         openButton.onClick = [this] { chooseFolder (false); };
         saveButton.onClick = [this] { saveProject(); };
         addTrackButton.onClick = [this] { addTrack(); };
+        nextEditButton.onClick = [this] { stepThroughTheVocabulary(); };
+        undoButton.onClick = [this]
+        {
+            withProject ([] (auto& p) { p.session().undo(); });
+            refresh();
+        };
         playButton.onClick = [this]
         { withProject ([] (auto& p) { p.session().startPlayback(); }); };
         stopButton.onClick = [this] { withProject ([] (auto& p) { p.session().stopPlayback(); }); };
 
-        for (auto* button :
-             { &newButton, &openButton, &saveButton, &addTrackButton, &playButton, &stopButton })
+        for (auto* button : { &newButton,
+                              &openButton,
+                              &saveButton,
+                              &addTrackButton,
+                              &playButton,
+                              &stopButton,
+                              &nextEditButton,
+                              &undoButton })
             addAndMakeVisible (*button);
 
-        for (auto* label : { &projectLabel, &deviceLabel, &transportLabel })
+        for (auto* label : { &projectLabel, &deviceLabel, &transportLabel, &vocabularyLabel })
             addAndMakeVisible (*label);
 
         setSize (windowWidth, windowHeight);
@@ -80,7 +96,11 @@ public:
         for (auto* button : { &addTrackButton, &playButton, &stopButton })
             button->setBounds (transport.removeFromLeft (buttonWidth).reduced (2));
 
-        for (auto* label : { &projectLabel, &deviceLabel, &transportLabel })
+        auto vocabulary = area.removeFromTop (rowHeight);
+        for (auto* button : { &nextEditButton, &undoButton })
+            button->setBounds (vocabulary.removeFromLeft (buttonWidth).reduced (2));
+
+        for (auto* label : { &projectLabel, &deviceLabel, &transportLabel, &vocabularyLabel })
             label->setBounds (area.removeFromTop (labelHeight));
     }
 
@@ -134,6 +154,10 @@ private:
         }
 
         problem = {};
+        demoStep = 0;
+        demoBus = duet::model::noTrack;
+        demoReverb = duet::model::noPlugin;
+        lastDemoStep = {};
 
         if (forNewProject)
         {
@@ -162,9 +186,12 @@ private:
             [] (auto& open)
             {
                 const auto number = open.session().audioTrackCount() + 1;
-                open.session().performAction (
-                    "Add a track",
-                    [number] (auto& ops) { ops.addTrack ("Track " + std::to_string (number)); });
+                open.session().performAction ("Add a track",
+                                              [number] (auto& ops) {
+                                                  ops.createTrack (duet::model::TrackKind::audio,
+                                                                   "Track "
+                                                                       + std::to_string (number));
+                                              });
             });
 
         refresh();
@@ -174,9 +201,17 @@ private:
     {
         const auto hasProject = project != nullptr;
 
-        for (auto* button : { &saveButton, &addTrackButton, &playButton, &stopButton })
+        for (auto* button : { &saveButton,
+                              &addTrackButton,
+                              &playButton,
+                              &stopButton,
+                              &nextEditButton,
+                              &undoButton })
             button->setEnabled (hasProject);
 
+        nextEditButton.setEnabled (hasProject && demoStep < demoStepNames.size());
+
+        vocabularyLabel.setText (vocabularyText(), juce::dontSendNotification);
         projectLabel.setText (projectText(), juce::dontSendNotification);
         deviceLabel.setText (deviceText(), juce::dontSendNotification);
         transportLabel.setText (transportText(), juce::dontSendNotification);
@@ -219,6 +254,130 @@ private:
                               : juce::String ("Device: ") + juce::String (device);
     }
 
+    /** One Action from each domain of the vocabulary, one to a press.
+
+        Scaffolding, and deliberately so: the producer-facing surfaces are issue
+        535bbo's, and until they arrive this is how the vocabulary is listened to
+        with the transport rolling. Press Play, then press this, and each step
+        lands in the sound without a gap. Undo takes them back one at a time.
+    */
+    static constexpr std::array<std::string_view, 7> demoStepNames { "Add notes",
+                                                                     "Duplicate and loop the clip",
+                                                                     "Route into a group bus",
+                                                                     "Set the mixer and a send",
+                                                                     "Add a reverb and set it",
+                                                                     "Draw a volume curve",
+                                                                     "Change the tempo" };
+
+    void stepThroughTheVocabulary()
+    {
+        withProject (
+            [this] (auto& open)
+            {
+                auto& session = open.session();
+                const auto tracks = session.tracks();
+
+                if (tracks.empty() || tracks.front().clips.empty())
+                    return;
+
+                const auto track = tracks.front().track;
+                const auto clip = tracks.front().clips.front().clip;
+                const auto name = juce::String (std::string { demoStepNames.at (demoStep) });
+
+                switch (demoStep)
+                {
+                    case 0:
+                        session.performAction (
+                            demoStepNames.at (0),
+                            [clip] (auto& ops)
+                            {
+                                for (int note = 0; note < 8; ++note)
+                                    ops.addNote (clip, 45 + note * 2, note * 1.0, 0.9, 90);
+                            });
+                        break;
+
+                    case 1:
+                        session.performAction (demoStepNames.at (1),
+                                               [&] (auto& ops)
+                                               {
+                                                   ops.setClipLoop (clip, true, 8.0);
+                                                   ops.duplicateClip (clip,
+                                                                      duet::model::noTrack,
+                                                                      session.barStartSeconds (5));
+                                               });
+                        break;
+
+                    case 2:
+                        session.performAction (demoStepNames.at (2),
+                                               [&] (auto& ops)
+                                               {
+                                                   demoBus = ops.createTrack (
+                                                       duet::model::TrackKind::group, "Bus");
+                                                   ops.setTrackOutput (track, demoBus);
+                                               });
+                        break;
+
+                    case 3:
+                        session.performAction (demoStepNames.at (3),
+                                               [&] (auto& ops)
+                                               {
+                                                   ops.setTrackVolumeDb (track, -6.0);
+                                                   ops.setTrackPan (track, -0.4);
+                                                   ops.setSend (track, demoBus, -12.0);
+                                               });
+                        break;
+
+                    case 4:
+                        session.performAction (
+                            demoStepNames.at (4),
+                            [&] (auto& ops)
+                            {
+                                demoReverb =
+                                    ops.addPlugin (demoBus, duet::model::BuiltinPlugin::reverb, 0);
+                                ops.setPluginParameter (demoReverb, "room size", 0.9);
+                                ops.setPluginParameter (demoReverb, "wet level", 0.6);
+                            });
+                        break;
+
+                    case 5:
+                        session.performAction (
+                            demoStepNames.at (5),
+                            [track] (auto& ops)
+                            {
+                                ops.setAutomationPoints (
+                                    duet::model::AutomationTarget::trackVolumeOf (track),
+                                    { { 0.0, -24.0 }, { 4.0, 0.0 }, { 8.0, -24.0 } });
+                            });
+                        break;
+
+                    default:
+                        session.performAction (demoStepNames.at (6),
+                                               [] (auto& ops)
+                                               {
+                                                   ops.setTempo (140.0);
+                                                   ops.setTimeSignature (6, 8);
+                                               });
+                        break;
+                }
+
+                lastDemoStep = name;
+                ++demoStep;
+            });
+
+        refresh();
+    }
+
+    [[nodiscard]] juce::String vocabularyText() const
+    {
+        if (project == nullptr)
+            return {};
+
+        if (demoStep >= demoStepNames.size())
+            return text ("Vocabulary demo done — ") + lastDemoStep;
+
+        return text ("Next edit: ") + juce::String (std::string { demoStepNames.at (demoStep) });
+    }
+
     [[nodiscard]] juce::String transportText() const
     {
         if (project == nullptr)
@@ -241,9 +400,16 @@ private:
     juce::TextButton addTrackButton { "Add Track" };
     juce::TextButton playButton { "Play" };
     juce::TextButton stopButton { "Stop" };
+    juce::TextButton nextEditButton { "Next Edit" };
+    juce::TextButton undoButton { "Undo" };
     juce::Label projectLabel;
     juce::Label deviceLabel;
     juce::Label transportLabel;
+    juce::Label vocabularyLabel;
+    std::size_t demoStep = 0;
+    duet::model::TrackRef demoBus = duet::model::noTrack;
+    duet::model::PluginRef demoReverb = duet::model::noPlugin;
+    juce::String lastDemoStep;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainComponent)
 };

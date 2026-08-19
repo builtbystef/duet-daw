@@ -1,0 +1,92 @@
+#include <duet/model/Session.h>
+
+#include <duet/testing/TestSupport.h>
+
+#include <catch2/catch_test_macros.hpp>
+
+using duet::model::BuiltinPlugin;
+using duet::model::Session;
+using duet::model::TrackKind;
+using duet::model::TrackRef;
+using duet::testing::TempProject;
+
+TEST_CASE ("a track is created of each kind, and a midi track with an instrument")
+{
+    const TempProject project;
+    Session session { project.editFile() };
+
+    TrackRef audio = duet::model::noTrack;
+    TrackRef keys = duet::model::noTrack;
+    TrackRef drums = duet::model::noTrack;
+    TrackRef bus = duet::model::noTrack;
+
+    session.performAction (
+        "Lay out the tracks",
+        [&] (auto& ops)
+        {
+            audio = ops.createTrack (TrackKind::audio, "Vocals");
+            keys = ops.createTrack (TrackKind::midi, "Keys", BuiltinPlugin::synth);
+            drums = ops.createTrack (TrackKind::midi, "Drums", BuiltinPlugin::sampler);
+            bus = ops.createTrack (TrackKind::group, "Bus");
+        });
+
+    REQUIRE (session.track (audio).kind == TrackKind::audio);
+    REQUIRE (session.track (keys).kind == TrackKind::midi);
+    REQUIRE (session.track (drums).kind == TrackKind::midi);
+    REQUIRE (session.track (bus).kind == TrackKind::group);
+
+    REQUIRE (session.track (audio).name == "Vocals");
+
+    // The instrument goes at the head of the chain, in front of the fader that
+    // every track starts with.
+    const auto chain = session.track (keys).plugins;
+
+    REQUIRE_FALSE (chain.empty());
+    REQUIRE (chain.front().builtin == BuiltinPlugin::synth);
+    REQUIRE (session.track (drums).plugins.front().builtin == BuiltinPlugin::sampler);
+
+    // A track asked for without an instrument gets none.
+    for (const auto& plugin : session.track (audio).plugins)
+        REQUIRE (plugin.builtin != BuiltinPlugin::synth);
+}
+
+TEST_CASE ("a track's output is routed into a group bus, and the routing undoes exactly")
+{
+    const TempProject project;
+    Session session { project.editFile() };
+
+    TrackRef vocals = duet::model::noTrack;
+    TrackRef bus = duet::model::noTrack;
+
+    session.performAction ("Lay out the tracks",
+                           [&] (auto& ops)
+                           {
+                               vocals = ops.createTrack (TrackKind::audio, "Vocals");
+                               bus = ops.createTrack (TrackKind::group, "Vocal bus");
+                           });
+
+    REQUIRE (session.track (vocals).output == duet::model::noTrack);
+
+    const auto beforeRouting = session.stateDigest();
+
+    session.performAction ("Route the vocals into the bus",
+                           [&] (auto& ops) { ops.setTrackOutput (vocals, bus); });
+
+    REQUIRE (session.track (vocals).output == bus);
+
+    REQUIRE (session.undoNames().front() == "Route the vocals into the bus");
+    REQUIRE (session.undo());
+    REQUIRE (session.stateDigest() == beforeRouting);
+    REQUIRE (session.track (vocals).output == duet::model::noTrack);
+
+    REQUIRE (session.redo());
+    REQUIRE (session.track (vocals).output == bus);
+
+    // No bus: the track goes to the default output again.
+    constexpr auto noBus = duet::model::noTrack;
+
+    session.performAction ("Send the vocals out again",
+                           [&] (auto& ops) { ops.setTrackOutput (vocals, noBus); });
+
+    REQUIRE (session.track (vocals).output == duet::model::noTrack);
+}

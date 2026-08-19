@@ -1,14 +1,10 @@
-#include <duet/model/Session.h>
-
-#include <duet/model/EngineAccess.h>
+#include "SessionImpl.h"
 
 #include <algorithm>
 #include <array>
 #include <sstream>
 #include <stdexcept>
 #include <utility>
-
-namespace te = tracktion;
 
 namespace duet::model
 {
@@ -19,98 +15,7 @@ namespace
 
     /** ADR 0004: undo goes 200 Actions deep, in memory, for the session. */
     constexpr int undoDepth = 200;
-
-    /** The engine names its fader parameter this, and Duet's fader is it. */
-    constexpr const char* volumeParameterID = "volume";
-
-    juce::File toJuceFile (const std::filesystem::path& path)
-    {
-        return juce::File { juce::String { path.string() } };
-    }
-
-    std::filesystem::path toPath (const juce::File& file)
-    {
-        return std::filesystem::path { file.getFullPathName().toStdString() };
-    }
-
-    /** How the project refers to a file: relative to the project folder when the
-        file is inside it, absolute when it is not.
-
-        The engine's own relative paths are written against the edit file and read
-        against the folder that holds it, one level apart, which is how a clip ends
-        up pointing at a file that does not exist and playing silence (hazard 5).
-        Duet writes the reference the project reads.
-    */
-    std::string projectReferenceTo (const std::filesystem::path& projectFolder,
-                                    const std::filesystem::path& sourceFile)
-    {
-        const auto relative =
-            sourceFile.lexically_normal().lexically_relative (projectFolder.lexically_normal());
-        const bool insideProject = ! relative.empty() && *relative.begin() != "..";
-
-        return insideProject ? relative.generic_string() : sourceFile.generic_string();
-    }
 } // namespace
-
-/** Everything engine-shaped lives here, so that Session.h can name no engine or
-    JUCE type. The initialiser is declared first so that it outlives the engine:
-    the engine's managers start timers and background threads that need a
-    message manager, which is also what makes a Session usable headlessly.
-*/
-struct Session::Impl
-{
-    explicit Impl (std::filesystem::path file)
-        : editFile (std::move (file)), projectFolder (editFile.parent_path())
-    {
-    }
-
-    juce::ScopedJuceInitialiser_GUI juceInitialiser;
-    te::Engine engine { "Duet" };
-    std::filesystem::path editFile;
-    std::filesystem::path projectFolder;
-    std::unique_ptr<te::Edit> edit;
-    std::function<void()> projectChanged;
-
-    juce::UndoManager& undoManager() const { return edit->getUndoManager(); }
-
-    void announceChange() const
-    {
-        if (projectChanged)
-            projectChanged();
-    }
-
-    te::AutomatableParameter* volumeParameterFor (TrackRef ref) const
-    {
-        if (auto* audioTrack = trackFor (ref))
-            if (auto* volume = audioTrack->getVolumePlugin())
-                return volume->getAutomatableParameterByID (volumeParameterID).get();
-
-        return nullptr;
-    }
-
-    te::AudioTrack* trackFor (TrackRef ref) const
-    {
-        return dynamic_cast<te::AudioTrack*> (te::findTrackForID (
-            *edit, te::EditItemID::fromRawID (static_cast<juce::uint64> (ref))));
-    }
-
-    te::Clip* clipFor (ClipRef ref) const
-    {
-        return te::findClipForID (*edit,
-                                  te::EditItemID::fromRawID (static_cast<juce::uint64> (ref)));
-    }
-
-    static std::vector<std::string> toStrings (const juce::StringArray& strings)
-    {
-        std::vector<std::string> out;
-        out.reserve (static_cast<std::size_t> (strings.size()));
-
-        for (const auto& string : strings)
-            out.push_back (string.toStdString());
-
-        return out;
-    }
-};
 
 //==============================================================================
 Session::Session (std::filesystem::path editFile)
@@ -152,6 +57,13 @@ void Session::startUndoHistory()
     // up front is what makes two states of the same project comparable.
     impl->edit->getSceneList();
 
+    // Every plugin already in the project says what its parameters are, so that
+    // an undo can put one back without having to create the property that holds
+    // it. Nothing here is an edit; a project that has just been opened has
+    // nothing to undo.
+    for (auto* plugin : te::getAllPlugins (*impl->edit, true))
+        stateParametersExplicitly (*plugin);
+
     // Opening a project is not an Action; the history starts clean.
     impl->undoManager().clearUndoHistory();
 }
@@ -165,119 +77,6 @@ Session::~Session()
 }
 
 //==============================================================================
-EditOps::EditOps (Session& owner) noexcept : session (owner) {}
-
-TrackRef EditOps::addTrack (std::string_view name)
-{
-    auto& edit = *session.impl->edit;
-
-    if (auto track =
-            edit.insertNewAudioTrack (te::TrackInsertPoint::getEndOfTracks (edit), nullptr))
-    {
-        track->setName (juce::String { std::string { name } });
-        return static_cast<TrackRef> (track->itemID.getRawID());
-    }
-
-    return noTrack;
-}
-
-void EditOps::removeTrack (TrackRef track)
-{
-    if (auto* audioTrack = session.impl->trackFor (track))
-        session.impl->edit->deleteTrack (audioTrack);
-}
-
-void EditOps::renameTrack (TrackRef track, std::string_view newName)
-{
-    if (auto* audioTrack = session.impl->trackFor (track))
-        audioTrack->setName (juce::String { std::string { newName } });
-}
-
-void EditOps::moveTrack (TrackRef track, int newIndex)
-{
-    auto* audioTrack = session.impl->trackFor (track);
-
-    if (audioTrack == nullptr)
-        return;
-
-    auto& edit = *session.impl->edit;
-    auto order = te::getAudioTracks (edit);
-    order.removeAllInstancesOf (audioTrack);
-
-    // The engine places a track after the one it is told to follow, so the track
-    // that ends up before this one is what an index means here.
-    const auto placeAfter = juce::jlimit (0, order.size(), newIndex) - 1;
-    const auto preceding = placeAfter >= 0 ? order[placeAfter]->itemID : te::EditItemID();
-
-    edit.moveTrack (audioTrack, te::TrackInsertPoint { te::EditItemID(), preceding });
-}
-
-ClipRef EditOps::insertAudioClip (TrackRef track,
-                                  std::string_view name,
-                                  const std::filesystem::path& sourceFile,
-                                  double startSeconds,
-                                  double lengthSeconds)
-{
-    auto* audioTrack = session.impl->trackFor (track);
-
-    if (audioTrack == nullptr)
-        return noClip;
-
-    const auto file = toJuceFile (sourceFile);
-    const te::ClipPosition position { { te::TimePosition::fromSeconds (startSeconds),
-                                        te::TimePosition::fromSeconds (startSeconds
-                                                                       + lengthSeconds) } };
-
-    if (auto clip = audioTrack->insertWaveClip (
-            juce::String { std::string { name } }, file, position, false))
-    {
-        // Hazard 5: the reference the engine stores by default resolves against
-        // a temporary directory, and the clip plays silence. Pin it here, to the
-        // path the project keeps.
-        clip->getSourceFileReference().source =
-            juce::String { projectReferenceTo (session.impl->projectFolder, sourceFile) };
-        return static_cast<ClipRef> (clip->itemID.getRawID());
-    }
-
-    return noClip;
-}
-
-void EditOps::moveClip (ClipRef clip, double newStartSeconds)
-{
-    if (auto* c = session.impl->clipFor (clip))
-        c->setStart (te::TimePosition::fromSeconds (newStartSeconds), false, true);
-}
-
-void EditOps::trimClip (ClipRef clip, double newLengthSeconds)
-{
-    if (auto* c = session.impl->clipFor (clip))
-        c->setLength (te::TimeDuration::fromSeconds (newLengthSeconds), true);
-}
-
-void EditOps::deleteClip (ClipRef clip)
-{
-    if (auto* c = session.impl->clipFor (clip))
-        c->removeFromParent();
-}
-
-void EditOps::setTrackVolumeDb (TrackRef track, double db)
-{
-    if (auto* audioTrack = session.impl->trackFor (track))
-        if (auto* volume = audioTrack->getVolumePlugin())
-            volume->setVolumeDb (static_cast<float> (db));
-}
-
-void EditOps::addVolumeAutomationPoint (TrackRef track, double timeSeconds, double db)
-{
-    if (auto* parameter = session.impl->volumeParameterFor (track))
-        parameter->getCurve().addPoint (
-            te::EditPosition { te::TimePosition::fromSeconds (timeSeconds) },
-            te::decibelsToVolumeFaderPosition (static_cast<float> (db)),
-            0.0F,
-            &session.impl->undoManager());
-}
-
-//==============================================================================
 void Session::performAction (std::string_view name, const std::function<void (EditOps&)>& ops)
 {
     if (! juce::MessageManager::existsAndIsCurrentThread())
@@ -288,7 +87,7 @@ void Session::performAction (std::string_view name, const std::function<void (Ed
     // a quiet message loop would otherwise be split in two.
     const te::Edit::UndoTransactionInhibitor keepTheActionWhole { *impl->edit };
 
-    impl->undoManager().beginNewTransaction (juce::String { std::string { name } });
+    impl->undoManager().beginNewTransaction (toJuceString (name));
     EditOps editOps { *this };
     ops (editOps);
 
@@ -305,6 +104,7 @@ bool Session::undo()
         return false;
 
     impl->edit->undo();
+    impl->refreshParametersFromState();
     impl->announceChange();
     return true;
 }
@@ -315,6 +115,7 @@ bool Session::redo()
         return false;
 
     impl->edit->redo();
+    impl->refreshParametersFromState();
     impl->announceChange();
     return true;
 }
@@ -335,6 +136,67 @@ std::vector<std::string> Session::redoNames() const
 }
 
 //==============================================================================
+namespace
+{
+    /** Which track is the bus a send's number leads to. */
+    TrackRef busTrackFor (te::Edit& edit, int busNumber)
+    {
+        for (auto* track : te::getAudioTracks (edit))
+            if (auto* auxReturn = returnOn (*track))
+                if (auxReturn->busNumber == busNumber)
+                    return toRef<TrackRef> (track->itemID);
+
+        return noTrack;
+    }
+
+    /** What a track is for, read off the state that makes it so: a bus is a
+        track whose own output goes nowhere, and a midi track is one with an
+        instrument at the head of its chain to drive.
+    */
+    TrackKind kindOf (te::AudioTrack& track)
+    {
+        if (track.getOutput().outputsToNone())
+            return TrackKind::group;
+
+        for (auto* plugin : track.pluginList.getPlugins())
+            if (const auto builtin = builtinOf (*plugin))
+                if (*builtin == BuiltinPlugin::synth || *builtin == BuiltinPlugin::sampler)
+                    return TrackKind::midi;
+
+        return TrackKind::audio;
+    }
+
+    PluginInfo describe (te::Plugin& plugin)
+    {
+        PluginInfo info;
+        info.plugin = toRef<PluginRef> (plugin.itemID);
+        info.name = plugin.getName().toStdString();
+        info.builtin = builtinOf (plugin);
+        info.sidechainSource = toRef<TrackRef> (plugin.getSidechainSourceID());
+        return info;
+    }
+
+    ClipInfo describe (te::Clip& clip)
+    {
+        ClipInfo info;
+        info.clip = toRef<ClipRef> (clip.itemID);
+        info.name = clip.getName().toStdString();
+        info.startSeconds = clip.getPosition().getStart().inSeconds();
+        info.lengthSeconds = clip.getPosition().getLength().inSeconds();
+        info.looped = clip.isLooping();
+        info.loopLengthBeats = info.looped ? clip.getLoopLengthBeats().inBeats() : 0.0;
+        info.holdsMidi = dynamic_cast<te::MidiClip*> (&clip) != nullptr;
+
+        if (auto* audioClip = dynamic_cast<te::AudioClipBase*> (&clip))
+        {
+            info.sourceReference = audioClip->getSourceFileReference().source.get().toStdString();
+            info.sourceFile = toPath (audioClip->getSourceFileReference().getFile());
+        }
+
+        return info;
+    }
+} // namespace
+
 std::vector<TrackInfo> Session::tracks() const
 {
     std::vector<TrackInfo> out;
@@ -342,26 +204,33 @@ std::vector<TrackInfo> Session::tracks() const
     for (auto* track : te::getAudioTracks (*impl->edit))
     {
         TrackInfo trackInfo;
-        trackInfo.track = static_cast<TrackRef> (track->itemID.getRawID());
+        trackInfo.track = toRef<TrackRef> (track->itemID);
         trackInfo.name = track->getName().toStdString();
+        trackInfo.kind = kindOf (*track);
+        trackInfo.muted = track->isMuted (false);
+        trackInfo.soloed = track->isSolo (false);
+
+        if (auto* destination = track->getOutput().getDestinationTrack())
+            trackInfo.output = toRef<TrackRef> (destination->itemID);
+
+        if (auto* parameter =
+                impl->parameterFor (AutomationTarget::trackVolumeOf (trackInfo.track)))
+            trackInfo.volumeDb = te::volumeFaderPositionToDB (parameter->getCurrentExplicitValue());
+
+        if (auto* parameter = impl->parameterFor (AutomationTarget::trackPanOf (trackInfo.track)))
+            trackInfo.pan = parameter->getCurrentExplicitValue();
+
+        for (auto* plugin : track->pluginList.getPlugins())
+        {
+            trackInfo.plugins.push_back (describe (*plugin));
+
+            if (auto* send = dynamic_cast<te::AuxSendPlugin*> (plugin))
+                if (const auto bus = busTrackFor (*impl->edit, send->busNumber); bus != noTrack)
+                    trackInfo.sends.push_back ({ bus, send->getGainDb() });
+        }
 
         for (auto* clip : track->getClips())
-        {
-            ClipInfo clipInfo;
-            clipInfo.clip = static_cast<ClipRef> (clip->itemID.getRawID());
-            clipInfo.name = clip->getName().toStdString();
-            clipInfo.startSeconds = clip->getPosition().getStart().inSeconds();
-            clipInfo.lengthSeconds = clip->getPosition().getLength().inSeconds();
-
-            if (auto* audioClip = dynamic_cast<te::AudioClipBase*> (clip))
-            {
-                clipInfo.sourceReference =
-                    audioClip->getSourceFileReference().source.get().toStdString();
-                clipInfo.sourceFile = toPath (audioClip->getSourceFileReference().getFile());
-            }
-
-            trackInfo.clips.push_back (std::move (clipInfo));
-        }
+            trackInfo.clips.push_back (describe (*clip));
 
         out.push_back (std::move (trackInfo));
     }
@@ -369,25 +238,110 @@ std::vector<TrackInfo> Session::tracks() const
     return out;
 }
 
+TrackInfo Session::track (TrackRef ref) const
+{
+    for (auto& trackInfo : tracks())
+        if (trackInfo.track == ref)
+            return std::move (trackInfo);
+
+    return {};
+}
+
 int Session::audioTrackCount() const { return te::getAudioTracks (*impl->edit).size(); }
+
+std::vector<NoteInfo> Session::notes (ClipRef clip) const
+{
+    std::vector<NoteInfo> out;
+
+    auto* midiClip = impl->midiClipFor (clip);
+
+    if (midiClip == nullptr)
+        return out;
+
+    for (auto* note : midiClip->getSequence().getNotes())
+        out.push_back ({ impl->refForNote (clip, note->state),
+                         note->getNoteNumber(),
+                         note->getStartBeat().inBeats(),
+                         note->getLengthBeats().inBeats(),
+                         note->getVelocity() });
+
+    std::stable_sort (out.begin(),
+                      out.end(),
+                      [] (const NoteInfo& first, const NoteInfo& second)
+                      { return first.startBeats < second.startBeats; });
+
+    return out;
+}
+
+std::vector<PluginParameterInfo> Session::pluginParameters (PluginRef plugin) const
+{
+    std::vector<PluginParameterInfo> out;
+
+    auto* p = impl->pluginFor (plugin);
+
+    if (p == nullptr)
+        return out;
+
+    for (auto* parameter : p->getAutomatableParameters())
+        out.push_back ({ parameter->paramID.toStdString(),
+                         parameter->getParameterName().toStdString(),
+                         parameter->getCurrentExplicitValue(),
+                         parameter->getValueRange().getStart(),
+                         parameter->getValueRange().getEnd() });
+
+    return out;
+}
+
+std::vector<AutomationPoint> Session::automationPoints (const AutomationTarget& target) const
+{
+    std::vector<AutomationPoint> out;
+
+    auto* parameter = impl->parameterFor (target);
+
+    if (parameter == nullptr)
+        return out;
+
+    const auto& curve = parameter->getCurve();
+    const auto& tempoSequence = impl->edit->tempoSequence;
+
+    for (int point = 0; point < curve.getNumPoints(); ++point)
+    {
+        const auto value = curve.getPointValue (point);
+
+        out.push_back ({ te::toTime (curve.getPointPosition (point), tempoSequence).inSeconds(),
+                         target.kind == AutomationTarget::Kind::trackVolume
+                             ? te::volumeFaderPositionToDB (value)
+                             : value });
+    }
+
+    return out;
+}
 
 double Session::tempoBpm() const { return impl->edit->tempoSequence.getBpmAt (te::TimePosition()); }
 
+TimeSignature Session::timeSignature() const
+{
+    if (auto* timeSig = impl->edit->tempoSequence.getTimeSig (0))
+        return { timeSig->numerator, timeSig->denominator };
+
+    return {};
+}
+
 double Session::editLengthSeconds() const { return impl->edit->getLength().inSeconds(); }
 
-double Session::trackVolumeDb (TrackRef track) const
+double Session::barStartSeconds (int bar) const
 {
-    if (auto* parameter = impl->volumeParameterFor (track))
-        return te::volumeFaderPositionToDB (parameter->getCurrentExplicitValue());
-
-    return 0.0;
+    // Bars count from one for the producer, and from zero for the engine, which
+    // counts whole bars elapsed.
+    return impl->edit->tempoSequence
+        .toTime (tracktion::tempo::BarsAndBeats { std::max (0, bar - 1) })
+        .inSeconds();
 }
 
 double Session::liveTrackVolumeDb (TrackRef track) const
 {
-    if (auto* audioTrack = impl->trackFor (track))
-        if (auto* volume = audioTrack->getVolumePlugin())
-            return volume->getVolumeDb();
+    if (auto* fader = impl->faderFor (track))
+        return fader->getVolumeDb();
 
     return 0.0;
 }
@@ -529,42 +483,43 @@ bool Session::renderToFile (const std::filesystem::path& destination)
 //==============================================================================
 void Session::loadDemoContent()
 {
-    auto tracks = te::getAudioTracks (*impl->edit);
+    const auto tracks = te::getAudioTracks (*impl->edit);
 
     if (tracks.isEmpty())
         return;
 
-    auto* track = tracks.getFirst();
-    track->setName ("Demo");
+    const auto track = toRef<TrackRef> (tracks.getFirst()->itemID);
 
-    if (auto instrument =
-            impl->edit->getPluginCache().createNewPlugin (te::FourOscPlugin::xmlTypeName, {}))
-        track->pluginList.insertPlugin (instrument, 0, nullptr);
+    performAction (
+        "Add the demo phrase",
+        [track] (auto& ops)
+        {
+            ops.renameTrack (track, "Demo");
+            ops.addPlugin (track, BuiltinPlugin::synth, 0);
 
-    const te::TimeRange phrase { te::TimePosition(),
-                                 te::TimePosition::fromSeconds (demoPhraseSeconds) };
+            const auto clip = ops.insertMidiClip (track, "Demo", 0.0, demoPhraseSeconds);
 
-    if (auto clip = track->insertMIDIClip (phrase, nullptr))
-    {
-        // An A-minor arpeggio, two notes per beat, so that what comes out of the
-        // speakers is unmistakably the app's own audio and not a click.
-        static constexpr std::array<int, 8> pitches { 57, 60, 64, 69, 72, 69, 64, 60 };
-        auto& sequence = clip->getSequence();
+            // An A-minor arpeggio, two notes per beat, so that what comes out of
+            // the speakers is unmistakably the app's own audio and not a click.
+            static constexpr std::array<int, 8> pitches { 57, 60, 64, 69, 72, 69, 64, 60 };
 
-        for (int note = 0; note < 32; ++note)
-            sequence.addNote (pitches.at (static_cast<std::size_t> (note % 8)),
-                              te::BeatPosition::fromBeats (note * 0.5),
-                              te::BeatDuration::fromBeats (0.45),
-                              demoNoteVelocity,
-                              0,
-                              nullptr);
-    }
+            for (int note = 0; note < 32; ++note)
+                ops.addNote (clip,
+                             pitches.at (static_cast<std::size_t> (note % 8)),
+                             note * 0.5,
+                             0.45,
+                             demoNoteVelocity);
+        });
 
+    // The transport, not the project: written with no undo history, so the loop
+    // the demo plays in survives an undo of the phrase itself.
     auto& transport = impl->edit->getTransport();
-    transport.setLoopRange (phrase);
+    transport.setLoopRange (
+        { te::TimePosition(), te::TimePosition::fromSeconds (demoPhraseSeconds) });
     transport.looping = true;
 }
 
+//==============================================================================
 void Session::startPlayback()
 {
     auto& transport = impl->edit->getTransport();
@@ -579,6 +534,11 @@ bool Session::isPlaying() const { return impl->edit->getTransport().isPlaying();
 double Session::playbackPositionSeconds() const
 {
     return impl->edit->getTransport().getPosition().inSeconds();
+}
+
+void Session::setPlaybackPositionSeconds (double seconds)
+{
+    impl->edit->getTransport().setPosition (te::TimePosition::fromSeconds (seconds));
 }
 
 std::string Session::audioDeviceDescription() const

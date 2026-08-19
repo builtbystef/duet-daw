@@ -10,6 +10,7 @@
 
 using duet::model::ClipRef;
 using duet::model::Session;
+using duet::model::TrackKind;
 using duet::model::TrackRef;
 using duet::testing::TempProject;
 
@@ -18,7 +19,8 @@ TEST_CASE ("an Action enters the undo history as one step under its own name")
     const TempProject project;
     Session session { project.editFile() };
 
-    session.performAction ("Add a drum track", [] (auto& ops) { ops.addTrack ("Drums"); });
+    session.performAction ("Add a drum track",
+                           [] (auto& ops) { ops.createTrack (TrackKind::audio, "Drums"); });
 
     REQUIRE (session.undoNames() == std::vector<std::string> { "Add a drum track" });
     REQUIRE (session.tracks().size() == 2);
@@ -37,7 +39,7 @@ TEST_CASE (
     session.performAction ("Add drum loop",
                            [&loop] (auto& ops)
                            {
-                               const auto track = ops.addTrack ("Drums");
+                               const auto track = ops.createTrack (TrackKind::audio, "Drums");
 
                                for (int bar = 0; bar < 4; ++bar)
                                    ops.insertAudioClip (
@@ -67,7 +69,8 @@ TEST_CASE ("two Actions undo and redo back to the states they started from")
 
     const auto initial = session.stateDigest();
 
-    session.performAction ("Add a bass track", [] (auto& ops) { ops.addTrack ("Bass"); });
+    session.performAction ("Add a bass track",
+                           [] (auto& ops) { ops.createTrack (TrackKind::audio, "Bass"); });
     const auto afterFirst = session.stateDigest();
 
     session.performAction (
@@ -101,8 +104,8 @@ TEST_CASE ("the vocabulary covers the track and clip operations, each as one Act
     session.performAction ("Build a project",
                            [&] (auto& ops)
                            {
-                               drums = ops.addTrack ("Drums");
-                               bass = ops.addTrack ("Bass");
+                               drums = ops.createTrack (TrackKind::audio, "Drums");
+                               bass = ops.createTrack (TrackKind::audio, "Bass");
                                clip = ops.insertAudioClip (drums, "loop", tone, 1.0, 4.0);
                            });
 
@@ -270,9 +273,10 @@ TEST_CASE ("an Action off the message thread fails loudly and changes nothing")
                          {
                              try
                              {
-                                 session.performAction ("From a worker thread",
-                                                        [] (auto& ops)
-                                                        { ops.addTrack ("Should not exist"); });
+                                 session.performAction (
+                                     "From a worker thread",
+                                     [] (auto& ops)
+                                     { ops.createTrack (TrackKind::audio, "Should not exist"); });
                              }
                              catch (const std::logic_error&)
                              {

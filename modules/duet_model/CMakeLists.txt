@@ -4,6 +4,7 @@
 # or JUCE include directory reaches a consumer. A public header that included one
 # would stop compiling in the tests, which link this target and nothing else.
 add_library(duet_model STATIC
+    src/EditOps.cpp
     src/Session.cpp)
 add_library(duet::model ALIAS duet_model)
 

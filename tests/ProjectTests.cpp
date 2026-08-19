@@ -9,6 +9,7 @@
 #include <fstream>
 
 using Catch::Matchers::WithinAbs;
+using duet::model::TrackKind;
 using duet::model::TrackRef;
 using duet::persistence::Project;
 using duet::testing::TempProject;
@@ -49,13 +50,13 @@ TEST_CASE ("a project comes back from disk in the state it was saved in")
 
         const auto imported = project->importAudioFile (tone);
 
-        project->session().performAction ("Lay out the loop",
-                                          [&] (auto& ops)
-                                          {
-                                              const auto track = ops.addTrack ("Keys");
-                                              ops.insertAudioClip (
-                                                  track, "loop", imported, 1.0, 2.0);
-                                          });
+        project->session().performAction (
+            "Lay out the loop",
+            [&] (auto& ops)
+            {
+                const auto track = ops.createTrack (TrackKind::audio, "Keys");
+                ops.insertAudioClip (track, "loop", imported, 1.0, 2.0);
+            });
 
         saved = project->session().stateDigest();
         REQUIRE (project->save());
@@ -157,8 +158,9 @@ TEST_CASE ("a save brings back the fader the producer set, and leaves the redo s
 
                                    // A curve that is nowhere near the explicit value, so that
                                    // following it is unmistakable.
-                                   ops.addVolumeAutomationPoint (track, 0.0, -30.0);
-                                   ops.addVolumeAutomationPoint (track, 4.0, 0.0);
+                                   ops.setAutomationPoints (
+                                       duet::model::AutomationTarget::trackVolumeOf (track),
+                                       { { 0.0, -30.0 }, { 4.0, 0.0 } });
                                });
 
         session.performAction ("Rename the track",
@@ -171,9 +173,11 @@ TEST_CASE ("a save brings back the fader the producer set, and leaves the redo s
         // the fader is somewhere the producer never put it.
         REQUIRE (session.renderToFile (temp.folder() / "diverged.wav"));
 
-        INFO ("explicit " << session.trackVolumeDb (track) << " dB, live "
-                          << session.liveTrackVolumeDb (track) << " dB");
-        REQUIRE (session.liveTrackVolumeDb (track) != session.trackVolumeDb (track));
+        const auto explicitDb = session.track (track).volumeDb;
+
+        INFO ("explicit " << explicitDb << " dB, live " << session.liveTrackVolumeDb (track)
+                          << " dB");
+        REQUIRE (session.liveTrackVolumeDb (track) != explicitDb);
 
         REQUIRE (project->save());
 
@@ -188,7 +192,7 @@ TEST_CASE ("a save brings back the fader the producer set, and leaves the redo s
     REQUIRE (reopened != nullptr);
 
     const auto track = reopened->session().tracks().front().track;
-    REQUIRE_THAT (reopened->session().trackVolumeDb (track), WithinAbs (faderDb, 0.001));
+    REQUIRE_THAT (reopened->session().track (track).volumeDb, WithinAbs (faderDb, 0.001));
 }
 
 TEST_CASE ("Duet's own data and the refs it keys on survive a save and reload")
@@ -203,7 +207,8 @@ TEST_CASE ("Duet's own data and the refs it keys on survive a save and reload")
         REQUIRE (project != nullptr);
 
         project->session().performAction ("Add a bass track",
-                                          [&] (auto& ops) { bass = ops.addTrack ("Bass"); });
+                                          [&] (auto& ops)
+                                          { bass = ops.createTrack (TrackKind::audio, "Bass"); });
 
         project->setDuetValue ("anchorTrack", std::to_string (bass));
         project->setDuetValue ("sessionNotes", "the anchor of the low end");
@@ -228,8 +233,8 @@ TEST_CASE ("Duet's own data is not a producer edit, so undo does not take it bac
     const auto project = Project::create (freshFolderIn (temp));
     REQUIRE (project != nullptr);
 
-    project->session().performAction ("Add a bass track",
-                                      [] (auto& ops) { ops.addTrack ("Bass"); });
+    project->session().performAction (
+        "Add a bass track", [] (auto& ops) { ops.createTrack (TrackKind::audio, "Bass"); });
     project->setDuetValue ("sessionNotes", "written while the track was there");
 
     REQUIRE (project->session().undo());
@@ -246,8 +251,8 @@ TEST_CASE ("a project is marked unsaved by an Action and cleared by a save")
     // Creating the project wrote it, so there is nothing unsaved yet.
     REQUIRE_FALSE (project->hasUnsavedChanges());
 
-    project->session().performAction ("Add a bass track",
-                                      [] (auto& ops) { ops.addTrack ("Bass"); });
+    project->session().performAction (
+        "Add a bass track", [] (auto& ops) { ops.createTrack (TrackKind::audio, "Bass"); });
     REQUIRE (project->hasUnsavedChanges());
 
     REQUIRE (project->save());
@@ -266,8 +271,8 @@ TEST_CASE ("a save leaves no half-written file behind it")
     const auto project = Project::create (folder);
     REQUIRE (project != nullptr);
 
-    project->session().performAction ("Add a bass track",
-                                      [] (auto& ops) { ops.addTrack ("Bass"); });
+    project->session().performAction (
+        "Add a bass track", [] (auto& ops) { ops.createTrack (TrackKind::audio, "Bass"); });
 
     REQUIRE (project->save());
     REQUIRE_FALSE (std::filesystem::exists (duet::persistence::partialSaveFile (folder)));
@@ -284,8 +289,8 @@ TEST_CASE ("a save killed halfway leaves its own file behind, never a half-writt
         const auto project = Project::create (folder);
         REQUIRE (project != nullptr);
 
-        project->session().performAction ("Add a bass track",
-                                          [] (auto& ops) { ops.addTrack ("Bass"); });
+        project->session().performAction (
+            "Add a bass track", [] (auto& ops) { ops.createTrack (TrackKind::audio, "Bass"); });
         REQUIRE (project->save());
         saved = project->session().stateDigest();
     }
@@ -320,8 +325,8 @@ TEST_CASE ("a save that cannot be written leaves the last saved project intact")
         const auto project = Project::create (folder);
         REQUIRE (project != nullptr);
 
-        project->session().performAction ("Add a bass track",
-                                          [] (auto& ops) { ops.addTrack ("Bass"); });
+        project->session().performAction (
+            "Add a bass track", [] (auto& ops) { ops.createTrack (TrackKind::audio, "Bass"); });
         REQUIRE (project->save());
         saved = project->session().stateDigest();
 
@@ -330,8 +335,8 @@ TEST_CASE ("a save that cannot be written leaves the last saved project intact")
         // moment the project file would be at risk if the save wrote it directly.
         std::filesystem::create_directories (blocked / "in the way");
 
-        project->session().performAction ("Add a keys track",
-                                          [] (auto& ops) { ops.addTrack ("Keys"); });
+        project->session().performAction (
+            "Add a keys track", [] (auto& ops) { ops.createTrack (TrackKind::audio, "Keys"); });
 
         REQUIRE_FALSE (project->save());
         REQUIRE (project->hasUnsavedChanges());

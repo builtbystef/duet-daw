@@ -6,10 +6,17 @@
 add_subdirectory(support)
 
 add_executable(duet_tests
+    AutomationOpsTests.cpp
+    ClipOpsTests.cpp
     EditVocabularyTests.cpp
+    MidiOpsTests.cpp
+    MixerOpsTests.cpp
+    PluginOpsTests.cpp
     ProjectLayoutTests.cpp
+    ProjectAndTransportOpsTests.cpp
     ProjectTests.cpp
-    SessionTests.cpp)
+    SessionTests.cpp
+    TrackOpsTests.cpp)
 
 target_compile_features(duet_tests PRIVATE cxx_std_20)
 target_link_libraries(duet_tests PRIVATE
