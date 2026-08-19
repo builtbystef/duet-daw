@@ -53,7 +53,7 @@ TEST_CASE ("the vocabulary demo undoes step by step back to where it started")
           [&] (auto& ops)
           {
               ops.setClipLoop (clip, true, 8.0);
-              ops.duplicateClip (clip, duet::model::noTrack, session.barStartSeconds (5));
+              ops.duplicateClip (clip, duet::model::noTrack, session.barStartSeconds (9));
           });
 
     step ("Route into a group bus",
@@ -97,6 +97,16 @@ TEST_CASE ("the vocabulary demo undoes step by step back to where it started")
           });
 
     REQUIRE (states.size() == 8);
+
+    // The copy step 2 makes is meant to be out of earshot, so it has to land
+    // clear of the stretch the transport loops over — not merely outside it,
+    // and certainly not on the seam, where its first note would sound on every
+    // wrap and read as a stray note nobody put there.
+    const auto copy = session.tracks().front().clips.back();
+    const auto loop = session.loopRangeSeconds();
+
+    INFO ("copy at " << copy.startSeconds << "s, loop ends at " << loop.endSeconds << "s");
+    REQUIRE (copy.startSeconds > loop.endSeconds);
 
     // Back down the stack: each undo has to land on the state the step before
     // it left behind, exactly.

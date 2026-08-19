@@ -501,10 +501,8 @@ void Session::loadDemoContent()
     startUndoHistory();
 
     // The transport, not the project: written with no undo history at all.
-    auto& transport = impl->edit->getTransport();
-    transport.setLoopRange (
-        { te::TimePosition(), te::TimePosition::fromSeconds (demoPhraseSeconds) });
-    transport.looping = true;
+    setLoopRangeSeconds (0.0, demoPhraseSeconds);
+    setLooping (true);
 }
 
 //==============================================================================
@@ -528,6 +526,22 @@ void Session::setPlaybackPositionSeconds (double seconds)
 {
     impl->edit->getTransport().setPosition (te::TimePosition::fromSeconds (seconds));
 }
+
+void Session::setLoopRangeSeconds (double startSeconds, double endSeconds)
+{
+    impl->edit->getTransport().setLoopRange ({ te::TimePosition::fromSeconds (startSeconds),
+                                               te::TimePosition::fromSeconds (endSeconds) });
+}
+
+LoopRange Session::loopRangeSeconds() const
+{
+    const auto range = impl->edit->getTransport().getLoopRange();
+    return { range.getStart().inSeconds(), range.getEnd().inSeconds() };
+}
+
+void Session::setLooping (bool shouldLoop) { impl->edit->getTransport().looping = shouldLoop; }
+
+bool Session::isLooping() const { return impl->edit->getTransport().looping; }
 
 std::string Session::audioDeviceDescription() const
 {

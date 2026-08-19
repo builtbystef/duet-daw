@@ -317,9 +317,19 @@ private:
                                                [&] (auto& ops)
                                                {
                                                    ops.setClipLoop (clip, true, 8.0);
+
+                                                   // Bar 9 and not bar 5. The
+                                                   // copy is meant to be out of
+                                                   // earshot so that what this
+                                                   // step demonstrates is the
+                                                   // loop, and bar 5 is exactly
+                                                   // where the transport wraps —
+                                                   // near enough to the seam that
+                                                   // its opening note is on top
+                                                   // of it.
                                                    ops.duplicateClip (clip,
                                                                       duet::model::noTrack,
-                                                                      session.barStartSeconds (5));
+                                                                      session.barStartSeconds (9));
                                                });
                         break;
 

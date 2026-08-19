@@ -221,6 +221,13 @@ struct AutomationPoint
 };
 
 /** How many beats are in a bar, and what a beat is. */
+/** A stretch of the timeline, in seconds. */
+struct LoopRange
+{
+    double startSeconds = 0.0;
+    double endSeconds = 0.0;
+};
+
 struct TimeSignature
 {
     int numerator = 4;
@@ -537,6 +544,20 @@ public:
 
     /** Moves the playhead, whether or not the transport is rolling. */
     void setPlaybackPositionSeconds (double seconds);
+
+    /** The stretch the transport loops over, in seconds.
+
+        Seconds and not beats, because it is where the playhead goes and not
+        anything musical — but a project's musical content moves in seconds when
+        the tempo changes, so whoever sets a loop over a phrase has to set it
+        again when the phrase moves under it.
+    */
+    void setLoopRangeSeconds (double startSeconds, double endSeconds);
+    [[nodiscard]] LoopRange loopRangeSeconds() const;
+
+    /** Whether the transport wraps at the end of the loop range. */
+    void setLooping (bool shouldLoop);
+    [[nodiscard]] bool isLooping() const;
 
     /** The current audio device, named with its sample rate, block size and
         output latency — empty when no device could be opened.

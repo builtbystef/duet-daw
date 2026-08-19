@@ -9,7 +9,7 @@ depends_on:
     - quiwf3
 parent: b1j3me
 created: 2026-08-11T01:50:39Z
-updated: 2026-08-19T03:54:49Z
+updated: 2026-08-19T04:32:19Z
 ---
 
 ## What to build
@@ -165,3 +165,35 @@ Build, format, lint, 49/49 tests.
 ## What the user must do
 
 Run the demo once more: New, Play, Next Edit seven times, then Undo all the way back. Expected now — no distortion at any point forwards or backwards, the label tracking the Undo presses, and the arpeggio still there when the undo stack runs out. Close this issue to approve, or note what is still wrong and remove the needs-review label.
+
+**claude** — 2026-08-19T04:32:19Z
+
+Third review pass: the reverb was inaudible, and the demo's copy sat on the loop seam.
+
+## The reverb was never in the signal path
+
+setSend puts the AuxReturnPlugin at the head of the bus, because that is where a return has to be. Step 5 then added the reverb at position 0, which pushed the return behind it — so the reverb sat upstream of the only thing feeding it, processed silence, and the bus carried the send dry. The demo now passes 1.
+
+That the right answer is a magic number is the actual fault, and it is not the demo's. addPlugin's position is a raw index over a chain that already holds plugins Duet put there and the producer never asked for: the fader every track is born with, the aux return on a bus, the aux send on the source. A Suggestion that says "put a reverb first in the chain" gets one that does nothing, silently. Published as 6i7an7 (bug, high, under b1j3me).
+
+MixerOpsTests gains the assertion that would have caught it — "a send into a reverb bus is heard, and rings on after the source stops" — which renders a one-second stab through a send into a reverb bus and asserts the tail outlives it. It fails at position 0 (tail level 0) and passes at 1. Measuring a tail needed a windowed read, so test support gained peakLevelBetween.
+
+## The stray note at the loop seam: what is settled and what is not
+
+Settled, read straight off the facade: step 2 duplicated the phrase to bar 5, which is exactly where the transport loop ends — 8.0s at 120/4-4, and 6.857s after step 7, because both the clip and the loop are kept in musical time and move together. So the copy has always begun on the seam, at both tempos. The step means the copy to be out of earshot; it was on the boundary instead. It now goes to bar 9, and DemoWalkthroughTests asserts the copy starts clear of the loop's end, which is the guard that keeps it there.
+
+Not settled: that the copy on the seam is what the user heard. Two recordings on the device, identical but for the copy's bar, folded over four loop passes and compared half against half — the phrase is two identical halves after step 2, so anything once-per-loop breaks that symmetry. Bar 5's largest asymmetry does sit at 0.06-0.18s, right after the wrap, and bar 9's sits mid-phrase. But the effect is the same size as the measurement's own noise: 4OSC's oscillators free-run, so two passes of the same notes are not the same samples, and the envelope difference floor is as large as the thing being looked for. Suggestive, not proof. The user's ear is the instrument this criterion names, and it is the one that can settle it.
+
+## A wrong turn, recorded so it is not taken again
+
+The first diagnosis was that the transport loop is set in seconds and stays at 8s while a tempo change moves the music underneath it. It is wrong: the loop follows the music. The test that proves it is "a tempo change carries the loop along with the music, and an undo cannot" — at 140 BPM both the phrase and the loop end at 6.857s. The app briefly grew a helper to re-set the loop after every step; it is gone, because it fixed nothing.
+
+The transport facade did keep what that work needed and the issue's transport criterion covers: setLoopRangeSeconds, loopRangeSeconds, setLooping, isLooping, all written with no undo manager like the rest of the transport, and the test above asserts an undo cannot move any of them.
+
+## Checks
+
+Build, format, lint, 51/51 tests.
+
+## What the user must do
+
+Run the demo once more. The reverb in step 5 should now be plainly audible as a tail on the send. If the faint note at the loop seam is gone, that confirms the copy was it — say so and close the issue. If it is still there, it is something else and worth another look: say roughly where in the loop it falls and whether it is there before step 2.
