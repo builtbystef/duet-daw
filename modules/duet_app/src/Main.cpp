@@ -356,8 +356,13 @@ private:
                             demoStepNames.at (4),
                             [&] (auto& ops)
                             {
+                                // After the return and not in front of it. The
+                                // return is what puts the send into the bus, and
+                                // it goes in at the head of the chain, so a
+                                // reverb at position 0 would sit upstream of the
+                                // only thing feeding it and process silence.
                                 demoReverb = ops.addPlugin (
-                                    demoReverbBus, duet::model::BuiltinPlugin::reverb, 0);
+                                    demoReverbBus, duet::model::BuiltinPlugin::reverb, 1);
                                 ops.setPluginParameter (demoReverb, "room size", 0.9);
 
                                 // All wet: what the bus carries is the send, and

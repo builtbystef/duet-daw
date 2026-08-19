@@ -150,3 +150,51 @@ TEST_CASE ("a send into a group bus is set at a level, read back, and undone exa
         REQUIRE (session.track (keys).sends.empty());
     }
 }
+
+TEST_CASE ("a send into a reverb bus is heard, and rings on after the source stops")
+{
+    const TempProject project;
+    const auto tone = project.writeTone ("stab.wav", 1.0, 440.0);
+    Session session { project.editFile() };
+
+    duet::model::TrackRef source = duet::model::noTrack;
+    duet::model::TrackRef reverbBus = duet::model::noTrack;
+
+    session.performAction ("Send a stab into a reverb",
+                           [&] (auto& ops)
+                           {
+                               source = ops.createTrack (TrackKind::audio, "Stab");
+                               ops.insertAudioClip (source, "stab", tone, 0.0, 1.0);
+
+                               // A render runs for as long as the edit does, and
+                               // a tail that outlives every clip would be cut off
+                               // at the last one. This empty clip is what gives
+                               // the render somewhere to put it.
+                               const auto room = ops.createTrack (TrackKind::midi, "Room to ring");
+                               ops.insertMidiClip (room, "Room", 0.0, 3.0);
+
+                               reverbBus = ops.createTrack (TrackKind::group, "Reverb");
+                               ops.setSend (source, reverbBus, 0.0);
+
+                               // Position 1, after the return setSend puts at the
+                               // head of the bus. A reverb in front of the return
+                               // sits upstream of the only thing feeding it, so it
+                               // processes silence and is never heard — which is
+                               // exactly what this test is here to catch.
+                               const auto reverb =
+                                   ops.addPlugin (reverbBus, duet::model::BuiltinPlugin::reverb, 1);
+                               ops.setPluginParameter (reverb, "room size", 0.9);
+                               ops.setPluginParameter (reverb, "wet level", 1.0);
+                               ops.setPluginParameter (reverb, "dry level", 0.0);
+                           });
+
+    const auto rendered = project.folder() / "with-reverb.wav";
+
+    REQUIRE (session.renderToFile (rendered));
+
+    // The source is one second long, so anything after it is the bus ringing on.
+    const auto tail = duet::testing::peakLevelBetween (rendered, 1.3, 2.5);
+
+    INFO ("tail level: " << tail);
+    REQUIRE (tail > 0.01);
+}

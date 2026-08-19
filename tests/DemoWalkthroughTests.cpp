@@ -75,7 +75,8 @@ TEST_CASE ("the vocabulary demo undoes step by step back to where it started")
     step ("Add a reverb and set it",
           [&] (auto& ops)
           {
-              reverb = ops.addPlugin (reverbBus, duet::model::BuiltinPlugin::reverb, 0);
+              // After the return, which setSend puts at the head of the bus.
+              reverb = ops.addPlugin (reverbBus, duet::model::BuiltinPlugin::reverb, 1);
               ops.setPluginParameter (reverb, "room size", 0.9);
               ops.setPluginParameter (reverb, "wet level", 1.0);
               ops.setPluginParameter (reverb, "dry level", 0.0);

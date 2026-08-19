@@ -63,4 +63,10 @@ bool playUntilRolling (duet::model::Session&);
     zero when it cannot be read.
 */
 [[nodiscard]] double peakLevelOf (const std::filesystem::path& audioFile);
+
+/** The peak sample level over one stretch of an audio file, in seconds from its
+    start: what a feature assertion about a tail, a fade or a gap is made of.
+*/
+[[nodiscard]] double
+    peakLevelBetween (const std::filesystem::path& audioFile, double fromSeconds, double toSeconds);
 } // namespace duet::testing

@@ -1,5 +1,7 @@
 #include <duet/testing/TestSupport.h>
 
+#include <limits>
+
 #include <duet/model/Session.h>
 #include <duet/persistence/ProjectLayout.h>
 
@@ -99,18 +101,37 @@ bool playUntilRolling (duet::model::Session& session)
 
 double peakLevelOf (const std::filesystem::path& audioFile)
 {
+    return peakLevelBetween (audioFile, 0.0, std::numeric_limits<double>::max());
+}
+
+double
+    peakLevelBetween (const std::filesystem::path& audioFile, double fromSeconds, double toSeconds)
+{
     juce::AudioFormatManager formats;
     formats.registerBasicFormats();
 
     const std::unique_ptr<juce::AudioFormatReader> reader { formats.createReaderFor (
         toJuceFile (audioFile)) };
 
-    if (reader == nullptr || reader->lengthInSamples == 0)
+    if (reader == nullptr || reader->lengthInSamples == 0 || reader->sampleRate <= 0.0)
+        return 0.0;
+
+    const auto toSample = [&] (double seconds)
+    {
+        const auto sample = seconds * reader->sampleRate;
+        return static_cast<juce::int64> (
+            juce::jlimit (0.0, static_cast<double> (reader->lengthInSamples), sample));
+    };
+
+    const auto first = toSample (fromSeconds);
+    const auto count = toSample (toSeconds) - first;
+
+    if (count <= 0)
         return 0.0;
 
     juce::AudioBuffer<float> buffer { static_cast<int> (reader->numChannels),
-                                      static_cast<int> (reader->lengthInSamples) };
-    reader->read (&buffer, 0, buffer.getNumSamples(), 0, true, true);
+                                      static_cast<int> (count) };
+    reader->read (&buffer, 0, buffer.getNumSamples(), first, true, true);
 
     return buffer.getMagnitude (0, buffer.getNumSamples());
 }
