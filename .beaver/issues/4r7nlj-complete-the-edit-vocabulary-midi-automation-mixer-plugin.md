@@ -1,15 +1,13 @@
 ---
 id: 4r7nlj
 title: 'Complete the edit vocabulary: MIDI, automation, mixer, plugin parameters, transport'
-state: in-progress
+state: done
 priority: high
-labels:
-    - needs-review
 depends_on:
     - quiwf3
 parent: b1j3me
 created: 2026-08-11T01:50:39Z
-updated: 2026-08-19T05:07:42Z
+updated: 2026-08-19T05:09:09Z
 ---
 
 ## What to build
