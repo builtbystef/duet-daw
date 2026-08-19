@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -329,6 +330,84 @@ struct Session::Impl
     //==============================================================================
     // Recording.
 
+    /** Whether the engine has built its device list yet.
+
+        Before the build the engine has no MIDI inputs at all; after it, it has
+        at least its own "All MIDI Ins", whatever this machine is plugged into.
+        So the MIDI inputs being there is the build having happened — the only
+        sign of it the engine offers.
+    */
+    bool deviceListIsBuilt() const { return engine.getDeviceManager().getNumMidiInDevices() > 0; }
+
+    /** Whether the engine's devices are still enough to start a take on.
+
+        Built, and then unchanged for long enough to believe it. The build is
+        not one event: it settles its defaults afterwards and rebuilds again
+        over what it settled, and any of those rebuilds frees the playback graph
+        and ends a take rolling through it (hazard 6). So a take waits for the
+        churn to stop and not merely to start.
+    */
+    bool devicesAreSettled() const;
+
+    /** Asks the engine to build its device list now, rather than four seconds
+        into the session, which is when its own timer would.
+    */
+    void askForTheDeviceList() const { engine.getDeviceManager().rescanMidiDeviceList(); }
+
+    /** Starts the take: from here on the armed tracks take what their inputs
+        carry, from the playhead on.
+    */
+    void beginTake();
+
+    /** One tick of the pre-roll: waits, or gives up waiting and starts the
+        take.
+    */
+    void startTakeWhenDevicesAreSettled();
+
+    /** Runs for exactly as long as a take is waiting for the engine's devices —
+        its running is that memory, and there is no second copy of it to keep in
+        step — and drives startTakeWhenDevicesAreSettled.
+    */
+    struct TakeStarter final : juce::Timer
+    {
+        explicit TakeStarter (Impl& owner) : impl (&owner) {}
+        void timerCallback() override { impl->startTakeWhenDevicesAreSettled(); }
+
+        Impl* impl = nullptr;
+    };
+
+    /** How many ticks the take has been waiting for the devices. */
+    int waitedForTheDevices = 0;
+
+    /** When the engine last said it had changed its devices, on the counter
+        juce::Time keeps — nothing until it says so, which is a session whose
+        devices have never moved and so have nothing to settle from.
+    */
+    std::optional<juce::uint32> lastDeviceChangeMs;
+
+    /** Listens for the engine saying it has changed its devices, which is the
+        only announcement it makes of the rebuilds that end takes.
+    */
+    struct DeviceWatcher final : juce::ChangeListener
+    {
+        explicit DeviceWatcher (Impl& owner) : impl (&owner)
+        {
+            impl->engine.getDeviceManager().addChangeListener (this);
+        }
+
+        ~DeviceWatcher() override { impl->engine.getDeviceManager().removeChangeListener (this); }
+
+        DeviceWatcher (const DeviceWatcher&) = delete;
+        DeviceWatcher& operator= (const DeviceWatcher&) = delete;
+
+        void changeListenerCallback (juce::ChangeBroadcaster* /*deviceManager*/) override
+        {
+            impl->lastDeviceChangeMs = juce::Time::getMillisecondCounter();
+        }
+
+        Impl* impl = nullptr;
+    };
+
     /** The file each armed track is recording into, taken before the take is
         stopped: afterwards the clip holds a reference the engine wrote, and that
         reference is the thing that has to be corrected.
@@ -368,8 +447,11 @@ struct Session::Impl
     te::MidiNote* noteFor (NoteRef ref) const;
 
     //==============================================================================
-    // Declared last, so that it stops before anything it touches goes away.
+    // Declared last, so that they stop and unsubscribe before anything they
+    // touch goes away.
+    DeviceWatcher deviceWatcher { *this };
     PlaybackKeeper playbackKeeper { *this };
+    TakeStarter takeStarter { *this };
 
     static std::vector<std::string> toStrings (const juce::StringArray& strings)
     {

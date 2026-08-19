@@ -719,10 +719,16 @@ public:
     /** Starts recording: every armed track takes what its input carries, from
         the playhead on.
 
-        Unlike startPlayback this asks once. The engine's one-time device
-        rebuild (hazard 6) ends a take it lands in, and asking again would start
-        a second take rather than continue the first — so the ask is not
-        repeated and the take ends.
+        Unlike startPlayback this cannot ask twice. The engine rebuilds its
+        devices in the opening seconds of a session and the rebuild ends a take
+        it lands in, but asking again would start a second take at the playhead
+        rather than continue the first — so the rebuild is got out of the way
+        first instead. Where it has not happened yet the session asks the engine
+        for it and the take starts on the far side of it, a pre-roll of
+        milliseconds that an ordinary Record never waits out at all.
+
+        So a take may begin very slightly after this returns, and isRecording
+        says which: it is the transport recording, not the asking for it.
     */
     void startRecording();
 

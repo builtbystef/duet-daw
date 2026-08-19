@@ -32,6 +32,27 @@ constexpr int playheadAttempts = 10;
 /** Where the audio take starts: anywhere but the start of the timeline. */
 constexpr double takeStartSeconds = 4.0;
 
+/** Long enough to contain the engine's device rebuild, which lands a few
+    seconds into a session that has not asked for it earlier (hazard 6).
+*/
+constexpr int deviceRebuildWindowMs = 8000;
+
+/** A take that ran the whole rebuild window is longer than the rebuild is late.
+    An interrupted one stops at about four seconds.
+*/
+constexpr double shortestSurvivingTakeSeconds = 6.0;
+
+/** The whole of the pre-roll a take waiting for the engine's devices may take,
+    which is what a Stop has to reach across.
+*/
+constexpr int preRollWindowMs = 1000;
+
+/** How long a real device may take to offer its inputs, which it does from the
+    message loop.
+*/
+constexpr int inputAttempts = 20;
+constexpr int msPerInputAttempt = 50;
+
 /** The input of a kind that a session running without audio hardware offers. */
 InputRef inputOfKind (const Session& session, InputKind kind)
 {
@@ -312,4 +333,84 @@ TEST_CASE ("a take is recorded into a brand new project that has never been save
 
     // The take is a change to the project, and the project says so.
     REQUIRE (project->hasUnsavedChanges());
+}
+
+TEST_CASE ("a take started as the first transport gesture of a session survives the rebuild")
+{
+    const TempProject project;
+    Session session { project.editFile() };
+
+    if (session.audioDeviceDescription().empty())
+        SKIP ("this machine has no audio device to record through");
+
+    session.setRecordingDirectory (duet::persistence::audioDirectory (project.folder()));
+
+    TrackRef guitar = duet::model::noTrack;
+
+    session.performAction (
+        "Add a track", [&] (auto& ops) { guitar = ops.createTrack (TrackKind::audio, "Guitar"); });
+
+    // The producer cannot arm an input they have not been offered, and the
+    // engine offers its wave inputs from the message loop, so this is the wait
+    // the app does not have to do. It stays well inside the seconds before the
+    // engine's own timer would rebuild the device list, which is what leaves
+    // that rebuild ahead of the take below rather than behind it.
+    for (int attempt = 0; attempt < inputAttempts && session.availableInputs().empty(); ++attempt)
+        duet::testing::pumpMessages (msPerInputAttempt);
+
+    const auto audioInput = inputOfKind (session, InputKind::audio);
+    REQUIRE (audioInput != duet::model::noInput);
+
+    session.setTrackInput (guitar, audioInput);
+    session.setTrackRecordArmed (guitar, true);
+
+    // Record as the first thing this session's transport is ever asked for,
+    // which is where hazard 6 lands: the engine rebuilds its device list
+    // seconds into a session, and the rebuild frees the playback graph and ends
+    // a take rolling through it. One press of Record has to be enough.
+    session.startRecording();
+    duet::testing::pumpMessages (deviceRebuildWindowMs);
+
+    REQUIRE (session.isRecording());
+
+    session.stopRecording();
+    REQUIRE_FALSE (session.isRecording());
+
+    // One clip, and one that reaches from where Record was pressed to where
+    // Stop was: a take the rebuild had ended would be a clip of about four
+    // seconds, or no clip at all.
+    const auto clips = session.track (guitar).clips;
+    REQUIRE (clips.size() == 1);
+    REQUIRE_THAT (clips.front().startSeconds, WithinAbs (0.0, 0.05));
+    REQUIRE (clips.front().lengthSeconds > shortestSurvivingTakeSeconds);
+}
+
+TEST_CASE ("a take waiting for the engine's devices is stopped by a Stop")
+{
+    const TempProject project;
+    Session session { project.editFile() };
+
+    TrackRef guitar = duet::model::noTrack;
+
+    session.performAction (
+        "Add a track", [&] (auto& ops) { guitar = ops.createTrack (TrackKind::audio, "Guitar"); });
+
+    // Asked for before the engine has its devices, so this take is waiting.
+    session.startRecording();
+    REQUIRE_FALSE (session.isRecording());
+
+    session.useNoAudioDevice();
+    session.setTrackInput (guitar, inputOfKind (session, InputKind::audio));
+    session.setTrackRecordArmed (guitar, true);
+
+    // Stopping is the producer's last word, and it reaches a take that has been
+    // asked for and has not begun: everything the waiting take needed to start
+    // is in place, and it must not start anyway.
+    session.stopPlayback();
+
+    duet::testing::pumpMessages (preRollWindowMs);
+
+    REQUIRE_FALSE (session.isRecording());
+    REQUIRE_FALSE (session.isPlaying());
+    REQUIRE (session.track (guitar).clips.empty());
 }

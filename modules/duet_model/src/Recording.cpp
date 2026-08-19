@@ -18,6 +18,19 @@ namespace
     /** What a finished take is called in the undo history. */
     constexpr const char* recordTakeActionName = "Record Take";
 
+    /** How long the engine's devices have to have been unchanged before a take
+        starts on them, how often a waiting take looks, and how many of those
+        looks it takes before the take starts regardless.
+
+        A session that has been open for a moment is settled and stays settled,
+        so an ordinary Record waits for nothing at all. The bound is there
+        because a take the producer asked for has to start: a pre-roll that
+        never ended would be worse than the interrupted take it prevents.
+    */
+    constexpr juce::uint32 deviceQuietMs = 100;
+    constexpr int devicePollMs = 20;
+    constexpr int deviceWaitAttempts = 100;
+
     /** What the engine calls a take file: the track's name, and the first take
         number that is not taken yet.
     */
@@ -267,20 +280,59 @@ void Session::Impl::pinRecordedSources (
 }
 
 //==============================================================================
+bool Session::Impl::devicesAreSettled() const
+{
+    if (! deviceListIsBuilt())
+        return false;
+
+    return ! lastDeviceChangeMs.has_value()
+           || juce::Time::getMillisecondCounter() - *lastDeviceChangeMs >= deviceQuietMs;
+}
+
+void Session::Impl::beginTake()
+{
+    auto& transport = edit->getTransport();
+    transport.ensureContextAllocated();
+
+    // Arming a track changes the graph, and the graph is what records.
+    edit->dispatchPendingUpdatesSynchronously();
+
+    transport.record (false);
+    syncMeters();
+}
+
+void Session::Impl::startTakeWhenDevicesAreSettled()
+{
+    if (! devicesAreSettled() && ++waitedForTheDevices <= deviceWaitAttempts)
+        return;
+
+    takeStarter.stopTimer();
+    beginTake();
+}
+
 void Session::startRecording()
 {
     // Nothing asks for plain playback any more: a take is what was asked for,
     // and the keeper asking again would turn it back into a play.
     impl->playbackKeeper.stopTimer();
 
-    auto& transport = impl->edit->getTransport();
-    transport.ensureContextAllocated();
+    // The pre-roll, and what this session does about hazard 6 on the record
+    // path. A take the engine's device rebuild interrupts cannot be continued —
+    // TransportControl::record starts a take at the playhead, so asking again
+    // would land the first half as one clip and start a second, which is worse
+    // than losing the take — so the rebuild happens before the take rather than
+    // during it. The engine's own timer would build the device list four
+    // seconds into the session; asked for here it takes milliseconds, and the
+    // take starts once the engine has stopped changing what it built.
+    if (! impl->devicesAreSettled())
+    {
+        impl->askForTheDeviceList();
+        impl->waitedForTheDevices = 0;
+        impl->takeStarter.startTimer (devicePollMs);
+        return;
+    }
 
-    // Arming a track changes the graph, and the graph is what records.
-    impl->edit->dispatchPendingUpdatesSynchronously();
-
-    transport.record (false);
-    impl->syncMeters();
+    impl->beginTake();
 }
 
 void Session::stopRecording()

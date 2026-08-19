@@ -102,6 +102,7 @@ tracktion::engine::Edit& EngineAccess::editOf (Session& session) { return *sessi
 Session::~Session()
 {
     impl->playbackKeeper.stopTimer();
+    impl->takeStarter.stopTimer();
 
     if (impl->edit != nullptr)
         impl->edit->getTransport().stop (false, true);
@@ -748,6 +749,10 @@ void Session::Impl::keepPlaybackRolling()
 
 void Session::startPlayback()
 {
+    // A take still waiting for the engine's devices is not what was asked for
+    // any more: this is a Play.
+    impl->takeStarter.stopTimer();
+
     // One ask is not enough. The engine rebuilds its device list once, a few
     // seconds into the first playback of a session, and the rebuild frees the
     // playback graph and stops the transport with it (hazard 6) — so the model
@@ -762,6 +767,11 @@ void Session::startPlayback()
 
 void Session::stopPlayback()
 {
+    // Stopping is the last word, and it reaches a take that has not begun: both
+    // ways into this — a Stop, and stopRecording finding no take rolling — pass
+    // through here, so cancelling the pre-roll once covers both.
+    impl->takeStarter.stopTimer();
+
     // A take is stopped the way a take has to be stopped, whoever asked: the
     // clips it made are an Action, and the engine writes them as the transport
     // stops.
