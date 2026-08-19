@@ -60,28 +60,40 @@ FetchContent_Declare(Catch2
 
 FetchContent_MakeAvailable(JUCE tracktion Catch2)
 
-# Every Duet target that compiles JUCE or engine sources links this, so that all
-# of them see one identical configuration. JUCE modules are INTERFACE sources:
-# they compile into each consuming target, and a definition that differs between
-# two targets would be an ODR violation rather than a build error.
-add_library(duet_engine_config INTERFACE)
-target_compile_definitions(duet_engine_config INTERFACE
-    JUCE_JACK=1                                   # the Linux path is JACK via PipeWire
-    TRACKTION_ENABLE_TIMESTRETCH_SIGNALSMITH=1    # without a stretch backend, time-stretch is off entirely
+# Every Duet target that compiles JUCE or engine sources links one of these two,
+# so that all of them see one identical configuration. JUCE modules are INTERFACE
+# sources: they compile into each consuming target, and a definition that differs
+# between two targets would be an ODR violation rather than a build error.
+#
+# The split is by which modules a definition reaches. duet_juce_config carries
+# what juce_core, juce_graphics and juce_gui_basics read, so the GUI layer — which
+# compiles those and no engine source — can share it. duet_engine_config adds what
+# only the engine and the audio modules read, and every engine target links it.
+add_library(duet_juce_config INTERFACE)
+target_compile_definitions(duet_juce_config INTERFACE
     JUCE_USE_CURL=0
     JUCE_WEB_BROWSER=0
-    JUCE_PLUGINHOST_LADSPA=0
     # Headless tests drive the engine's deferred work — the async clip re-sort
     # above all — by running the message loop for a fixed time, and JUCE gates
     # its only timed pump behind this flag. It permits the API; it forces no
     # modal behaviour on the app.
     JUCE_MODAL_LOOPS_PERMITTED=1
 )
-target_link_libraries(duet_engine_config INTERFACE
-    tracktion::tracktion_engine
-    juce::juce_audio_utils
+target_link_libraries(duet_juce_config INTERFACE
     juce::juce_recommended_config_flags
     juce::juce_recommended_warning_flags
+)
+
+add_library(duet_engine_config INTERFACE)
+target_compile_definitions(duet_engine_config INTERFACE
+    JUCE_JACK=1                                   # the Linux path is JACK via PipeWire
+    TRACKTION_ENABLE_TIMESTRETCH_SIGNALSMITH=1    # without a stretch backend, time-stretch is off entirely
+    JUCE_PLUGINHOST_LADSPA=0
+)
+target_link_libraries(duet_engine_config INTERFACE
+    duet_juce_config
+    tracktion::tracktion_engine
+    juce::juce_audio_utils
     # GCC lowers Tracktion's 16-byte std::atomic (WaveNode) to libatomic calls and
     # nothing upstream links it.
     atomic
@@ -89,6 +101,7 @@ target_link_libraries(duet_engine_config INTERFACE
 
 add_subdirectory(modules/duet_model)
 add_subdirectory(modules/duet_persistence)
+add_subdirectory(modules/duet_gui)
 add_subdirectory(modules/duet_app)
 
 include(CTest)

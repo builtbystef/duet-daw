@@ -1,13 +1,15 @@
 ---
 id: xxv9ng
 title: duet_gui module, the Graphite look, and Settings > Interface
-state: todo
+state: in-progress
 priority: high
+labels:
+    - needs-review
 depends_on:
     - sea14w
 parent: 535bbo
 created: 2026-08-12T03:48:12Z
-updated: 2026-08-17T04:13:08Z
+updated: 2026-08-19T20:42:14Z
 ---
 
 ## What to build
@@ -36,3 +38,46 @@ Standing visual reference: the Target Producer's mockup repo at `~/Code/temp/due
 **claude** — 2026-08-17T04:13:08Z
 
 Pointer (2026-08-17): the token stylesheet is now vendored at docs/ui-tokens.css (verbatim copy of the mockup's app/globals.css @ 70122ce, with a header listing the r4m858 amendments that override it). Build the token set from that file — the out-of-repo mockup is no longer required for this slice and is unreachable from a sandbox. The mockup repo remains the pixel reference for layout and screens.
+
+**claude** — 2026-08-19T20:42:14Z
+
+Built (2026-08-19). All four checks pass: format, lint sweep clean, full build, 90/90 ctest.
+
+## What landed
+
+**The module, as two targets.** `duet::gui` is the paintless half — token set, the settings interface, the appearance view-model — and links no JUCE at all. `duet::gui_components` is the thin half: the Graphite look and feel, Inter, the Settings window. The split is the seam made into a link error: `duet_tests` links `duet::gui` and nothing graphical, exactly as it links the two facades and no engine target, so a view-model header that reached for a component or a paint type would stop compiling there. `duet_app` links `duet::gui_components` and hosts all of it.
+
+**One JUCE configuration, split in two.** The root CMakeLists now carries `duet_juce_config` (what juce_core/graphics/gui_basics read) with `duet_engine_config` linking it and adding the engine-only definitions. Without that split the GUI target would have had to link the engine to see the same definitions — JUCE modules are INTERFACE sources, so a definition that differed between two targets is an ODR violation and not a build error.
+
+**Tokens.** 39 colour tokens, both palettes, from `docs/ui-tokens.css` with the r4m858 amendments applied. Asserted value by value in `tests/GraphiteTokenTests.cpp`, plus: the Collaborator's teal appears in no other token in either mode; the semantic four are more than 30 degrees of hue from it and from each other; the eight track colours are distinct in both modes.
+
+**Inter.** Compiled in with `juce_add_binary_data` (Regular and Bold; OFL.txt beside them). `setDefaultSansSerifTypeface` makes it the application typeface, so a tab label or a slider's text box is Inter too, not only the fonts the look and feel hands out. `readoutFont` asks for the `tnum` OpenType feature, which JUCE 9 exposes as `FontOptions::withFeatureEnabled`. `tests/gui/TypographyTests.cpp` measures: with tnum every digit is 6.96 px at 13 px; without it a '1' is 4.27 px against a '0' at 6.74. The shell's transport readout uses it.
+
+**Appearance.** `resolveTheme(preference, systemIsDark)` plus a listener list. The scale is a plain `scaled(logicalUnits)`; the criterion's worked example is a test (24 → 24 px at 1.0, 30 px at the default 1.25x). Both settings are read at construction and written on change, through `duet::gui::Settings`.
+
+**Settings, over the engine's PropertyStorage.** `duet_app`'s `PropertyStorageSettings` owns a `te::PropertyStorage`, which needs no Engine — it is the properties file under the user's application-data folder, where the engine's settings already are. Keys `interface.theme` (stored as a word, not an enum number) and `interface.scale`.
+
+## Verified live, not only in tests
+
+Run under X on the dev machine, screenshots taken at each step:
+
+- First launch under a light desktop → light; `gsettings set org.gnome.desktop.interface gtk-theme Yaru-dark` on the **running** app flipped it to dark with no restart.
+- Settings > Interface opened with Theme and Interface scale; choosing Light turned both windows light while the desktop stayed dark; killing and relaunching came back light, with `interface.theme="light"` in `~/.config/Duet/Settings.xml` alongside the engine's 94 other values.
+- Dragging Interface scale to 1.75x re-laid out both windows where they stood, and `interface.scale="1.750000"` landed in the store.
+
+The dev machine's Settings.xml and gtk-theme were restored afterwards.
+
+## Decisions a reviewer should know
+
+- **Seams.** The spec names two; this slice sits on the view-model one. Paint stays untested (spec: no screenshot or pixel tests). What `tests/gui/` asserts is measurement, not paint: that Inter is in the binary, that its digits are tabular, that a scrollbar is 9 logical units with no end buttons, that the look's colours are the token set's and follow the theme. It is the one Duet suite that links JUCE, and it is separate from `duet_tests` for that reason.
+- **The generated binary-data header is marked SYSTEM** on `duet_gui_fonts`. It lands at `build/modules/duet_gui/...`, which the lint's header filter would otherwise take for one of Duet's own.
+- **A JUCE fact worth carrying forward, recorded where it bites** (`SettingsWindow.cpp`): a `ComboBox` copies the look and feel's colours into its text label only when it is told the look has changed, and nothing else tells it. Changing the look and feel's colour table and repainting is not enough — the box paints the old theme's ink over the new theme's surface. This was a real defect, found by looking at the running app and not by any test; the fix is `sendLookAndFeelChange()` on the tree. Any later surface that follows the appearance needs the same call.
+- **`Appearance::resolve()` notifies even when the palette does not move** — Follow OS to Dark under a dark desktop still changes what the Interface tab must show.
+
+## Discovered, not done here
+
+Issue **uztxbx** (blocked on this one): the app's settings store and a session's engine each open their own `juce::PropertiesFile` on the same path. Duet's side reloads before every write so it never drops the engine's keys; the engine's side does not reciprocate. Nothing has been seen to lose a setting — the shape is wrong, and it gets worse as more app-global settings land.
+
+## What you must do
+
+This issue's body says closure waits for user review. Run `pw-jack ./build/modules/duet_app/duet_app_artefacts/Debug/Duet`, press Settings, and judge the look in both modes and at a couple of scales. Then close this issue to approve, or leave a note with the changes you want and remove the `needs-review` label.

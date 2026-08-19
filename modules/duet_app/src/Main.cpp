@@ -1,4 +1,12 @@
+#include "PropertyStorageSettings.h"
+
 #include <duet/persistence/Project.h>
+
+#include <duet/gui/Appearance.h>
+#include <duet/gui/GraphiteLookAndFeel.h>
+#include <duet/gui/SettingsWindow.h>
+#include <duet/gui/Tokens.h>
+#include <duet/gui/Typography.h>
 
 #include <duet/model/Session.h>
 
@@ -13,13 +21,16 @@ namespace duet::app
 {
 namespace
 {
-    constexpr int windowWidth = 720;
-    constexpr int windowHeight = 380;
+    // Logical units, not pixels: the interface scale is what turns one into the
+    // other, and the shell lays itself out through it (issue xxv9ng).
+    constexpr int windowWidth = 620;
+    constexpr int windowHeight = 330;
     constexpr int statusRefreshMs = 100;
-    constexpr int rowHeight = 40;
-    constexpr int buttonWidth = 110;
-    constexpr int boxWidth = 190;
-    constexpr int labelHeight = 26;
+    constexpr int controlRowHeight = 32;
+    constexpr int buttonWidth = 92;
+    constexpr int boxWidth = 160;
+    constexpr int labelHeight = 22;
+    constexpr int shellPadding = 12;
 
     std::filesystem::path toPath (const juce::File& file)
     {
@@ -40,12 +51,16 @@ namespace
     prompt, the untitled-folder flow — is issue ce17ym's, and it replaces all of
     this.
 */
-class MainComponent final : public juce::Component, private juce::Timer
+class MainComponent final : public juce::Component,
+                            private juce::Timer,
+                            private duet::gui::Appearance::Listener
 {
 public:
-    explicit MainComponent (std::function<void (const juce::String&)> titleChanged)
-        : reportTitle (std::move (titleChanged))
+    MainComponent (duet::gui::Appearance& lookAndScale,
+                   std::function<void (const juce::String&)> titleChanged)
+        : appearance (lookAndScale), reportTitle (std::move (titleChanged))
     {
+        settingsButton.onClick = [this] { openSettings(); };
         newButton.onClick = [this] { chooseFolder (true); };
         openButton.onClick = [this] { chooseFolder (false); };
         saveButton.onClick = [this] { saveProject(); };
@@ -69,6 +84,7 @@ public:
         for (auto* button : { &newButton,
                               &openButton,
                               &saveButton,
+                              &settingsButton,
                               &addTrackButton,
                               &playButton,
                               &stopButton,
@@ -84,12 +100,18 @@ public:
         for (auto* label : { &projectLabel, &deviceLabel, &transportLabel, &vocabularyLabel })
             addAndMakeVisible (*label);
 
-        setSize (windowWidth, windowHeight);
+        // The one numeric readout the shell has: tabular figures, so the seconds
+        // counting up do not shift the text sideways as they count.
+        transportLabel.setFont (
+            duet::gui::readoutFont (appearance.scaled (duet::gui::typography::body)));
+
+        appearance.addListener (this);
+        setSize (appearance.scaled (windowWidth), appearance.scaled (windowHeight));
         refresh();
         startTimer (statusRefreshMs);
     }
 
-    ~MainComponent() override = default;
+    ~MainComponent() override { appearance.removeListener (this); }
 
     void paint (juce::Graphics& g) override
     {
@@ -98,32 +120,65 @@ public:
 
     void resized() override
     {
-        auto area = getLocalBounds().reduced (12);
+        // Every measurement below is in logical units, and every one of them
+        // goes through the interface scale: that is what makes the setting
+        // re-lay the shell out where it stands, with no restart.
+        auto area = getLocalBounds().reduced (appearance.scaled (shellPadding));
 
-        auto lifecycle = area.removeFromTop (rowHeight);
-        for (auto* button : { &newButton, &openButton, &saveButton })
-            button->setBounds (lifecycle.removeFromLeft (buttonWidth).reduced (2));
+        const auto row = appearance.scaled (controlRowHeight);
+        const auto button = appearance.scaled (buttonWidth);
+        const auto box = appearance.scaled (boxWidth);
+        const auto gap = appearance.scaled (duet::gui::metrics::rowGap) / 2;
 
-        auto transport = area.removeFromTop (rowHeight);
-        for (auto* button : { &addTrackButton, &playButton, &stopButton })
-            button->setBounds (transport.removeFromLeft (buttonWidth).reduced (2));
+        auto lifecycle = area.removeFromTop (row);
+        for (auto* control : { &newButton, &openButton, &saveButton, &settingsButton })
+            control->setBounds (lifecycle.removeFromLeft (button).reduced (gap));
 
-        auto recording = area.removeFromTop (rowHeight);
-        inputBox.setBounds (recording.removeFromLeft (boxWidth).reduced (2));
-        monitorBox.setBounds (recording.removeFromLeft (boxWidth).reduced (2));
-        for (auto* button : { &armButton, &recordButton })
-            button->setBounds (recording.removeFromLeft (buttonWidth).reduced (2));
+        auto transport = area.removeFromTop (row);
+        for (auto* control : { &addTrackButton, &playButton, &stopButton })
+            control->setBounds (transport.removeFromLeft (button).reduced (gap));
 
-        auto vocabulary = area.removeFromTop (rowHeight);
-        for (auto* button : { &nextEditButton, &undoButton })
-            button->setBounds (vocabulary.removeFromLeft (buttonWidth).reduced (2));
+        auto recording = area.removeFromTop (row);
+        inputBox.setBounds (recording.removeFromLeft (box).reduced (gap));
+        monitorBox.setBounds (recording.removeFromLeft (box).reduced (gap));
+        for (auto* control : { &armButton, &recordButton })
+            control->setBounds (recording.removeFromLeft (button).reduced (gap));
+
+        auto vocabulary = area.removeFromTop (row);
+        for (auto* control : { &nextEditButton, &undoButton })
+            control->setBounds (vocabulary.removeFromLeft (button).reduced (gap));
 
         for (auto* label : { &projectLabel, &deviceLabel, &transportLabel, &vocabularyLabel })
-            label->setBounds (area.removeFromTop (labelHeight));
+            label->setBounds (area.removeFromTop (appearance.scaled (labelHeight)));
     }
 
 private:
     void timerCallback() override { refresh(); }
+
+    /** The theme or the scale has changed under the shell. The measurements are
+        logical, so this is a layout and not only a repaint.
+    */
+    void appearanceChanged() override
+    {
+        transportLabel.setFont (
+            duet::gui::readoutFont (appearance.scaled (duet::gui::typography::body)));
+
+        sendLookAndFeelChange();
+        resized();
+        repaint();
+    }
+
+    void openSettings()
+    {
+        if (settingsWindow != nullptr)
+        {
+            settingsWindow->toFront (true);
+            return;
+        }
+
+        settingsWindow = std::make_unique<duet::gui::SettingsWindow> (
+            appearance, [this] { settingsWindow.reset(); });
+    }
 
     template <typename Job>
     void withProject (Job job)
@@ -555,7 +610,9 @@ private:
                + juce::String (session.track (recordTrack()).name);
     }
 
+    duet::gui::Appearance& appearance;
     std::function<void (const juce::String&)> reportTitle;
+    std::unique_ptr<duet::gui::SettingsWindow> settingsWindow;
     std::unique_ptr<duet::persistence::Project> project;
     std::unique_ptr<juce::FileChooser> chooser;
     juce::String problem;
@@ -563,6 +620,7 @@ private:
     juce::TextButton newButton { "New" };
     juce::TextButton openButton { "Open" };
     juce::TextButton saveButton { "Save" };
+    juce::TextButton settingsButton { "Settings" };
     juce::TextButton addTrackButton { "Add Track" };
     juce::TextButton playButton { "Play" };
     juce::TextButton stopButton { "Stop" };
@@ -594,15 +652,17 @@ const std::array<std::pair<duet::model::InputMonitoring, std::string_view>, 3>
 class MainWindow final : public juce::DocumentWindow
 {
 public:
-    explicit MainWindow (const juce::String& name)
+    MainWindow (const juce::String& name, duet::gui::Appearance& appearance)
         : DocumentWindow (name,
                           juce::Desktop::getInstance().getDefaultLookAndFeel().findColour (
                               juce::ResizableWindow::backgroundColourId),
                           allButtons)
     {
         setUsingNativeTitleBar (true);
-        setContentOwned (
-            new MainComponent { [this] (const juce::String& title) { setName (title); } }, true);
+        setContentOwned (new MainComponent { appearance,
+                                             [this] (const juce::String& title)
+                                             { setName (title); } },
+                         true);
         setResizable (true, false);
         centreWithSize (getWidth(), getHeight());
         setVisible (true);
@@ -618,7 +678,14 @@ public:
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainWindow)
 };
 
-class DuetApplication final : public juce::JUCEApplication
+/** The application, and where the two things the whole interface reads live: the
+    app-global settings store, and the appearance over it.
+
+    Both outlive every project and every window, which is why they are here and
+    not on a surface. The desktop's dark setting arrives here too, and is handed
+    to the appearance — a producer on Follow OS gets the flip without a restart.
+*/
+class DuetApplication final : public juce::JUCEApplication, private juce::DarkModeSettingListener
 {
 public:
     const juce::String getApplicationName() override { return JUCE_APPLICATION_NAME_STRING; }
@@ -627,14 +694,44 @@ public:
 
     void initialise (const juce::String& /*commandLine*/) override
     {
-        window = std::make_unique<MainWindow> (getApplicationName());
+        auto& desktop = juce::Desktop::getInstance();
+
+        settings = std::make_unique<PropertyStorageSettings>();
+        appearance =
+            std::make_unique<duet::gui::Appearance> (*settings, desktop.isDarkModeActive());
+        look = std::make_unique<duet::gui::GraphiteLookAndFeel> (*appearance);
+
+        juce::LookAndFeel::setDefaultLookAndFeel (look.get());
+        desktop.addDarkModeSettingListener (this);
+
+        window = std::make_unique<MainWindow> (getApplicationName(), *appearance);
     }
 
-    void shutdown() override { window.reset(); }
+    void shutdown() override
+    {
+        juce::Desktop::getInstance().removeDarkModeSettingListener (this);
+        window.reset();
+
+        // The look and feel goes before the appearance it listens to, and after
+        // the windows that are drawn with it.
+        juce::LookAndFeel::setDefaultLookAndFeel (nullptr);
+        look.reset();
+        appearance.reset();
+        settings.reset();
+    }
 
     void systemRequestedQuit() override { quit(); }
 
 private:
+    void darkModeSettingChanged() override
+    {
+        if (appearance != nullptr)
+            appearance->systemDarkModeChanged (juce::Desktop::getInstance().isDarkModeActive());
+    }
+
+    std::unique_ptr<PropertyStorageSettings> settings;
+    std::unique_ptr<duet::gui::Appearance> appearance;
+    std::unique_ptr<duet::gui::GraphiteLookAndFeel> look;
     std::unique_ptr<MainWindow> window;
 };
 } // namespace duet::app
