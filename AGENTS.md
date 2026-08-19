@@ -58,6 +58,10 @@ Every check above is the one to run before a commit. Measured on the dev machine
 
 `docs/ARCHITECTURE.md` — the modules and the seams. `docs/adr/` — decisions already made (the format is in `docs/adr/README.md`). Do not debate them again.
 
+### Engine notes
+
+`docs/ENGINE_NOTES.md` — what the engine actually does. One fact per entry. The format rules are at the top of the file.
+
 ### Issue tracker
 
 `docs/TRACKER.md` — how to use this project's issue tracker (Beaver Backlog).

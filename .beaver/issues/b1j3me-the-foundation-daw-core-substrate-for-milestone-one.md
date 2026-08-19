@@ -15,8 +15,9 @@ depends_on:
     - skb4tp
     - rquzdc
 created: 2026-08-10T03:43:27Z
-updated: 2026-08-17T04:12:08Z
+updated: 2026-08-19T11:08:15Z
 ---
+
 
 ## Problem Statement
 
@@ -134,16 +135,7 @@ No new dependencies beyond the set settled at psmj4y: JUCE 9, Tracktion Engine (
 
 ## Further Notes
 
-Engine hazards the implementer must honor (all reproduced, sources: skb4tp/rquzdc/ddp1qt closing notes):
-
-1. Naked ops outside an Action merge into foreign transactions or land in unnamed timer-sealed steps (350 ms timer).
-2. The async clip re-sort after move/trim is undo-tracked and clears the redo stack if it fires after an undo — Actions staying open absorbs it.
-3. `Edit::flushState()` writes parameter blobs through the UndoManager — never on the save path.
-4. `EditFileOperations::save` segfaults for project-less edits (`EditSnapshot::refresh` null-deref, upstream bug) — Duet's save never uses it.
-5. `insertWaveClip` stores TEMP-relative source paths that play silence — every insertion pins its reference.
-6. The transport dies seconds after first headless playback (one-time async device-list rebuild) — headless tests retry `play()` until `isPlaying`.
-7. Undo/redo permutes ValueTree property order — all comparisons canonicalize.
-8. Build with `-j 4` on the dev machine (~2 GB per Tracktion TU).
+Engine hazards the implementer must honor live in `docs/ENGINE_NOTES.md` — one list, numbered as they were here, because code comments cite them by number. Do not recopy them onto this spec.
 
 Companion records published with this spec: ADR 0004 (edit vocabulary and shared undo), ADR 0005 (persistence and project shape), the ARCHITECTURE.md update, and the toolchain commands in AGENTS.md (closing `l1gtax`).
 
@@ -160,3 +152,7 @@ Amendment from RT-testing area record ox1trt (2026-08-10): the Testing Decisions
 **claude** — 2026-08-17T04:12:08Z
 
 Decision (2026-08-17): the milestone-one 'built-in' instruments and effects are engine-shipped plugins surfaced through the Duet facade — the engine's 4OSC and sampler as the two instruments; its EQ, compressor, and reverb as the three effects. No Duet-authored DSP runs in the audio callback in milestone one; the Testing Decisions' 'built-in instruments and effects' clause applies from the moment Duet-authored devices exist (until then uaqfnv's seam tests use test-only processors, as that slice already states). Duet-authored replacements stay future roadmap work, per this spec's Out of Scope. Also today: the autosave amendment (setting off/2/5/10, default 10) is folded into the body, which is now authoritative; and recording gained its own slice, nfjr5x.
+
+**agent** — 2026-08-19T11:08:15Z
+
+The Further Notes hazard list moved to docs/ENGINE_NOTES.md (issue 9w7y51). The numbered hazards still exist under those numbers; this spec now points at the doc so the list lives in one place.
