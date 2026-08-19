@@ -9,7 +9,7 @@ depends_on:
     - quiwf3
 parent: b1j3me
 created: 2026-08-11T01:50:39Z
-updated: 2026-08-19T04:53:46Z
+updated: 2026-08-19T05:07:42Z
 ---
 
 ## What to build
@@ -234,3 +234,37 @@ Build, format, lint, 52/52 tests.
 ## What the user must do
 
 Run the demo, forwards through all seven and then all the way back with Undo. The note at the loop seam should be gone. If it is, this issue's last criterion is met — close it. If anything else is off, say so and remove the needs-review label.
+
+**claude** — 2026-08-19T05:07:42Z
+
+Fifth review pass: two artifacts remain, and they are not this issue's to chase further.
+
+The user reports the reverb now works, and three things still wrong. Two are audio artifacts that survived every fix here, and one is a pre-existing fault in the app's Play button.
+
+## Published, not fixed
+
+- **sohgf4** — the Play button needs a second press. This is hazard 6, which AGENTS.md names and which every test survives by going through playUntilRolling: the engine rebuilds its device list once, seconds after the first playback, and that frees the playback graph and stops the transport. MainComponent calls startPlayback() once and never looks again. The button predates this issue, and the user flagged it as separate, so it is published rather than fixed. It does make this issue's demo harder to judge — a silent first press reads as a fault in whatever was just edited.
+
+- **6629zo** — the tone at the loop seam and the one stuck by fast undos, blocked on vhl9d0. It carries the three hypotheses that were tested and refuted, the measurements that came back clean, and why a headless harness cannot see either artifact.
+
+## The loop-seam tone: three wrong answers
+
+Recorded plainly, because two of the three cost real time and the reasoning looked sound each time.
+
+1. The copy on the loop seam. Step 2 duplicated the phrase to bar 5, which is exactly where the transport wraps. Moving it to bar 9 changed nothing the user could hear. The copy stays at bar 9 regardless — a clip on the seam is fragile whether or not it was ever audible.
+2. The loop frozen in seconds under a moving tempo. Half right: the loop does follow the tempo forwards, and the bug was that it did not come back on the undo, leaving the transport wrapping a beat and a half early and cutting a note every pass. That was real, it is fixed, and the artifact outlived it.
+3. Anything in loadDemoContent. Ruled out by measurement before it was ever proposed: four loop passes with no edits at all, compared against the same music mid-loop, deviate by 0.013 against a 0.16 signal.
+
+The stuck tone did not reproduce either — seven undo presses with no message loop between them, and again with 90ms between them, which is what fast clicking actually is. The dominant frequency alternates A4 and C4 window after window, which is the arpeggio, and the RMS holds at 0.1815 with no drift.
+
+The common thread in what could not be measured is vhl9d0's: every audio assertion Duet has goes through an offline render, and neither artifact exists there, because a render never wraps a loop and never rebuilds a graph mid-playback. Recording the device works but 4OSC free-runs, so two passes of the same notes are not the same samples and subtraction bottoms out in noise at the level of the artifact. Both leading suspects are hanging MIDI voices; te::midiPanic is the lever, and 6629zo says where to start.
+
+## Where this issue stands
+
+Nine of the ten acceptance criteria are held by tests, now 52 of them. The tenth — every op domain landing audibly with no glitch — is met for the landing and not for the glitch: all seven domains are audible and correct after four rounds of real fixes (the silent group bus, the clipping, the undo faults, the inaudible reverb, the short loop), and two tonal artifacts remain that no measurement here could pin to a cause.
+
+That is a judgement for the user and not for me. Closing this issue and letting 6629zo carry the artifacts is defensible, since the vocabulary itself is demonstrably working and the artifacts are a distinct fault about voices outliving a graph rebuild. Holding it open until they are gone is also defensible, since the criterion says "no glitch" and there is one. Whichever, the label comes off when the user decides.
+
+## Checks
+
+Build, format, lint, 52/52 tests.
