@@ -53,6 +53,11 @@ inline constexpr PluginRef noPlugin = 0;
 /** No note: what an operation returns when it could not make one. */
 inline constexpr NoteRef noNote = 0;
 
+/** What a meter reads where there is no signal at all, in decibels of full
+    scale.
+*/
+inline constexpr double silentDb = -100.0;
+
 class Session;
 
 /** What a track is for.
@@ -519,6 +524,50 @@ public:
         False when nothing could be written.
     */
     bool renderToFile (const std::filesystem::path& destination);
+
+    //==============================================================================
+    // The meters: what playback is putting out.
+    //
+    // The engine builds one graph to play through and another to render offline,
+    // and they route differently — a track with nowhere to go is summed into the
+    // master by the rendering one and blocked by the playing one. So a measured
+    // render says nothing about what a producer hears, and these are the reads
+    // that do (ADR 0006).
+
+    /** The loudest the output has been since this was last asked, in decibels
+        of full scale.
+
+        Full scale is 0 dB, so a peak at or above it is a signal with no
+        headroom left — the clipping the producer hears — and silence reads as
+        silentDb. Asking clears the reading, the way a meter falls back once it
+        has been looked at.
+    */
+    [[nodiscard]] double outputPeakDb();
+
+    /** The same reading for one track, taken where the engine puts a track's
+        meter — after its fader, and before whatever the track is routed into
+        has done anything with what it hands on. A track that is not there reads
+        as silentDb.
+
+        A track that reads loud while the output reads silent is a track routed
+        into something that nobody can hear.
+    */
+    [[nodiscard]] double trackPeakDb (TrackRef track);
+
+    /** Plays a stretch of the project with no audio device, as fast as the
+        machine will go, and stops. True when it played at all.
+
+        The graph is the playback graph — the one a producer hears, and the one
+        an offline render does not build — but the blocks it fills go nowhere,
+        so the meters are the only trace playing this way leaves. It is how a
+        machine with no audio hardware can still be asked what reaches the
+        output, which is what puts that question in CI.
+
+        Playing starts at the playhead and leaves it where it stopped. A session
+        that has played this way has given up its audio device to do it, and
+        keeps playing without one.
+    */
+    bool playWithoutAudioDevice (double seconds);
 
     /** Fills the session with a short audible phrase, and makes it the state
         the project starts from.

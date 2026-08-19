@@ -2,8 +2,10 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <sstream>
 #include <stdexcept>
+#include <unordered_set>
 #include <utility>
 
 namespace duet::model
@@ -26,6 +28,16 @@ namespace
     */
     constexpr int playRetryIntervalMs = 100;
     constexpr int playRetryAttempts = 100;
+
+    /** What playing with no audio device runs at. The rate and the block size
+        are ordinary ones and nothing depends on them: they only decide how many
+        blocks a stretch of seconds is cut into. The CPU limit is what stops the
+        engine muting blocks that arrive faster than real time, which every one
+        of them does here.
+    */
+    constexpr double measuringSampleRate = 44100.0;
+    constexpr int measuringBlockSize = 512;
+    constexpr double measuringCpuLimit = 1000.0;
 } // namespace
 
 //==============================================================================
@@ -482,6 +494,66 @@ bool Session::renderToFile (const std::filesystem::path& destination)
 }
 
 //==============================================================================
+double Session::outputPeakDb() { return impl->outputMeter.readPeakDb(); }
+
+double Session::trackPeakDb (TrackRef track)
+{
+    const auto meter = impl->trackMeters.find (track);
+
+    return meter != impl->trackMeters.end() ? meter->second->readPeakDb() : silentDb;
+}
+
+bool Session::playWithoutAudioDevice (double seconds)
+{
+    auto& deviceManager = impl->engine.getDeviceManager();
+    auto& audioInterface = deviceManager.getHostedAudioDeviceInterface();
+
+    if (! deviceManager.isHostedAudioDeviceInterfaceInUse())
+    {
+        // Blocks go through as fast as the machine will take them, so the
+        // engine's wall-clock measure of how hard it is working means nothing
+        // here; left alone it would mute the blocks it thinks arrived late.
+        deviceManager.setCpuLimitBeforeMuting (measuringCpuLimit);
+
+        te::HostedAudioDeviceInterface::Parameters parameters;
+        parameters.sampleRate = measuringSampleRate;
+        parameters.blockSize = measuringBlockSize;
+        parameters.inputChannels = 0;
+        parameters.outputChannels = 2;
+
+        audioInterface.initialise (parameters);
+        audioInterface.prepareToPlay (parameters.sampleRate, parameters.blockSize);
+        deviceManager.dispatchPendingUpdates();
+    }
+
+    // Every edit made since the last block has to be in the graph before the
+    // next one is asked for: nothing pumps the message loop while the blocks go
+    // through, and an edit still waiting to land would be inaudible.
+    impl->edit->dispatchPendingUpdatesSynchronously();
+
+    startPlayback();
+
+    if (! isPlaying())
+        return false;
+
+    juce::AudioBuffer<float> block { 2, measuringBlockSize };
+    juce::MidiBuffer noMidiIn;
+
+    const auto blocks = static_cast<int> (
+        std::ceil (std::max (0.0, seconds) * measuringSampleRate / measuringBlockSize));
+
+    for (int played = 0; played < blocks; ++played)
+    {
+        block.clear();
+        audioInterface.processBlock (block, noMidiIn);
+    }
+
+    stopPlayback();
+
+    return true;
+}
+
+//==============================================================================
 void Session::loadDemoContent()
 {
     const auto tracks = te::getAudioTracks (*impl->edit);
@@ -524,11 +596,41 @@ void Session::loadDemoContent()
 }
 
 //==============================================================================
-void Session::Impl::askTransportToPlay() const
+void Session::Impl::askTransportToPlay()
 {
     auto& transport = edit->getTransport();
     transport.ensureContextAllocated();
     transport.play (false);
+
+    // The context that has just been allocated owns the master's measurer, and
+    // a measurer with nothing listening to it measures nothing — so the meters
+    // are pointed at it before any audio can reach it.
+    syncMeters();
+}
+
+void Session::Impl::syncMeters()
+{
+    auto* context = edit->getCurrentPlaybackContext();
+    outputMeter.attachTo (context != nullptr ? &context->masterLevels : nullptr);
+
+    std::unordered_set<TrackRef> present;
+
+    for (auto* track : te::getAudioTracks (*edit))
+    {
+        const auto ref = toRef<TrackRef> (track->itemID);
+        present.insert (ref);
+
+        auto& meter = trackMeters[ref];
+
+        if (meter == nullptr)
+            meter = std::make_unique<Meter>();
+
+        auto* levelMeter = track->getLevelMeterPlugin();
+        meter->attachTo (levelMeter != nullptr ? &levelMeter->measurer : nullptr);
+    }
+
+    std::erase_if (trackMeters,
+                   [&present] (const auto& entry) { return ! present.contains (entry.first); });
 }
 
 void Session::Impl::keepPlaybackRolling()
@@ -536,6 +638,11 @@ void Session::Impl::keepPlaybackRolling()
     if (edit->getTransport().isPlaying())
     {
         askedWithoutRolling = 0;
+
+        // A graph rebuilt under a rolling transport — an edit landing, or the
+        // device rebuild of hazard 6 — leaves the meters reading a measurer
+        // that has gone.
+        syncMeters();
         return;
     }
 

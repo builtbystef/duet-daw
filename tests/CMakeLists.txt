@@ -12,6 +12,7 @@ add_executable(duet_tests
     EditVocabularyTests.cpp
     MidiOpsTests.cpp
     MixerOpsTests.cpp
+    PlaybackLevelTests.cpp
     PluginOpsTests.cpp
     ProjectLayoutTests.cpp
     ProjectAndTransportOpsTests.cpp

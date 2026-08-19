@@ -4,6 +4,8 @@
 
 #include <duet/model/EngineAccess.h>
 
+#include <algorithm>
+#include <memory>
 #include <string>
 #include <unordered_map>
 
@@ -66,6 +68,54 @@ Ref toRef (te::EditItemID id)
 std::string projectReferenceTo (const std::filesystem::path& projectFolder,
                                 const std::filesystem::path& sourceFile);
 
+/** One meter: a client kept attached to whichever measurer is currently the
+    right one to read.
+
+    A measurer only measures while something is listening to it, and the ones
+    worth reading come and go — the master's belongs to the playback context,
+    which is freed and rebuilt whenever the engine rebuilds its graph. So the
+    client is the durable thing, and this moves it.
+*/
+class Meter
+{
+public:
+    Meter() = default;
+    ~Meter() { attachTo (nullptr); }
+
+    Meter (const Meter&) = delete;
+    Meter& operator= (const Meter&) = delete;
+
+    void attachTo (te::LevelMeasurer* newMeasurer)
+    {
+        if (newMeasurer == measurer.get())
+            return;
+
+        if (auto* previous = measurer.get())
+            previous->removeClient (client);
+
+        measurer = newMeasurer;
+
+        if (newMeasurer != nullptr)
+            newMeasurer->addClient (client);
+    }
+
+    /** The loudest of the channels since the last read, which this clears. */
+    [[nodiscard]] double readPeakDb()
+    {
+        auto peakDb = silentDb;
+
+        for (int channel = 0; channel < client.getNumChannelsUsed(); ++channel)
+            peakDb =
+                std::max (peakDb, static_cast<double> (client.getAndClearAudioLevel (channel).dB));
+
+        return peakDb;
+    }
+
+private:
+    juce::WeakReference<te::LevelMeasurer> measurer;
+    te::LevelMeasurer::Client client;
+};
+
 /** Everything engine-shaped lives here, so that Session.h can name no engine or
     JUCE type. The initialiser is declared first so that it outlives the engine:
     the engine's managers start timers and background threads that need a
@@ -99,10 +149,24 @@ struct Session::Impl
     /** Asks the transport to play, allocating the playback context first: after
         the device rebuild there is no context to play through.
     */
-    void askTransportToPlay() const;
+    void askTransportToPlay();
 
     /** One tick of the retry: gives up, does nothing, or asks again. */
     void keepPlaybackRolling();
+
+    //==============================================================================
+    // The meters.
+
+    Meter outputMeter;
+    std::unordered_map<TrackRef, std::unique_ptr<Meter>> trackMeters;
+
+    /** Points every meter at the measurer it should be reading now, and drops
+        the ones whose track has gone.
+
+        Called wherever playback is (re)started or found still going, because
+        that is when the master's measurer can have been replaced under it.
+    */
+    void syncMeters();
 
     /** Runs for exactly as long as playback is wanted — its running is that
         memory, and there is no second copy of it to keep in step — and drives

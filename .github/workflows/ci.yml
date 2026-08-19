@@ -65,8 +65,10 @@ jobs:
       - name: Build
         run: cmake --build --preset ${{ matrix.preset }} -j ${{ env.DUET_BUILD_JOBS }}
 
-      # The runner has no audio hardware; the one test that needs a device skips
-      # itself when there is none, and everything else renders offline.
+      # The runner has no audio hardware. The tests that need a device skip
+      # themselves when there is none; everything else either renders offline or
+      # plays the playback graph with no device at all, which is how audibility
+      # is asserted here rather than only on a developer's machine (ADR 0006).
       - name: Test
         run: ctest --preset ${{ matrix.preset }}
 
