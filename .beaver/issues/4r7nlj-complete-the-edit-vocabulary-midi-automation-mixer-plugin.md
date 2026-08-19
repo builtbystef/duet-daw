@@ -9,7 +9,7 @@ depends_on:
     - quiwf3
 parent: b1j3me
 created: 2026-08-11T01:50:39Z
-updated: 2026-08-19T03:34:45Z
+updated: 2026-08-19T03:54:49Z
 ---
 
 ## What to build
@@ -123,3 +123,45 @@ Build, format, lint and 48/48 tests all clean. The demo steps themselves are unc
 ## What the user must do
 
 Run the demo again from step 1 and listen through all seven. Step 3 should now sound unchanged from step 2 rather than dropping out, and steps 4 and 5 should be audible. If it is clean, close this issue to approve. If something still clicks, drops out or stutters, write a note saying which step, and remove the needs-review label.
+
+**claude** — 2026-08-19T03:54:49Z
+
+Second review finding, fixed: the demo distorted, and undo could empty the project.
+
+The user ran the demo again. All seven edits now land — the group bus fix holds. Three things were wrong with what came after.
+
+## The distortion was the demo's gain staging, not undo
+
+Reproduced and measured, playing the demo forwards through all seven steps and then undoing it press by press, recording Duet's output ports into a null sink: 5,425 samples pinned at full scale, peak exactly 1.0000, across a four-second window. Not a rebuild click — sustained digital clipping.
+
+The cause is three of the demo's own steps stacking gain that the master cannot carry:
+
+- Step 4 sent the track into demoBus at -12 dB — the same bus step 3 had already routed the track's output into. So the bus carried the signal twice. A send into the bus a track already outputs to is not a routing anyone would make; it is a second copy and about 6 dB nobody asked for.
+- Step 5 put the reverb at the head of that bus at wet 0.6, so it wetted the whole signal rather than a send, and added its own level on top of the dry it was passing through.
+- Step 6's volume curve ran to 0.0 dB at its peak, above the -6.0 dB fader step 4 had just set, so the automation undid the one gain reduction in the chain at exactly the loudest moment.
+
+Fixed by making the send do what a send does: step 4 now creates its own "Reverb" bus and sends to that, step 5 puts the reverb there at wet 1.0 / dry 0.0 where it is a send effect, and step 6's curve peaks at -6.0 dB rather than 0.0. Same measurement after: peak 0.7747, zero clipped samples.
+
+Why this read as an undo fault: the clipping came from the volume curve and the double routing, so undoing the tempo — the first press — changed nothing about it. It only cleared when the undo reached step 6. The undo was working; it was undoing the wrong thing to make the noise stop.
+
+## Undo could take the demo phrase away
+
+loadDemoContent wrote the phrase through performAction and the session had already started its undo history, so "Add the demo phrase" sat at the bottom of the stack. Enough presses and the arpeggio itself was gone and the project was empty — which is exactly what the user saw at the end. It is an undo of something the producer never did. loadDemoContent now calls startUndoHistory() after writing the phrase, so the phrase is the state the project starts from.
+
+## Undo did not walk the demo back
+
+The Undo button called session.undo() and left demoStep alone. The label went on naming a step that had just been taken away, and the next press of Next Edit ran the step after it against a project missing what that step needed — with demoBus and demoReverb naming deleted objects, so setSend and setPluginParameter silently did nothing. Undo now decrements the counter with the edit, which fixes the stale refs too, because each step assigns its own.
+
+## What the model got right
+
+Worth saying, because it was the first thing suspected: the vocabulary's undo is exact. A new test, "the vocabulary demo undoes step by step back to where it started", walks the demo's seven steps, records the digest after each, undoes back through all seven checking each digest on the way down, then redoes back up — 29 assertions, all exact. It also asserts that the eighth undo returns false and the phrase is still there, which is the regression guard for the empty-project bug.
+
+The clipping is the second thing this review pass found that a green suite could not see, for the same reason as the first. Noted on vhl9d0.
+
+## Checks
+
+Build, format, lint, 49/49 tests.
+
+## What the user must do
+
+Run the demo once more: New, Play, Next Edit seven times, then Undo all the way back. Expected now — no distortion at any point forwards or backwards, the label tracking the Undo presses, and the arpeggio still there when the undo stack runs out. Close this issue to approve, or note what is still wrong and remove the needs-review label.

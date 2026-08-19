@@ -8,6 +8,7 @@ add_subdirectory(support)
 add_executable(duet_tests
     AutomationOpsTests.cpp
     ClipOpsTests.cpp
+    DemoWalkthroughTests.cpp
     EditVocabularyTests.cpp
     MidiOpsTests.cpp
     MixerOpsTests.cpp

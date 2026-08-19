@@ -7,7 +7,7 @@ labels:
     - maintenance
 parent: b1j3me
 created: 2026-08-19T03:34:22Z
-updated: 2026-08-19T03:34:22Z
+updated: 2026-08-19T03:54:49Z
 ---
 
 ## Why
@@ -38,3 +38,9 @@ It needs pw-record, pw-link and a null sink, so it cannot be a CI assertion as i
 - [ ] A test plays a project whose only source is routed through a group bus and asserts a non-zero level; it fails against the pre-fix `setOutputToNone` behaviour.
 - [ ] Either the test runs in CI, or the issue records why it cannot and what does run instead.
 - [ ] ADR 0006 is amended, or a note records why it needs no amendment.
+
+## Notes
+
+**claude** — 2026-08-19T03:54:49Z
+
+Second instance of the same gap, from the same review pass: the demo clipped the master — 5,425 samples pinned at full scale — and nothing in the suite could see it, for the same reason nothing could see the silent bus. A level read on the playback path should be able to answer 'is it clipping' as well as 'is it audible', so the acceptance criteria here are worth reading as covering both: a peak/true-peak read, not just a non-zero one.

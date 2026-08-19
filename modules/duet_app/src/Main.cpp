@@ -50,11 +50,7 @@ public:
         saveButton.onClick = [this] { saveProject(); };
         addTrackButton.onClick = [this] { addTrack(); };
         nextEditButton.onClick = [this] { stepThroughTheVocabulary(); };
-        undoButton.onClick = [this]
-        {
-            withProject ([] (auto& p) { p.session().undo(); });
-            refresh();
-        };
+        undoButton.onClick = [this] { undoOneStep(); };
         playButton.onClick = [this]
         { withProject ([] (auto& p) { p.session().startPlayback(); }); };
         stopButton.onClick = [this] { withProject ([] (auto& p) { p.session().stopPlayback(); }); };
@@ -156,6 +152,7 @@ private:
         problem = {};
         demoStep = 0;
         demoBus = duet::model::noTrack;
+        demoReverbBus = duet::model::noTrack;
         demoReverb = duet::model::noPlugin;
         lastDemoStep = {};
 
@@ -269,6 +266,25 @@ private:
                                                                      "Draw a volume curve",
                                                                      "Change the tempo" };
 
+    /** Takes the demo back one press, and the walk back with it.
+
+        The counter is what names the next step and what decides whether there
+        is one, so an undo that left it alone would leave the label describing a
+        step that had just been taken away — and the next press would run the
+        step after it against a project missing what it needs.
+    */
+    void undoOneStep()
+    {
+        withProject (
+            [this] (auto& open)
+            {
+                if (open.session().undo() && demoStep > 0)
+                    --demoStep;
+            });
+
+        refresh();
+    }
+
     void stepThroughTheVocabulary()
     {
         withProject (
@@ -323,7 +339,15 @@ private:
                                                {
                                                    ops.setTrackVolumeDb (track, -6.0);
                                                    ops.setTrackPan (track, -0.4);
-                                                   ops.setSend (track, demoBus, -12.0);
+
+                                                   // Its own bus, and not the one the track already
+                                                   // outputs to: a send into that bus would be a
+                                                   // second copy of a signal it is carrying anyway,
+                                                   // which is both a meaningless routing and 6 dB
+                                                   // nobody asked for.
+                                                   demoReverbBus = ops.createTrack (
+                                                       duet::model::TrackKind::group, "Reverb");
+                                                   ops.setSend (track, demoReverbBus, -12.0);
                                                });
                         break;
 
@@ -332,10 +356,15 @@ private:
                             demoStepNames.at (4),
                             [&] (auto& ops)
                             {
-                                demoReverb =
-                                    ops.addPlugin (demoBus, duet::model::BuiltinPlugin::reverb, 0);
+                                demoReverb = ops.addPlugin (
+                                    demoReverbBus, duet::model::BuiltinPlugin::reverb, 0);
                                 ops.setPluginParameter (demoReverb, "room size", 0.9);
-                                ops.setPluginParameter (demoReverb, "wet level", 0.6);
+
+                                // All wet: what the bus carries is the send, and
+                                // the dry signal is already on its way out
+                                // through the group bus.
+                                ops.setPluginParameter (demoReverb, "wet level", 1.0);
+                                ops.setPluginParameter (demoReverb, "dry level", 0.0);
                             });
                         break;
 
@@ -346,7 +375,7 @@ private:
                             {
                                 ops.setAutomationPoints (
                                     duet::model::AutomationTarget::trackVolumeOf (track),
-                                    { { 0.0, -24.0 }, { 4.0, 0.0 }, { 8.0, -24.0 } });
+                                    { { 0.0, -24.0 }, { 4.0, -6.0 }, { 8.0, -24.0 } });
                             });
                         break;
 
@@ -408,6 +437,7 @@ private:
     juce::Label vocabularyLabel;
     std::size_t demoStep = 0;
     duet::model::TrackRef demoBus = duet::model::noTrack;
+    duet::model::TrackRef demoReverbBus = duet::model::noTrack;
     duet::model::PluginRef demoReverb = duet::model::noPlugin;
     juce::String lastDemoStep;
 

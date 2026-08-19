@@ -513,11 +513,14 @@ public:
     */
     bool renderToFile (const std::filesystem::path& destination);
 
-    /** Fills the session with a short audible phrase.
+    /** Fills the session with a short audible phrase, and makes it the state
+        the project starts from.
 
         The walking skeleton's only content source: it exists so that the shell
         has something to play, and it goes away when the app can open a real
-        project instead.
+        project instead. The phrase is not undoable — it is where the project
+        begins, and an undo that could take it away would be an undo of
+        something the producer never did.
     */
     void loadDemoContent();
 

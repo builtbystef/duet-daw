@@ -494,8 +494,13 @@ void Session::loadDemoContent()
                              demoNoteVelocity);
         });
 
-    // The transport, not the project: written with no undo history, so the loop
-    // the demo plays in survives an undo of the phrase itself.
+    // The phrase is where the project starts, not an edit made to it, so the
+    // history begins here. Otherwise one undo too many empties the project and
+    // leaves the producer with nothing to play — an undo of something they
+    // never did.
+    startUndoHistory();
+
+    // The transport, not the project: written with no undo history at all.
     auto& transport = impl->edit->getTransport();
     transport.setLoopRange (
         { te::TimePosition(), te::TimePosition::fromSeconds (demoPhraseSeconds) });
