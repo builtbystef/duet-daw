@@ -32,3 +32,5 @@ target_link_libraries(duet_tests PRIVATE
 list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
 include(Catch)
 catch_discover_tests(duet_tests)
+
+add_subdirectory(scratch EXCLUDE_FROM_ALL)

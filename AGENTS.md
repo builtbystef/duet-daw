@@ -41,6 +41,7 @@ does *not* end in `IsAccessibleMemoryRange` is a real finding.
 Every check above is the one to run before a commit. Measured on the dev machine on 2026-08-18: rebuilding `duet_tests` after a real edit to `Session.cpp` takes about 11 s, and a full lint sweep about 80 s. Linting is the check worth arranging a session around; compiling is not, and a change that only speeds up the compiler is not worth much here.
 
 - Build one target, not all of them — `cmake --build --preset linux-debug -j 4 --target duet_tests` while a test is red, `--target duet_app` while the shell is.
+- Probe the engine before reading it — `cmake --build --preset linux-debug -j 4 --target duet_scratch` builds the disposable program in `tests/scratch/`. A short probe has repeatedly been cheaper than reading vendored engine sources, and the ordinary build never reaches it.
 - Lint the file you changed — `./scripts/lint.sh modules/duet_model/src/Session.cpp`, a few seconds — and sweep everything once at the end.
 - Format is cheap; run it whenever. It reads `git ls-files`, so `git add -N` a new file before the format check or it passes without having seen it.
 
