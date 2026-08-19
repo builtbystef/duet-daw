@@ -147,6 +147,12 @@ for a take.
 Headless tests no longer retry `play()` until `isPlaying`. They start
 playback once and pump the message loop, because the asking is the model's.
 
+Tests drive the rebuild at the device seam (`2jqmj2`): `suppressDeviceRebuild`
+stops the engine's four-second timer, `rebuildDevices` asks for the list now
+and frees the playback graph, and `setDeviceWait` makes the pre-roll's quiet,
+poll and bound drivable so those cases spend no real seconds. The ask is not
+on the constructor path.
+
 ### 7. Undo and redo permute ValueTree property order
 
 **The engine.** An undo/redo round trip re-appends restored properties, so

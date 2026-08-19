@@ -335,9 +335,9 @@ TEST_CASE ("a headless session plays through the engine's one-time device rebuil
 
     REQUIRE (duet::testing::playUntilRolling (session));
 
-    // Hazard 6: seconds after the first headless playback the engine rebuilds
-    // its device list, which frees the playback graph and stops the transport.
-    duet::testing::pumpMessages (4000);
+    // Hazard 6: the engine rebuilds its device list, which frees the playback
+    // graph and stops the transport. Driven here, not waited out.
+    session.rebuildDevices();
 
     REQUIRE (duet::testing::playUntilRolling (session));
 

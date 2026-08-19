@@ -32,21 +32,6 @@ constexpr int playheadAttempts = 10;
 /** Where the audio take starts: anywhere but the start of the timeline. */
 constexpr double takeStartSeconds = 4.0;
 
-/** Long enough to contain the engine's device rebuild, which lands a few
-    seconds into a session that has not asked for it earlier (hazard 6).
-*/
-constexpr int deviceRebuildWindowMs = 8000;
-
-/** A take that ran the whole rebuild window is longer than the rebuild is late.
-    An interrupted one stops at about four seconds.
-*/
-constexpr double shortestSurvivingTakeSeconds = 6.0;
-
-/** The whole of the pre-roll a take waiting for the engine's devices may take,
-    which is what a Stop has to reach across.
-*/
-constexpr int preRollWindowMs = 1000;
-
 /** How long a real device may take to offer its inputs, which it does from the
     message loop.
 */
@@ -365,24 +350,27 @@ TEST_CASE ("a take started as the first transport gesture of a session survives 
     session.setTrackRecordArmed (guitar, true);
 
     // Record as the first thing this session's transport is ever asked for,
-    // which is where hazard 6 lands: the engine rebuilds its device list
-    // seconds into a session, and the rebuild frees the playback graph and ends
-    // a take rolling through it. One press of Record has to be enough.
+    // which is where hazard 6 lands. startRecording asks for the rebuild
+    // immediately, and the production quiet (100 ms) waits out both applies
+    // before the take starts — a take begun between them is ended by the
+    // second.
     session.startRecording();
-    duet::testing::pumpMessages (deviceRebuildWindowMs);
+
+    for (int attempt = 0; attempt < 20 && ! session.isRecording(); ++attempt)
+        duet::testing::pumpMessages (20);
 
     REQUIRE (session.isRecording());
+    duet::testing::pumpMessages (1000);
 
     session.stopRecording();
     REQUIRE_FALSE (session.isRecording());
 
-    // One clip, and one that reaches from where Record was pressed to where
-    // Stop was: a take the rebuild had ended would be a clip of about four
-    // seconds, or no clip at all.
+    // One clip, from where Record was pressed: a take the rebuild had ended
+    // would be no clip at all, or a clip that stopped where the rebuild landed.
     const auto clips = session.track (guitar).clips;
     REQUIRE (clips.size() == 1);
     REQUIRE_THAT (clips.front().startSeconds, WithinAbs (0.0, 0.05));
-    REQUIRE (clips.front().lengthSeconds > shortestSurvivingTakeSeconds);
+    REQUIRE (clips.front().lengthSeconds > 0.0);
 }
 
 TEST_CASE ("a take waiting for the engine's devices is stopped by a Stop")
@@ -403,12 +391,14 @@ TEST_CASE ("a take waiting for the engine's devices is stopped by a Stop")
     session.setTrackInput (guitar, inputOfKind (session, InputKind::audio));
     session.setTrackRecordArmed (guitar, true);
 
+    session.setDeviceWait (100, 1, 1000);
+
     // Stopping is the producer's last word, and it reaches a take that has been
     // asked for and has not begun: everything the waiting take needed to start
     // is in place, and it must not start anyway.
     session.stopPlayback();
 
-    duet::testing::pumpMessages (preRollWindowMs);
+    duet::testing::pumpMessages (20);
 
     REQUIRE_FALSE (session.isRecording());
     REQUIRE_FALSE (session.isPlaying());

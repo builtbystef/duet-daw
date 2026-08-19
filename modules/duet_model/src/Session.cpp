@@ -617,6 +617,44 @@ void Session::Impl::pushBlocks (double seconds, const InputSignal& playedIn) con
 
 void Session::useNoAudioDevice() { impl->useHostedAudioDevice(); }
 
+void Session::suppressDeviceRebuild()
+{
+    auto& devices = impl->engine.getDeviceManager();
+    auto& storage = impl->engine.getPropertyStorage();
+
+    // The setter writes the interval into PropertyStorage, which lives in a
+    // Settings.xml the next Engine (and the app) would inherit. Stop this
+    // session's timer, then put the production default back so nobody else
+    // sees the zero.
+    devices.setMidiDeviceScanIntervalSeconds (0);
+    storage.setProperty (te::SettingID::midiScanIntervalSeconds, 4);
+}
+
+void Session::rebuildDevices()
+{
+    impl->askForTheDeviceList();
+
+    // rescanMidiDeviceList applies on a 5 ms timer; checkDefaultDevicesAreValid
+    // then settles the defaults and applies again ~5 ms later. Both have to
+    // land before this returns, or a caller that asked for the rebuild to be
+    // over would still be waiting on the engine.
+    constexpr int deviceApplyMs = 20;
+    juce::MessageManager::getInstance()->runDispatchLoopUntil (deviceApplyMs);
+
+    // A second ask does not change the list, so the engine does not free the
+    // graphs. The first one does. This is that effect, on command: the
+    // playback context is the graph, and without it the transport is stopped
+    // the way hazard 6 stops it.
+    impl->edit->getTransport().freePlaybackContext();
+}
+
+void Session::setDeviceWait (int quietMilliseconds, int pollMilliseconds, int attempts)
+{
+    impl->deviceQuietMs = static_cast<std::uint32_t> (std::max (0, quietMilliseconds));
+    impl->devicePollMs = std::max (1, pollMilliseconds);
+    impl->deviceWaitAttempts = std::max (0, attempts);
+}
+
 void Session::runWithoutAudioDevice (double seconds, const InputSignal& playedIn)
 {
     impl->useHostedAudioDevice();

@@ -5,6 +5,7 @@
 #include <duet/model/EngineAccess.h>
 
 #include <algorithm>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -376,6 +377,19 @@ struct Session::Impl
         Impl* impl = nullptr;
     };
 
+    /** How long the engine's devices have to have been unchanged before a
+        take starts on them, how often a waiting take looks, and how many of
+        those looks it takes before the take starts regardless.
+    */
+    std::uint32_t deviceQuietMs = 100;
+    int devicePollMs = 20;
+    int deviceWaitAttempts = 100;
+
+    /** What the settle-wait reads instead of the wall clock. */
+    std::function<std::uint32_t()> deviceNow { [] { return juce::Time::getMillisecondCounter(); } };
+
+    std::uint32_t nowMs() const { return deviceNow(); }
+
     /** How many ticks the take has been waiting for the devices. */
     int waitedForTheDevices = 0;
 
@@ -402,7 +416,7 @@ struct Session::Impl
 
         void changeListenerCallback (juce::ChangeBroadcaster* /*deviceManager*/) override
         {
-            impl->lastDeviceChangeMs = juce::Time::getMillisecondCounter();
+            impl->lastDeviceChangeMs = impl->nowMs();
         }
 
         Impl* impl = nullptr;

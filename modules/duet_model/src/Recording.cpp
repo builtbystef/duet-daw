@@ -18,19 +18,6 @@ namespace
     /** What a finished take is called in the undo history. */
     constexpr const char* recordTakeActionName = "Record Take";
 
-    /** How long the engine's devices have to have been unchanged before a take
-        starts on them, how often a waiting take looks, and how many of those
-        looks it takes before the take starts regardless.
-
-        A session that has been open for a moment is settled and stays settled,
-        so an ordinary Record waits for nothing at all. The bound is there
-        because a take the producer asked for has to start: a pre-roll that
-        never ended would be worse than the interrupted take it prevents.
-    */
-    constexpr juce::uint32 deviceQuietMs = 100;
-    constexpr int devicePollMs = 20;
-    constexpr int deviceWaitAttempts = 100;
-
     /** What the engine calls a take file: the track's name, and the first take
         number that is not taken yet.
     */
@@ -285,8 +272,7 @@ bool Session::Impl::devicesAreSettled() const
     if (! deviceListIsBuilt())
         return false;
 
-    return ! lastDeviceChangeMs.has_value()
-           || juce::Time::getMillisecondCounter() - *lastDeviceChangeMs >= deviceQuietMs;
+    return ! lastDeviceChangeMs.has_value() || nowMs() - *lastDeviceChangeMs >= deviceQuietMs;
 }
 
 void Session::Impl::beginTake()
@@ -328,7 +314,7 @@ void Session::startRecording()
     {
         impl->askForTheDeviceList();
         impl->waitedForTheDevices = 0;
-        impl->takeStarter.startTimer (devicePollMs);
+        impl->takeStarter.startTimer (impl->devicePollMs);
         return;
     }
 

@@ -640,6 +640,39 @@ public:
     */
     void useNoAudioDevice();
 
+    /** Stops the engine rebuilding its device list on its own four-second
+        timer.
+
+        Hazard 6: DeviceManager::initialise starts that timer, and the rebuild
+        frees every playback graph. A test that is not about the rebuild, or
+        that wants to drive it itself, says so here. The producer path never
+        calls this.
+
+        Does not ask for the device list. Asking from the constructor was tried
+        and destabilised the headless record path.
+    */
+    void suppressDeviceRebuild();
+
+    /** Rebuilds the device list now, the way the engine would four seconds
+        into a session, and frees the playback graph, which is what that
+        rebuild does to a rolling transport (hazard 6).
+
+        A test that needs the rebuild to have happened — or to happen to a
+        rolling transport — says so here, instead of pumping the message loop
+        until the engine's timer lands.
+    */
+    void rebuildDevices();
+
+    /** How long the engine's devices have to have been unchanged before a
+        take starts on them, how often a waiting take looks, and how many of
+        those looks it takes before the take starts regardless.
+
+        The production defaults are 100 ms, 20 ms, and 100 attempts. A test
+        that is about the wait itself drives these so it spends no real
+        seconds on them.
+    */
+    void setDeviceWait (int quietMilliseconds, int pollMilliseconds, int attempts);
+
     /** Runs a stretch of the project's audio with no audio device, as fast as
         the machine will go, playing a signal into its inputs.
 

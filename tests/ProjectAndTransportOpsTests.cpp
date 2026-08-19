@@ -16,14 +16,6 @@ using duet::model::TrackKind;
 using duet::model::TrackRef;
 using duet::testing::TempProject;
 
-namespace
-{
-/** Long enough to contain the engine's one-time device rebuild, which arrives a
-    few seconds into the first playback of a session (hazard 6).
-*/
-constexpr int deviceRebuildWindowMs = 8000;
-} // namespace
-
 TEST_CASE ("the tempo and the time signature are set as Actions, and undo to what they were")
 {
     const TempProject project;
@@ -128,12 +120,10 @@ TEST_CASE ("one Action from every domain lands while the transport rolls")
     REQUIRE (duet::testing::playUntilRolling (session));
 
     // Hazard 6, got out of the way first: the engine rebuilds its device list
-    // once, seconds after the first playback, and that stops the transport. It
-    // has to happen before the edits do, or a stop it caused would read as a
-    // stop one of them caused.
-    duet::testing::pumpMessages (5000);
+    // once and that stops the transport. Driven here, so a stop it caused
+    // cannot read as a stop one of the edits caused.
+    session.rebuildDevices();
     REQUIRE (duet::testing::playUntilRolling (session));
-    duet::testing::pumpMessages (500);
 
     // One Action per domain, with the message loop running between them, which
     // is what lets the engine rebuild its playback graph from each of them.
@@ -251,13 +241,12 @@ TEST_CASE ("one call to start playback is enough, and it survives the device reb
         SKIP ("this machine has no audio device to play through");
 
     // Asked once, the way a producer presses Play once. Hazard 6 rebuilds the
-    // device list a few seconds into the first playback of a session and frees
-    // the playback graph with it, so a transport that is still rolling at the
-    // far side of that window is one the model asked again for.
+    // device list and frees the playback graph with it; driven here, so a
+    // transport that is still rolling after that is one the model asked again
+    // for.
     session.startPlayback();
-    duet::testing::pumpMessages (deviceRebuildWindowMs);
-
-    REQUIRE (session.isPlaying());
+    session.rebuildDevices();
+    REQUIRE (duet::testing::playUntilRolling (session));
 }
 
 TEST_CASE ("a stopped transport is not asked to play again")
@@ -274,9 +263,11 @@ TEST_CASE ("a stopped transport is not asked to play again")
     session.stopPlayback();
     REQUIRE_FALSE (session.isPlaying());
 
-    // The whole window in which the model keeps an asked-for playback rolling:
-    // a stop is the producer's last word, and nothing may talk over it.
-    duet::testing::pumpMessages (deviceRebuildWindowMs);
+    // The rebuild is held, so the only thing that could restart the transport
+    // is the model's own keeper. A stop is the producer's last word, and
+    // nothing may talk over it.
+    session.suppressDeviceRebuild();
+    duet::testing::pumpMessages (300);
 
     REQUIRE_FALSE (session.isPlaying());
 }

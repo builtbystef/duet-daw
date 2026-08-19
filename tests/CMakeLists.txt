@@ -9,6 +9,7 @@ add_executable(duet_tests
     AutomationOpsTests.cpp
     ClipOpsTests.cpp
     DemoWalkthroughTests.cpp
+    DeviceRebuildTests.cpp
     EditVocabularyTests.cpp
     MidiOpsTests.cpp
     MixerOpsTests.cpp
