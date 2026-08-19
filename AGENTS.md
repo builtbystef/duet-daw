@@ -26,6 +26,16 @@ They build into `build/linux-asan` and `build/linux-tsan`, each with its own cop
 of the vendored trees, so neither disturbs the ordinary build. CI configures with
 `-D DUET_CCACHE_ENABLED=OFF`; leave it on locally.
 
+`linux-tsan` carries `-fno-sanitize=vptr`, and that exclusion is not a shrug at a
+finding. UBSan's vptr check probes an address through sanitizer_common's
+`IsAccessibleMemoryRange`, which opens a pipe to do it; TSan's `pipe` interceptor
+then sees libubsan's own descriptor written from two threads and reports a data
+race. The first nightly run produced 23 such reports and nothing else — every one
+with both stacks bottoming out in that probe, none naming Duet, JUCE or Tracktion
+memory. `linux-asan` runs UBSan with vptr on and is clean, so the check is not
+lost, only moved off the configuration that cannot host it. A TSan report that
+does *not* end in `IsAccessibleMemoryRange` is a real finding.
+
 ### While iterating
 
 Every check above is the one to run before a commit. Measured on the dev machine on 2026-08-18: rebuilding `duet_tests` after a real edit to `Session.cpp` takes about 11 s, and a full lint sweep about 80 s. Linting is the check worth arranging a session around; compiling is not, and a change that only speeds up the compiler is not worth much here.
