@@ -90,3 +90,24 @@ TEST_CASE ("a track's output is routed into a group bus, and the routing undoes 
 
     REQUIRE (session.track (vocals).output == duet::model::noTrack);
 }
+
+TEST_CASE ("audio routed through a group bus still reaches the output")
+{
+    const TempProject project;
+    const auto tone = project.writeTone ("tone.wav", 2.0, 440.0);
+    Session session { project.editFile() };
+
+    session.performAction ("Route the vocals through a bus",
+                           [&] (auto& ops)
+                           {
+                               const auto vocals = ops.createTrack (TrackKind::audio, "Vocals");
+                               const auto bus = ops.createTrack (TrackKind::group, "Vocal bus");
+                               ops.insertAudioClip (vocals, "tone", tone, 0.0, 2.0);
+                               ops.setTrackOutput (vocals, bus);
+                           });
+
+    const auto rendered = project.folder() / "through-the-bus.wav";
+
+    REQUIRE (session.renderToFile (rendered));
+    REQUIRE (duet::testing::peakLevelOf (rendered) > 0.1);
+}

@@ -9,7 +9,7 @@ depends_on:
     - quiwf3
 parent: b1j3me
 created: 2026-08-11T01:50:39Z
-updated: 2026-08-19T02:47:42Z
+updated: 2026-08-19T03:34:45Z
 ---
 
 ## What to build
@@ -91,3 +91,35 @@ Run the demo above and listen. If each edit lands cleanly, close this issue to a
 ## For a reviewer
 
 Session::track(ref) returns a TrackInfo by value rather than an optional — a ref that names no track reads back as a track of nothing, whose own ref is noTrack, which is how the rest of the facade already treats a ref it does not know.
+
+**claude** — 2026-08-19T03:34:45Z
+
+Review finding, fixed: the group bus was silent, and decision 1 of the previous note was wrong.
+
+The user ran the demo and reported that the sound disappeared at step 3, "Route into a group bus", and stayed gone. It is a real bug and it is fixed.
+
+## The cause
+
+createTrack(TrackKind::group, ...) called setOutputToNone() on the new track — that was the previous note's decision 1, "a group bus is a track whose own output goes nowhere". It is exactly wrong. In the playback graph a track with no output device and no destination track is wrapped in a SinkNode, whose own comment in tracktion_TestNodes.h reads "Blocks audio and MIDI input from reaching the outputs". So the engine did process the bus — which is why its sends and returns still worked and the transport kept rolling — and then threw its audio away. Everything routed into it was silent, and so was everything sent into it, which would have taken steps 4 and 5 with it.
+
+Measured on the real device, recording Duet's output ports into a null sink: 0.00000 RMS with the old behaviour, over the whole run. Not quiet — exactly zero.
+
+## The fix
+
+A group bus is now an ordinary track that the producer designated as a bus. Its own output goes to the device like any other track's, and the designation is stored as a "duetTrackKind" property on the track's own tree, written through the edit's UndoManager. On the track's tree and not in the DUET tree, so that it travels with the track: deleting the track takes the designation away and undoing the deletion brings it back, with no code of ours involved. trackKindOf reads it, and falls back to the derivation for the other two kinds — a midi track is still one with a built-in instrument in its chain — which is what lets the track the engine makes with a new edit answer without ever having been through createTrack.
+
+Same measurement after the fix: 0.05732 RMS, peak 0.3963, against 0.18277 RMS for the same synth played on a plain track with no bus (lower RMS because the bus case is notes with gaps between them, and the plain case a continuous tone). The bus is heard.
+
+## Why the suite did not catch it, and what now covers it
+
+The engine builds two different graphs, and only one of them has the SinkNode. createNodeForEdit(EditPlaybackContext&, ...) is playback and adds it; createNodeForEdit(Edit&, ...) is the offline render and sums a no-output track straight into the master instead. So the render heard the bus while the producer did not. A new test, "audio routed through a group bus still reaches the output", renders a tone through a bus and asserts a non-silent peak — it pins the routing, but it passed against the broken code too, and that is the honest limit of it.
+
+The gap is that ADR 0006 makes the offline render the instrument for every audio assertion Duet has, which leaves the playback graph unasserted by construction. Published as vhl9d0 (high, under b1j3me), with the null-sink measurement recipe in the body so it is reproducible.
+
+## Checks
+
+Build, format, lint and 48/48 tests all clean. The demo steps themselves are unchanged.
+
+## What the user must do
+
+Run the demo again from step 1 and listen through all seven. Step 3 should now sound unchanged from step 2 rather than dropping out, and steps 4 and 5 should be audible. If it is clean, close this issue to approve. If something still clicks, drops out or stutters, write a note saying which step, and remove the needs-review label.

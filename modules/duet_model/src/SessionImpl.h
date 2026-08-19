@@ -172,6 +172,17 @@ struct Session::Impl
     }
 };
 
+/** What a track is for.
+
+    Two of the three kinds are legible from the track itself, and the third is
+    not: a Duet group bus is an ordinary engine track that the producer
+    designated as a bus, and nothing in the engine's own state says so. The
+    designation is stored on the track's own tree rather than in the DUET tree,
+    so that it travels with the track — deleting the track takes it away, and
+    undoing the deletion brings it back, with no code of ours involved.
+*/
+TrackKind trackKindOf (te::AudioTrack& track);
+
 /** The engine plugin a Duet built-in is, as the plugin cache names it. */
 const char* engineTypeOf (BuiltinPlugin plugin);
 

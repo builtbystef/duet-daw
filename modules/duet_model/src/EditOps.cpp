@@ -6,6 +6,12 @@ namespace duet::model
 {
 namespace
 {
+    /** Where a track's kind is stored, and the one value worth storing: the
+        other two kinds are legible from the track itself.
+    */
+    constexpr const char* trackKindProperty = "duetTrackKind";
+    constexpr const char* groupKindName = "group";
+
     /** The engine names the fader's two parameters this, and Duet's are them. */
     constexpr const char* volumeParameterID = "volume";
     constexpr const char* panParameterID = "pan";
@@ -127,6 +133,23 @@ std::string projectReferenceTo (const std::filesystem::path& projectFolder,
     const bool insideProject = ! relative.empty() && *relative.begin() != "..";
 
     return insideProject ? relative.generic_string() : sourceFile.generic_string();
+}
+
+TrackKind trackKindOf (te::AudioTrack& track)
+{
+    if (track.state[juce::Identifier { trackKindProperty }].toString() == groupKindName)
+        return TrackKind::group;
+
+    // The other two kinds the track itself tells: a midi track is one with an
+    // instrument at the head of its chain to drive. That derivation is what
+    // lets a track the engine made — the one a new edit starts with — answer
+    // without ever having been through createTrack.
+    for (auto* plugin : track.pluginList.getPlugins())
+        if (const auto builtin = builtinOf (*plugin))
+            if (*builtin == BuiltinPlugin::synth || *builtin == BuiltinPlugin::sampler)
+                return TrackKind::midi;
+
+    return TrackKind::audio;
 }
 
 const char* engineTypeOf (BuiltinPlugin plugin)
@@ -263,10 +286,14 @@ TrackRef EditOps::createTrack (TrackKind kind,
 
     track->setName (toJuceString (name));
 
-    // A group is a track whose own output goes nowhere: what comes out of it is
-    // what the tracks routed into it put in, which is what makes it a bus.
+    // A group is a bus: what comes out of it is what the tracks routed into it
+    // put in. Its own output still goes to the device, like any other track's —
+    // a track with no output at all is one nobody can hear, because the
+    // playback graph wraps such a track in a node that blocks its audio. Only
+    // the designation is Duet's to store.
     if (kind == TrackKind::group)
-        track->getOutput().setOutputToNone();
+        track->state.setProperty (
+            juce::Identifier { trackKindProperty }, groupKindName, &session.impl->undoManager());
 
     for (auto* plugin : track->pluginList.getPlugins())
         stateParametersExplicitly (*plugin);

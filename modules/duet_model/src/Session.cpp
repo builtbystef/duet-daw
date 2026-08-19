@@ -149,23 +149,6 @@ namespace
         return noTrack;
     }
 
-    /** What a track is for, read off the state that makes it so: a bus is a
-        track whose own output goes nowhere, and a midi track is one with an
-        instrument at the head of its chain to drive.
-    */
-    TrackKind kindOf (te::AudioTrack& track)
-    {
-        if (track.getOutput().outputsToNone())
-            return TrackKind::group;
-
-        for (auto* plugin : track.pluginList.getPlugins())
-            if (const auto builtin = builtinOf (*plugin))
-                if (*builtin == BuiltinPlugin::synth || *builtin == BuiltinPlugin::sampler)
-                    return TrackKind::midi;
-
-        return TrackKind::audio;
-    }
-
     PluginInfo describe (te::Plugin& plugin)
     {
         PluginInfo info;
@@ -206,7 +189,7 @@ std::vector<TrackInfo> Session::tracks() const
         TrackInfo trackInfo;
         trackInfo.track = toRef<TrackRef> (track->itemID);
         trackInfo.name = track->getName().toStdString();
-        trackInfo.kind = kindOf (*track);
+        trackInfo.kind = trackKindOf (*track);
         trackInfo.muted = track->isMuted (false);
         trackInfo.soloed = track->isSolo (false);
 
