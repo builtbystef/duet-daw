@@ -17,6 +17,7 @@ add_executable(duet_tests
     ProjectLayoutTests.cpp
     ProjectAndTransportOpsTests.cpp
     ProjectTests.cpp
+    RecordingTests.cpp
     SessionTests.cpp
     TrackOpsTests.cpp)
 

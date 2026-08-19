@@ -5,6 +5,7 @@
 # would stop compiling in the tests, which link this target and nothing else.
 add_library(duet_model STATIC
     src/EditOps.cpp
+    src/Recording.cpp
     src/Session.cpp)
 add_library(duet::model ALIAS duet_model)
 

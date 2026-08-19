@@ -14,10 +14,11 @@ namespace duet::app
 namespace
 {
     constexpr int windowWidth = 720;
-    constexpr int windowHeight = 330;
+    constexpr int windowHeight = 380;
     constexpr int statusRefreshMs = 100;
     constexpr int rowHeight = 40;
     constexpr int buttonWidth = 110;
+    constexpr int boxWidth = 190;
     constexpr int labelHeight = 26;
 
     std::filesystem::path toPath (const juce::File& file)
@@ -54,6 +55,16 @@ public:
         playButton.onClick = [this]
         { withProject ([] (auto& p) { p.session().startPlayback(); }); };
         stopButton.onClick = [this] { withProject ([] (auto& p) { p.session().stopPlayback(); }); };
+        armButton.onClick = [this] { armTheLastTrack(); };
+        recordButton.onClick = [this]
+        { withProject ([] (auto& p) { p.session().startRecording(); }); };
+        inputBox.onChange = [this] { chooseInput(); };
+        monitorBox.onChange = [this] { chooseMonitoring(); };
+
+        for (const auto& [mode, name] : monitorModes)
+            monitorBox.addItem (juce::String (std::string { name }), static_cast<int> (mode) + 1);
+
+        armButton.setClickingTogglesState (true);
 
         for (auto* button : { &newButton,
                               &openButton,
@@ -61,9 +72,14 @@ public:
                               &addTrackButton,
                               &playButton,
                               &stopButton,
+                              &recordButton,
+                              &armButton,
                               &nextEditButton,
                               &undoButton })
             addAndMakeVisible (*button);
+
+        for (auto* box : { &inputBox, &monitorBox })
+            addAndMakeVisible (*box);
 
         for (auto* label : { &projectLabel, &deviceLabel, &transportLabel, &vocabularyLabel })
             addAndMakeVisible (*label);
@@ -91,6 +107,12 @@ public:
         auto transport = area.removeFromTop (rowHeight);
         for (auto* button : { &addTrackButton, &playButton, &stopButton })
             button->setBounds (transport.removeFromLeft (buttonWidth).reduced (2));
+
+        auto recording = area.removeFromTop (rowHeight);
+        inputBox.setBounds (recording.removeFromLeft (boxWidth).reduced (2));
+        monitorBox.setBounds (recording.removeFromLeft (boxWidth).reduced (2));
+        for (auto* button : { &armButton, &recordButton })
+            button->setBounds (recording.removeFromLeft (buttonWidth).reduced (2));
 
         auto vocabulary = area.removeFromTop (rowHeight);
         for (auto* button : { &nextEditButton, &undoButton })
@@ -194,6 +216,83 @@ private:
         refresh();
     }
 
+    /** The track a take is recorded into: the last one added, which is the one
+        Add Track just made.
+    */
+    [[nodiscard]] duet::model::TrackRef recordTrack() const
+    {
+        if (project == nullptr)
+            return duet::model::noTrack;
+
+        const auto tracks = project->session().tracks();
+
+        return tracks.empty() ? duet::model::noTrack : tracks.back().track;
+    }
+
+    void chooseInput()
+    {
+        withProject (
+            [this] (auto& open)
+            {
+                const auto chosen = inputBox.getSelectedId();
+                const auto inputs = open.session().availableInputs();
+
+                if (chosen < 1 || chosen > static_cast<int> (inputs.size()))
+                    return;
+
+                const auto input = inputs[static_cast<std::size_t> (chosen - 1)].input;
+                open.session().setTrackInput (recordTrack(), input);
+                monitorBox.setSelectedId (static_cast<int> (open.session().inputMonitoring (input))
+                                              + 1,
+                                          juce::dontSendNotification);
+            });
+
+        refresh();
+    }
+
+    void chooseMonitoring()
+    {
+        withProject (
+            [this] (auto& open)
+            {
+                const auto chosen = monitorBox.getSelectedId();
+
+                if (chosen < 1 || chosen > static_cast<int> (monitorModes.size()))
+                    return;
+
+                open.session().setInputMonitoring (
+                    open.session().track (recordTrack()).input,
+                    monitorModes.at (static_cast<std::size_t> (chosen - 1)).first);
+            });
+
+        refresh();
+    }
+
+    void armTheLastTrack()
+    {
+        withProject (
+            [this] (auto& open)
+            { open.session().setTrackRecordArmed (recordTrack(), armButton.getToggleState()); });
+
+        refresh();
+    }
+
+    /** Fills the input list once a project is open, keeping whatever the
+        producer chose selected.
+    */
+    void listInputs()
+    {
+        if (project == nullptr || inputBox.getNumItems() > 0)
+            return;
+
+        int id = 1;
+
+        for (const auto& input : project->session().availableInputs())
+            inputBox.addItem (juce::String (input.name)
+                                  + (input.kind == duet::model::InputKind::midi ? " (MIDI)" : ""),
+                              id++);
+    }
+
     void refresh()
     {
         const auto hasProject = project != nullptr;
@@ -202,9 +301,20 @@ private:
                               &addTrackButton,
                               &playButton,
                               &stopButton,
+                              &recordButton,
+                              &armButton,
                               &nextEditButton,
                               &undoButton })
             button->setEnabled (hasProject);
+
+        for (auto* box : { &inputBox, &monitorBox })
+            box->setEnabled (hasProject);
+
+        listInputs();
+
+        if (hasProject)
+            armButton.setToggleState (project->session().track (recordTrack()).recordArmed,
+                                      juce::dontSendNotification);
 
         nextEditButton.setEnabled (hasProject && demoStep < demoStepNames.size());
 
@@ -258,6 +368,10 @@ private:
         with the transport rolling. Press Play, then press this, and each step
         lands in the sound without a gap. Undo takes them back one at a time.
     */
+    /** The monitoring modes, in the order the box lists them. */
+    static const std::array<std::pair<duet::model::InputMonitoring, std::string_view>, 3>
+        monitorModes;
+
     static constexpr std::array<std::string_view, 7> demoStepNames { "Add notes",
                                                                      "Duplicate and loop the clip",
                                                                      "Route into a group bus",
@@ -429,8 +543,16 @@ private:
 
         auto& session = project->session();
 
-        return juce::String (session.isPlaying() ? "Playing" : "Stopped") + text (" — ")
-               + juce::String (session.playbackPositionSeconds(), 2) + " s";
+        const auto* state = "Stopped";
+
+        if (session.isRecording())
+            state = "Recording";
+        else if (session.isPlaying())
+            state = "Playing";
+
+        return juce::String (state) + text (" — ")
+               + juce::String (session.playbackPositionSeconds(), 2) + " s" + text (" — into ")
+               + juce::String (session.track (recordTrack()).name);
     }
 
     std::function<void (const juce::String&)> reportTitle;
@@ -444,6 +566,10 @@ private:
     juce::TextButton addTrackButton { "Add Track" };
     juce::TextButton playButton { "Play" };
     juce::TextButton stopButton { "Stop" };
+    juce::TextButton recordButton { "Record" };
+    juce::TextButton armButton { "Arm" };
+    juce::ComboBox inputBox;
+    juce::ComboBox monitorBox;
     juce::TextButton nextEditButton { "Next Edit" };
     juce::TextButton undoButton { "Undo" };
     juce::Label projectLabel;
@@ -458,6 +584,12 @@ private:
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainComponent)
 };
+
+const std::array<std::pair<duet::model::InputMonitoring, std::string_view>, 3>
+    MainComponent::monitorModes { { { duet::model::InputMonitoring::off, "Monitor: off" },
+                                    { duet::model::InputMonitoring::whileArmed,
+                                      "Monitor: while armed" },
+                                    { duet::model::InputMonitoring::on, "Monitor: on" } } };
 
 class MainWindow final : public juce::DocumentWindow
 {

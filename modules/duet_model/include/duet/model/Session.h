@@ -41,6 +41,16 @@ using PluginRef = std::uint64_t;
 */
 using NoteRef = std::uint64_t;
 
+/** An opaque handle to an input the project can record from.
+
+    Duet's own, like a note's, and for the same reason: an input is a device of
+    the machine and not a part of the project, so nothing in the project state
+    hands out an identity for one. The model hands out a handle the first time
+    it is asked about an input and keeps it pointing at that input for the
+    session.
+*/
+using InputRef = std::uint64_t;
+
 /** No track: what an operation returns when it could not make one. */
 inline constexpr TrackRef noTrack = 0;
 
@@ -52,6 +62,9 @@ inline constexpr PluginRef noPlugin = 0;
 
 /** No note: what an operation returns when it could not make one. */
 inline constexpr NoteRef noNote = 0;
+
+/** No input: what a track that records from nothing records from. */
+inline constexpr InputRef noInput = 0;
 
 /** What a meter reads where there is no signal at all, in decibels of full
     scale.
@@ -86,6 +99,61 @@ enum class BuiltinPlugin : std::uint8_t
     reverb,
     synth,
     sampler
+};
+
+/** What an input carries. */
+enum class InputKind : std::uint8_t
+{
+    audio,
+    midi
+};
+
+/** An input the project can record from: a channel group of the machine's audio
+    device, or one of its MIDI inputs.
+*/
+struct InputInfo
+{
+    InputRef input = noInput;
+    std::string name;
+    InputKind kind = InputKind::audio;
+};
+
+/** One note played into a session's MIDI input while it runs with no audio
+    device. Seconds count from the start of that run.
+*/
+struct InputNote
+{
+    double atSeconds = 0.0;
+    double lengthSeconds = 0.0;
+    int pitch = 0;
+    int velocity = 0;
+};
+
+/** What is played into a session's inputs while it runs with no audio device:
+    notes into the MIDI input, and a steady tone into every audio input channel.
+*/
+struct InputSignal
+{
+    std::vector<InputNote> notes;
+
+    /** The tone's frequency, in hertz. Zero is silence. */
+    double toneFrequencyHz = 0.0;
+
+    /** How loud the tone is, as a sample value between zero and one. */
+    double toneLevel = 0.5;
+};
+
+/** How much of what an input carries the producer hears while it is live. */
+enum class InputMonitoring : std::uint8_t
+{
+    /** Never audible. */
+    off,
+
+    /** Audible while a track the input feeds is armed to record. */
+    whileArmed,
+
+    /** Always audible. */
+    on
 };
 
 /** What a MIDI note looks like from outside the model. Beats count from the
@@ -181,6 +249,14 @@ struct TrackInfo
 
     bool muted = false;
     bool soloed = false;
+
+    /** The input this track records from, or noInput for a track that records
+        from nothing.
+    */
+    InputRef input = noInput;
+
+    /** True when the next record takes what this track's input carries. */
+    bool recordArmed = false;
 
     std::vector<SendInfo> sends;
     std::vector<PluginInfo> plugins;
@@ -554,6 +630,25 @@ public:
     */
     [[nodiscard]] double trackPeakDb (TrackRef track);
 
+    /** Gives up the audio device, and takes inputs and outputs that go nowhere
+        in its place — from here on, for this session.
+
+        What playWithoutAudioDevice does for itself on first use, done in
+        advance and deliberately, because a track cannot be armed to record from
+        an input that does not exist and a machine with no audio hardware has
+        none. It is what puts recording in CI (ADR 0006).
+    */
+    void useNoAudioDevice();
+
+    /** Runs a stretch of the project's audio with no audio device, as fast as
+        the machine will go, playing a signal into its inputs.
+
+        Whatever the transport is doing it keeps doing: this is the blocks going
+        through and not the transport, so a take is started, played into, and
+        stopped around it.
+    */
+    void runWithoutAudioDevice (double seconds, const InputSignal& playedIn = {});
+
     /** Plays a stretch of the project with no audio device, as fast as the
         machine will go, and stops. True when it played at all.
 
@@ -579,6 +674,67 @@ public:
         something the producer never did.
     */
     void loadDemoContent();
+
+    //==============================================================================
+    // Recording.
+    //
+    // Which input a track records from, and whether it is armed, are the
+    // producer's standing answer to where the next take comes from — not a
+    // change to what the project holds. So they are written with no undo
+    // history, like the transport, and an undo can never disarm a track in the
+    // middle of a take. What a take puts into the project is an Action, and
+    // that is stopRecording's business.
+
+    /** Says where takes are written.
+
+        The model knows which folder a project is and not what shape it has —
+        that is the persistence facade's (ADR 0005) — so whoever opened the
+        project says which directory inside it recordings go into. Until
+        something says, a take lands beside the edit file.
+    */
+    void setRecordingDirectory (std::filesystem::path directory);
+
+    /** The inputs this machine offers, in the order the engine lists them. */
+    [[nodiscard]] std::vector<InputInfo> availableInputs() const;
+
+    /** Records a track from an input; noInput records it from nothing.
+
+        A track records from one input and an input feeds one track, so this
+        takes the input away from whatever it fed before.
+    */
+    void setTrackInput (TrackRef track, InputRef input);
+
+    /** Arms a track: the next record takes what its input carries. */
+    void setTrackRecordArmed (TrackRef track, bool armed);
+
+    /** How much of what an input carries the producer hears while it is live.
+
+        A property of the input and not of a track, because it is the machine's
+        signal that is being listened to: an input feeds one track, so the two
+        readings are the same one.
+    */
+    void setInputMonitoring (InputRef input, InputMonitoring monitoring);
+    [[nodiscard]] InputMonitoring inputMonitoring (InputRef input) const;
+
+    /** Starts recording: every armed track takes what its input carries, from
+        the playhead on.
+
+        Unlike startPlayback this asks once. The engine's one-time device
+        rebuild (hazard 6) ends a take it lands in, and asking again would start
+        a second take rather than continue the first — so the ask is not
+        repeated and the take ends.
+    */
+    void startRecording();
+
+    /** Stops recording and lands the take: one Action named "Record Take".
+
+        One undo takes the take's clips away again. The files they were recorded
+        into stay on disk, which is what makes the redo bring back the same
+        audio and not silence.
+    */
+    void stopRecording();
+
+    [[nodiscard]] bool isRecording() const;
 
     //==============================================================================
     // The transport. Every one of these is written with no undo history at all,

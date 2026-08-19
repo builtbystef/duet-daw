@@ -38,6 +38,12 @@ namespace
     constexpr double measuringSampleRate = 44100.0;
     constexpr int measuringBlockSize = 512;
     constexpr double measuringCpuLimit = 1000.0;
+
+    /** How many channels go in and come out with no audio device. A stereo pair
+        each way: the inputs are there so that a take can be recorded, and one
+        stereo input is what an ordinary interface offers a producer.
+    */
+    constexpr int measuringChannels = 2;
 } // namespace
 
 //==============================================================================
@@ -131,7 +137,13 @@ bool Session::undo()
     if (! impl->undoManager().canUndo())
         return false;
 
-    impl->edit->undo();
+    // The project's undo history directly, and not Edit::undo(): the engine's
+    // own undo stops a running recording before it reverts anything, and an
+    // undo that could end a take is exactly what the transport being written
+    // with no undo history is there to prevent (ADR 0004). Nothing else that
+    // Edit::undo() does applies here — the rest of it refreshes the engine's
+    // SelectionManagers, and Duet registers none.
+    impl->undoManager().undo();
     impl->refreshParametersFromState();
     impl->applyLoopRange();
     impl->announceChange();
@@ -143,7 +155,8 @@ bool Session::redo()
     if (! impl->undoManager().canRedo())
         return false;
 
-    impl->edit->redo();
+    // The project's undo history directly, for the reason undo() gives.
+    impl->undoManager().redo();
     impl->refreshParametersFromState();
     impl->applyLoopRange();
     impl->announceChange();
@@ -222,6 +235,13 @@ std::vector<TrackInfo> Session::tracks() const
         trackInfo.kind = trackKindOf (*track);
         trackInfo.muted = track->isMuted (false);
         trackInfo.soloed = track->isSolo (false);
+
+        if (const auto destination = impl->destinationStateFor (trackInfo.track);
+            destination.isValid())
+        {
+            trackInfo.input = impl->inputOfDestination (destination);
+            trackInfo.recordArmed = destination[te::IDs::armed];
+        }
 
         if (auto* destination = track->getOutput().getDestinationTrack())
             trackInfo.output = toRef<TrackRef> (destination->itemID);
@@ -503,32 +523,114 @@ double Session::trackPeakDb (TrackRef track)
     return meter != impl->trackMeters.end() ? meter->second->readPeakDb() : silentDb;
 }
 
-bool Session::playWithoutAudioDevice (double seconds)
+void Session::Impl::useHostedAudioDevice() const
 {
-    auto& deviceManager = impl->engine.getDeviceManager();
+    auto& deviceManager = engine.getDeviceManager();
+
+    if (deviceManager.isHostedAudioDeviceInterfaceInUse())
+        return;
+
+    // Blocks go through as fast as the machine will take them, so the engine's
+    // wall-clock measure of how hard it is working means nothing here; left
+    // alone it would mute the blocks it thinks arrived late.
+    deviceManager.setCpuLimitBeforeMuting (measuringCpuLimit);
+
+    te::HostedAudioDeviceInterface::Parameters parameters;
+    parameters.sampleRate = measuringSampleRate;
+    parameters.blockSize = measuringBlockSize;
+    parameters.inputChannels = measuringChannels;
+    parameters.outputChannels = measuringChannels;
+
     auto& audioInterface = deviceManager.getHostedAudioDeviceInterface();
+    audioInterface.initialise (parameters);
+    audioInterface.prepareToPlay (parameters.sampleRate, parameters.blockSize);
+    deviceManager.dispatchPendingUpdates();
+}
 
-    if (! deviceManager.isHostedAudioDeviceInterfaceInUse())
+void Session::Impl::pushBlocks (double seconds, const InputSignal& playedIn) const
+{
+    auto& audioInterface = engine.getDeviceManager().getHostedAudioDeviceInterface();
+
+    const auto toSample = [] (double atSeconds)
+    { return static_cast<int> (std::llround (std::max (0.0, atSeconds) * measuringSampleRate)); };
+
+    // The notes as the wire carries them: one message on, one message off.
+    std::vector<std::pair<int, juce::MidiMessage>> messages;
+
+    for (const auto& note : playedIn.notes)
     {
-        // Blocks go through as fast as the machine will take them, so the
-        // engine's wall-clock measure of how hard it is working means nothing
-        // here; left alone it would mute the blocks it thinks arrived late.
-        deviceManager.setCpuLimitBeforeMuting (measuringCpuLimit);
+        const auto velocity = static_cast<juce::uint8> (std::clamp (note.velocity, 0, 127));
 
-        te::HostedAudioDeviceInterface::Parameters parameters;
-        parameters.sampleRate = measuringSampleRate;
-        parameters.blockSize = measuringBlockSize;
-        parameters.inputChannels = 0;
-        parameters.outputChannels = 2;
-
-        audioInterface.initialise (parameters);
-        audioInterface.prepareToPlay (parameters.sampleRate, parameters.blockSize);
-        deviceManager.dispatchPendingUpdates();
+        messages.emplace_back (toSample (note.atSeconds),
+                               juce::MidiMessage::noteOn (1, note.pitch, velocity));
+        messages.emplace_back (toSample (note.atSeconds + note.lengthSeconds),
+                               juce::MidiMessage::noteOff (1, note.pitch));
     }
+
+    std::stable_sort (messages.begin(),
+                      messages.end(),
+                      [] (const auto& first, const auto& second)
+                      { return first.first < second.first; });
+
+    juce::AudioBuffer<float> block { measuringChannels, measuringBlockSize };
+
+    const auto blocks = static_cast<int> (
+        std::ceil (std::max (0.0, seconds) * measuringSampleRate / measuringBlockSize));
+
+    const auto radiansPerSample =
+        2.0 * juce::MathConstants<double>::pi * playedIn.toneFrequencyHz / measuringSampleRate;
+
+    std::size_t nextMessage = 0;
+
+    for (int played = 0; played < blocks; ++played)
+    {
+        const auto blockStart = played * measuringBlockSize;
+
+        block.clear();
+
+        if (playedIn.toneFrequencyHz > 0.0)
+            for (int sample = 0; sample < measuringBlockSize; ++sample)
+            {
+                const auto value = static_cast<float> (
+                    playedIn.toneLevel * std::sin (radiansPerSample * (blockStart + sample)));
+
+                for (int channel = 0; channel < measuringChannels; ++channel)
+                    block.setSample (channel, sample, value);
+            }
+
+        juce::MidiBuffer midiIn;
+
+        for (; nextMessage < messages.size(); ++nextMessage)
+        {
+            const auto& [at, message] = messages[nextMessage];
+
+            if (at >= blockStart + measuringBlockSize)
+                break;
+
+            midiIn.addEvent (message, std::max (0, at - blockStart));
+        }
+
+        audioInterface.processBlock (block, midiIn);
+    }
+}
+
+void Session::useNoAudioDevice() { impl->useHostedAudioDevice(); }
+
+void Session::runWithoutAudioDevice (double seconds, const InputSignal& playedIn)
+{
+    impl->useHostedAudioDevice();
 
     // Every edit made since the last block has to be in the graph before the
     // next one is asked for: nothing pumps the message loop while the blocks go
     // through, and an edit still waiting to land would be inaudible.
+    impl->edit->dispatchPendingUpdatesSynchronously();
+
+    impl->pushBlocks (seconds, playedIn);
+}
+
+bool Session::playWithoutAudioDevice (double seconds)
+{
+    impl->useHostedAudioDevice();
     impl->edit->dispatchPendingUpdatesSynchronously();
 
     startPlayback();
@@ -536,18 +638,7 @@ bool Session::playWithoutAudioDevice (double seconds)
     if (! isPlaying())
         return false;
 
-    juce::AudioBuffer<float> block { 2, measuringBlockSize };
-    juce::MidiBuffer noMidiIn;
-
-    const auto blocks = static_cast<int> (
-        std::ceil (std::max (0.0, seconds) * measuringSampleRate / measuringBlockSize));
-
-    for (int played = 0; played < blocks; ++played)
-    {
-        block.clear();
-        audioInterface.processBlock (block, noMidiIn);
-    }
-
+    impl->pushBlocks (seconds, {});
     stopPlayback();
 
     return true;
@@ -671,6 +762,15 @@ void Session::startPlayback()
 
 void Session::stopPlayback()
 {
+    // A take is stopped the way a take has to be stopped, whoever asked: the
+    // clips it made are an Action, and the engine writes them as the transport
+    // stops.
+    if (isRecording())
+    {
+        stopRecording();
+        return;
+    }
+
     // Stopping is the last word: nothing asks for playback again until the
     // producer does.
     impl->playbackKeeper.stopTimer();

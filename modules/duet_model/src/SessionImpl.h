@@ -8,6 +8,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 
 /** The engine side of the model, shared by the two files that make it up.
 
@@ -116,6 +117,29 @@ private:
     te::LevelMeasurer::Client client;
 };
 
+/** What Duet tells the engine about itself.
+
+    Only one thing so far, and it is recording's: left to itself the engine
+    writes a take into the directory its filename pattern names, which is not
+    the project folder, and a project is meant to travel with its recordings
+    (ADR 0005). This is where a take goes instead.
+*/
+struct RecordingBehaviour final : te::EngineBehaviour
+{
+    explicit RecordingBehaviour (const std::filesystem::path& directory)
+        : recordingDirectory (&directory)
+    {
+    }
+
+    juce::File getFileForNewAudioRecording (te::Track& track,
+                                            const juce::String& fileExtension) override;
+
+    /** The session's own, which it may be told to change: the behaviour reads
+        it and does not hold a second copy to keep in step.
+    */
+    const std::filesystem::path* recordingDirectory = nullptr;
+};
+
 /** Everything engine-shaped lives here, so that Session.h can name no engine or
     JUCE type. The initialiser is declared first so that it outlives the engine:
     the engine's managers start timers and background threads that need a
@@ -129,9 +153,20 @@ struct Session::Impl
     }
 
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
-    te::Engine engine { "Duet" };
+
+    // Before the engine, because the engine is told where the project folder is
+    // as it is made.
     std::filesystem::path editFile;
     std::filesystem::path projectFolder;
+
+    /** Where takes are written: the project folder, until whoever opened the
+        project says which directory inside it recordings go into.
+    */
+    std::filesystem::path recordingDirectory { projectFolder };
+
+    te::Engine engine { "Duet",
+                        nullptr,
+                        std::make_unique<RecordingBehaviour> (recordingDirectory) };
     std::unique_ptr<te::Edit> edit;
     std::function<void()> projectChanged;
 
@@ -244,6 +279,72 @@ struct Session::Impl
         took away, and the fader does not move.
     */
     void refreshParametersFromState() const;
+
+    //==============================================================================
+    // Inputs. An input is a device of the machine and not a part of the project,
+    // and the engine names one with a string, so the model hands out a handle
+    // for it the way it does for a note.
+
+    mutable std::unordered_map<InputRef, std::string> inputsByRef;
+    mutable InputRef nextInputRef = 1;
+
+    /** The handle for an input, made on first sight of it. */
+    InputRef refForInput (const juce::String& deviceID) const;
+
+    /** The input a handle names, or null when this machine has no such input. */
+    te::InputDevice* inputDeviceFor (InputRef ref) const;
+
+    /** The instance of an input in this Edit's playback context, making the
+        context first if there is none: an input has nothing to be assigned to a
+        track until there is a context for it to play through.
+    */
+    te::InputDeviceInstance* instanceFor (InputRef ref) const;
+
+    /** What the project stores about where a track records from, read straight
+        out of the Edit's state.
+
+        The engine keeps the assignment there, and reads it back through the
+        playback context — but a question about a track should not be what opens
+        an audio device, so this asks the state instead.
+    */
+    juce::ValueTree destinationStateFor (TrackRef track) const;
+
+    /** Which input owns a stored destination. */
+    InputRef inputOfDestination (const juce::ValueTree& destination) const;
+
+    //==============================================================================
+    // Running the audio with no audio device at all.
+
+    /** Puts the session on inputs and outputs that go nowhere, once. */
+    void useHostedAudioDevice() const;
+
+    /** True once the session is on them. */
+    bool onHostedAudioDevice = false;
+
+    /** Pushes blocks through the hosted device for a stretch of seconds,
+        playing a signal into its inputs.
+    */
+    void pushBlocks (double seconds, const InputSignal& playedIn) const;
+
+    //==============================================================================
+    // Recording.
+
+    /** The file each armed track is recording into, taken before the take is
+        stopped: afterwards the clip holds a reference the engine wrote, and that
+        reference is the thing that has to be corrected.
+    */
+    std::unordered_map<TrackRef, std::filesystem::path> recordingFiles() const;
+
+    /** Writes the reference the project reads onto every clip a take just made
+        (hazard 5, again): the engine writes a recorded clip's path relative to
+        the edit file and reads it relative to the folder holding that file.
+    */
+    void
+        pinRecordedSources (const std::unordered_set<ClipRef>& clipsBefore,
+                            const std::unordered_map<TrackRef, std::filesystem::path>& files) const;
+
+    /** Every clip in the edit, by ref. */
+    std::unordered_set<ClipRef> allClips() const;
 
     //==============================================================================
     // Notes. The engine gives a note no durable identity of its own, so the

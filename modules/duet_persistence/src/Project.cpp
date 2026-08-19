@@ -119,6 +119,9 @@ std::unique_ptr<Project> Project::open (const std::filesystem::path& folder)
 Project::Project (std::filesystem::path folder, std::unique_ptr<duet::model::Session> session)
     : projectFolder (std::move (folder)), editSession (std::move (session))
 {
+    // The shape of a project folder is this facade's, so this is where the model
+    // is told which part of it a take goes into (ADR 0005).
+    editSession->setRecordingDirectory (audioDirectory (projectFolder));
     editSession->onProjectChanged ([this] { unsavedChanges = true; });
 }
 
