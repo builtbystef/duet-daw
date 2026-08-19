@@ -233,37 +233,67 @@ TEST_CASE ("an undo cannot stop the transport")
     REQUIRE_FALSE (session.isPlaying());
 }
 
-TEST_CASE ("a tempo change carries the loop along with the music, and an undo cannot")
+TEST_CASE ("the loop stays over the music through a tempo change, its undo and its redo")
 {
     const TempProject project;
     Session session { project.editFile() };
     session.loadDemoContent();
 
-    const auto phrase = session.tracks().front().clips.front();
+    const auto phraseEnd = [&session]
+    {
+        const auto phrase = session.tracks().front().clips.front();
+        return phrase.startSeconds + phrase.lengthSeconds;
+    };
+
+    const auto slow = phraseEnd();
 
     REQUIRE (session.isLooping());
-    REQUIRE (session.loopRangeSeconds().endSeconds == phrase.lengthSeconds);
+    REQUIRE (session.loopRangeSeconds().endSeconds == slow);
 
     session.performAction ("Speed it up", [] (auto& ops) { ops.setTempo (140.0); });
     duet::testing::pumpMessages (300);
 
-    // The clip is written in beats, so the same music ends earlier — and the
-    // loop, though the facade speaks it in seconds, is kept in musical time
-    // underneath and lands on the phrase's new end by itself. A demo that
-    // re-set the loop after every edit would be solving a problem it does not
-    // have.
-    const auto faster = session.tracks().front().clips.front();
+    // The clip is written in beats, so the same music now ends earlier, and the
+    // loop set over it has to end there too.
+    const auto fast = phraseEnd();
 
-    REQUIRE (faster.lengthSeconds < phrase.lengthSeconds);
-    REQUIRE (session.loopRangeSeconds().endSeconds == faster.lengthSeconds);
+    REQUIRE (fast < slow);
+    REQUIRE (session.loopRangeSeconds().endSeconds == fast);
 
-    // And the loop is transport, so no undo may touch it (ADR 0004).
-    const auto looped = session.loopRangeSeconds();
-
+    // And back. The engine rescales its own loop range when the tempo is set
+    // and does not when that change is undone, so a loop remembered in seconds
+    // would come back short — wrapping the transport a beat and a half before
+    // the phrase ends, cutting a note every pass and ringing it into the next
+    // one. The loop is remembered in beats, so it lands where the music does.
     REQUIRE (session.undo());
     duet::testing::pumpMessages (300);
 
-    REQUIRE (session.loopRangeSeconds().startSeconds == looped.startSeconds);
-    REQUIRE (session.loopRangeSeconds().endSeconds == looped.endSeconds);
+    REQUIRE (phraseEnd() == slow);
+    REQUIRE (session.loopRangeSeconds().endSeconds == slow);
+
+    REQUIRE (session.redo());
+    duet::testing::pumpMessages (300);
+
+    REQUIRE (phraseEnd() == fast);
+    REQUIRE (session.loopRangeSeconds().endSeconds == fast);
+    REQUIRE (session.isLooping());
+}
+
+TEST_CASE ("an undo cannot switch looping off, or move a loop the tempo has not moved")
+{
+    const TempProject project;
+    Session session { project.editFile() };
+
+    session.setLoopRangeSeconds (2.0, 6.0);
+    session.setLooping (true);
+
+    session.performAction ("Add a track",
+                           [] (auto& ops) { ops.createTrack (TrackKind::audio, "Vocals"); });
+
+    REQUIRE (session.undo());
+
+    // ADR 0004: the transport is written with no undo history at all.
+    REQUIRE (session.loopRangeSeconds().startSeconds == 2.0);
+    REQUIRE (session.loopRangeSeconds().endSeconds == 6.0);
     REQUIRE (session.isLooping());
 }

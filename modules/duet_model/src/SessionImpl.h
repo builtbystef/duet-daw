@@ -87,6 +87,20 @@ struct Session::Impl
 
     juce::UndoManager& undoManager() const { return edit->getUndoManager(); }
 
+    /** The stretch the transport loops over, in beats.
+
+        Kept in musical time and not in seconds, because the tempo map moves
+        under it: a tempo change rescales every clip, and a loop that stayed
+        where it was in seconds would stop being the loop over the phrase the
+        producer set it over. The engine rescales its own loop range when the
+        tempo is set and does not when that change is undone, so the range it
+        holds is only ever a cached answer — this is the question.
+    */
+    std::optional<std::pair<double, double>> loopBeats;
+
+    /** Puts the engine's loop range back in step with the musical one. */
+    void applyLoopRange() const;
+
     void announceChange() const
     {
         if (projectChanged)

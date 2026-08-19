@@ -95,6 +95,9 @@ void Session::performAction (std::string_view name, const std::function<void (Ed
     // land in the transaction that is still open, which is the Action that
     // caused them. The next Action opens its own.
 
+    // An Action may have moved the tempo map, and the loop is over the music
+    // and not over a stretch of seconds.
+    impl->applyLoopRange();
     impl->announceChange();
 }
 
@@ -105,6 +108,7 @@ bool Session::undo()
 
     impl->edit->undo();
     impl->refreshParametersFromState();
+    impl->applyLoopRange();
     impl->announceChange();
     return true;
 }
@@ -116,6 +120,7 @@ bool Session::redo()
 
     impl->edit->redo();
     impl->refreshParametersFromState();
+    impl->applyLoopRange();
     impl->announceChange();
     return true;
 }
@@ -527,10 +532,28 @@ void Session::setPlaybackPositionSeconds (double seconds)
     impl->edit->getTransport().setPosition (te::TimePosition::fromSeconds (seconds));
 }
 
+void Session::Impl::applyLoopRange() const
+{
+    if (! loopBeats.has_value())
+        return;
+
+    const auto& tempoSequence = edit->tempoSequence;
+
+    const auto toTime = [&tempoSequence] (double beats)
+    { return tempoSequence.toTime (te::BeatPosition::fromBeats (beats)); };
+
+    edit->getTransport().setLoopRange ({ toTime (loopBeats->first), toTime (loopBeats->second) });
+}
+
 void Session::setLoopRangeSeconds (double startSeconds, double endSeconds)
 {
-    impl->edit->getTransport().setLoopRange ({ te::TimePosition::fromSeconds (startSeconds),
-                                               te::TimePosition::fromSeconds (endSeconds) });
+    const auto& tempoSequence = impl->edit->tempoSequence;
+
+    const auto toBeats = [&tempoSequence] (double seconds)
+    { return tempoSequence.toBeats (te::TimePosition::fromSeconds (seconds)).inBeats(); };
+
+    impl->loopBeats = std::pair { toBeats (startSeconds), toBeats (endSeconds) };
+    impl->applyLoopRange();
 }
 
 LoopRange Session::loopRangeSeconds() const

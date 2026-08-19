@@ -9,7 +9,7 @@ depends_on:
     - quiwf3
 parent: b1j3me
 created: 2026-08-11T01:50:39Z
-updated: 2026-08-19T04:32:19Z
+updated: 2026-08-19T04:53:46Z
 ---
 
 ## What to build
@@ -197,3 +197,40 @@ Build, format, lint, 51/51 tests.
 ## What the user must do
 
 Run the demo once more. The reverb in step 5 should now be plainly audible as a tail on the send. If the faint note at the loop seam is gone, that confirms the copy was it — say so and close the issue. If it is still there, it is something else and worth another look: say roughly where in the loop it falls and whether it is there before step 2.
+
+**claude** — 2026-08-19T04:53:46Z
+
+Fourth review pass: the note at the loop seam was the loop coming back short from an undo.
+
+The reverb fix is confirmed by ear. The stray note was not the copy's position — that hypothesis was wrong, and the user's own observation is what found the real one: it appears after the first or second undo, never on the way forward. Every measurement I had run was of forward playback, which is why they all came back clean.
+
+## What was happening
+
+Read straight off the facade, loading the demo and setting the tempo to 140 and back:
+
+    at load           loop=0..8s       phrase=0..8s
+    after setTempo    loop=0..6.857s   phrase=0..6.857s
+    after undo        loop=0..6.857s   phrase=0..8s
+    after redo        loop=0..6.857s   phrase=0..6.857s
+
+The engine rescales its own loop range when the tempo is set, and does not when that change is undone. So after undoing step 7 the transport wrapped at 6.857s while the phrase ran to 8s — a beat and a half early, at beat 13.71 of 16. The notes sit every half beat and run 0.45 of one, so the wrap landed in the middle of the note at beat 13.5: it was cut, its release rang on into the next pass, and what the producer heard was a faint tone at the start of every loop that the arpeggio's opening did not account for. The redo line looked right only because setting the tempo forwards rescales the range again.
+
+## The fix
+
+The loop range is remembered in beats, not seconds. The engine's range is a cached answer to a musical question, so `Session::Impl::loopBeats` holds the question and `applyLoopRange` re-answers it after anything that can move the tempo map — every Action, every undo, every redo. setLoopRangeSeconds converts on the way in and loopRangeSeconds still reads the engine, so the read is of what the transport will actually do.
+
+This is not an undo writing the transport, which ADR 0004 forbids. Nothing goes through the UndoManager and the loop is never restored to an earlier value: it is recomputed so that it stays over the same music. The distinction has its own test, "an undo cannot switch looping off, or move a loop the tempo has not moved" — a loop at 2s..6s with no tempo change in sight is exactly where it was after an undo.
+
+The test that asserted the old behaviour as correct is gone. It said an undo may not move the loop, which was the right principle read off the wrong evidence: I had captured the range after the tempo change and required it unchanged, which is precisely the bug. It is replaced by "the loop stays over the music through a tempo change, its undo and its redo".
+
+## The copy at bar 9 stays
+
+Moving step 2's copy from bar 5 to bar 9 was made against the refuted hypothesis, and it stays anyway: bar 5 is exactly where the transport wraps, the step means the copy to be out of earshot, and a copy sitting on the seam is fragile whether or not it was ever heard. DemoWalkthroughTests keeps the assertion that it lands clear of the loop's end.
+
+## Checks
+
+Build, format, lint, 52/52 tests.
+
+## What the user must do
+
+Run the demo, forwards through all seven and then all the way back with Undo. The note at the loop seam should be gone. If it is, this issue's last criterion is met — close it. If anything else is off, say so and remove the needs-review label.
