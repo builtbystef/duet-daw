@@ -16,6 +16,14 @@ using duet::model::TrackKind;
 using duet::model::TrackRef;
 using duet::testing::TempProject;
 
+namespace
+{
+/** Long enough to contain the engine's one-time device rebuild, which arrives a
+    few seconds into the first playback of a session (hazard 6).
+*/
+constexpr int deviceRebuildWindowMs = 8000;
+} // namespace
+
 TEST_CASE ("the tempo and the time signature are set as Actions, and undo to what they were")
 {
     const TempProject project;
@@ -230,6 +238,46 @@ TEST_CASE ("an undo cannot stop the transport")
     REQUIRE (session.playbackPositionSeconds() >= positionBeforeUndo);
 
     session.stopPlayback();
+    REQUIRE_FALSE (session.isPlaying());
+}
+
+TEST_CASE ("one call to start playback is enough, and it survives the device rebuild")
+{
+    const TempProject project;
+    Session session { project.editFile() };
+    session.loadDemoContent();
+
+    if (session.audioDeviceDescription().empty())
+        SKIP ("this machine has no audio device to play through");
+
+    // Asked once, the way a producer presses Play once. Hazard 6 rebuilds the
+    // device list a few seconds into the first playback of a session and frees
+    // the playback graph with it, so a transport that is still rolling at the
+    // far side of that window is one the model asked again for.
+    session.startPlayback();
+    duet::testing::pumpMessages (deviceRebuildWindowMs);
+
+    REQUIRE (session.isPlaying());
+}
+
+TEST_CASE ("a stopped transport is not asked to play again")
+{
+    const TempProject project;
+    Session session { project.editFile() };
+    session.loadDemoContent();
+
+    if (session.audioDeviceDescription().empty())
+        SKIP ("this machine has no audio device to play through");
+
+    REQUIRE (duet::testing::playUntilRolling (session));
+
+    session.stopPlayback();
+    REQUIRE_FALSE (session.isPlaying());
+
+    // The whole window in which the model keeps an asked-for playback rolling:
+    // a stop is the producer's last word, and nothing may talk over it.
+    duet::testing::pumpMessages (deviceRebuildWindowMs);
+
     REQUIRE_FALSE (session.isPlaying());
 }
 

@@ -51,11 +51,14 @@ private:
 */
 void pumpMessages (int milliseconds);
 
-/** Starts playback and keeps asking until the transport is rolling.
+/** Starts playback, and runs the message loop until the transport is rolling.
 
-    Hazard 6: the engine rebuilds its device list once, asynchronously, seconds
-    after the first headless playback, and that frees the playback graph and
-    stops the transport. Every headless test that plays goes through here.
+    The asking is the model's own: `Session::startPlayback` keeps asking a
+    transport that is not rolling, which is how it survives hazard 6 — the
+    engine's one-time device-list rebuild, which frees the playback graph and
+    stops the transport seconds into the first playback of a session. What a
+    headless test still owes it is a running message loop, since that asking
+    happens on a timer, and that is what this helper is for.
 */
 bool playUntilRolling (duet::model::Session&);
 

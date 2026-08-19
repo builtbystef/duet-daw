@@ -87,6 +87,35 @@ struct Session::Impl
 
     juce::UndoManager& undoManager() const { return edit->getUndoManager(); }
 
+    //==============================================================================
+    // Keeping an asked-for playback rolling (hazard 6).
+
+    /** How many times running the transport has been asked to play without it
+        rolling. Reset by every tick that finds it rolling, so the rebuild —
+        which arrives after playback has started — gets the whole window again.
+    */
+    int askedWithoutRolling = 0;
+
+    /** Asks the transport to play, allocating the playback context first: after
+        the device rebuild there is no context to play through.
+    */
+    void askTransportToPlay() const;
+
+    /** One tick of the retry: gives up, does nothing, or asks again. */
+    void keepPlaybackRolling();
+
+    /** Runs for exactly as long as playback is wanted — its running is that
+        memory, and there is no second copy of it to keep in step — and drives
+        keepPlaybackRolling.
+    */
+    struct PlaybackKeeper final : juce::Timer
+    {
+        explicit PlaybackKeeper (Impl& owner) : impl (&owner) {}
+        void timerCallback() override { impl->keepPlaybackRolling(); }
+
+        Impl* impl = nullptr;
+    };
+
     /** The stretch the transport loops over, in beats.
 
         Kept in musical time and not in seconds, because the tempo map moves
@@ -174,6 +203,9 @@ struct Session::Impl
     te::MidiNote* noteFor (NoteRef ref) const;
 
     //==============================================================================
+    // Declared last, so that it stops before anything it touches goes away.
+    PlaybackKeeper playbackKeeper { *this };
+
     static std::vector<std::string> toStrings (const juce::StringArray& strings)
     {
         std::vector<std::string> out;

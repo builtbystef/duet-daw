@@ -90,11 +90,10 @@ void pumpMessages (int milliseconds)
 
 bool playUntilRolling (duet::model::Session& session)
 {
+    session.startPlayback();
+
     for (int attempt = 0; attempt < playAttempts && ! session.isPlaying(); ++attempt)
-    {
-        session.startPlayback();
         pumpMessages (msPerPlayAttempt);
-    }
 
     return session.isPlaying();
 }

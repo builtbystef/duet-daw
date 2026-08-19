@@ -15,6 +15,17 @@ namespace
 
     /** ADR 0004: undo goes 200 Actions deep, in memory, for the session. */
     constexpr int undoDepth = 200;
+
+    /** How often the model asks a transport that is not rolling to play, and
+        how many of those asks it makes before it accepts the answer.
+
+        Hazard 6 costs one ask, a few seconds into the first playback of a
+        session; ten seconds of asking covers that with room to spare. The
+        asking ends because a machine with no working output would otherwise be
+        asked forever, and every ask allocates a playback context.
+    */
+    constexpr int playRetryIntervalMs = 100;
+    constexpr int playRetryAttempts = 100;
 } // namespace
 
 //==============================================================================
@@ -72,6 +83,8 @@ tracktion::engine::Edit& EngineAccess::editOf (Session& session) { return *sessi
 
 Session::~Session()
 {
+    impl->playbackKeeper.stopTimer();
+
     if (impl->edit != nullptr)
         impl->edit->getTransport().stop (false, true);
 }
@@ -511,14 +524,51 @@ void Session::loadDemoContent()
 }
 
 //==============================================================================
-void Session::startPlayback()
+void Session::Impl::askTransportToPlay() const
 {
-    auto& transport = impl->edit->getTransport();
+    auto& transport = edit->getTransport();
     transport.ensureContextAllocated();
     transport.play (false);
 }
 
-void Session::stopPlayback() { impl->edit->getTransport().stop (false, false); }
+void Session::Impl::keepPlaybackRolling()
+{
+    if (edit->getTransport().isPlaying())
+    {
+        askedWithoutRolling = 0;
+        return;
+    }
+
+    if (++askedWithoutRolling > playRetryAttempts)
+    {
+        playbackKeeper.stopTimer();
+        return;
+    }
+
+    askTransportToPlay();
+}
+
+void Session::startPlayback()
+{
+    // One ask is not enough. The engine rebuilds its device list once, a few
+    // seconds into the first playback of a session, and the rebuild frees the
+    // playback graph and stops the transport with it (hazard 6) — so the model
+    // remembers that playback was asked for, and keeps asking for as long as
+    // that is true and the transport is not rolling. It lives here and not in
+    // the app because the model is where the engine's quirks are absorbed, and
+    // every caller of startPlayback has this problem.
+    impl->askedWithoutRolling = 0;
+    impl->askTransportToPlay();
+    impl->playbackKeeper.startTimer (playRetryIntervalMs);
+}
+
+void Session::stopPlayback()
+{
+    // Stopping is the last word: nothing asks for playback again until the
+    // producer does.
+    impl->playbackKeeper.stopTimer();
+    impl->edit->getTransport().stop (false, false);
+}
 
 bool Session::isPlaying() const { return impl->edit->getTransport().isPlaying(); }
 

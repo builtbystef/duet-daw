@@ -535,8 +535,19 @@ public:
     // The transport. Every one of these is written with no undo history at all,
     // so that an undo can never stop playback or move the playhead (ADR 0004).
 
+    /** Starts playback, and keeps it started.
+
+        One call is a producer pressing Play once: the engine rebuilds its
+        device list a few seconds into the first playback of a session and
+        stops the transport doing it, so the session remembers that playback
+        was asked for and asks again, until the transport rolls or the asking
+        runs out. Every caller gets this; none has to know about it.
+    */
     void startPlayback();
+
+    /** Stops playback, and stops asking for it. */
     void stopPlayback();
+
     [[nodiscard]] bool isPlaying() const;
 
     /** The transport position, in seconds from the start of the edit. */
