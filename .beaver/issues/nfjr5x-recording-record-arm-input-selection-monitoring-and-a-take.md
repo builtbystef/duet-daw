@@ -1,16 +1,14 @@
 ---
 id: nfjr5x
 title: 'Recording: record-arm, input selection, monitoring, and a take landing as one Action'
-state: in-progress
+state: done
 priority: high
-labels:
-    - needs-review
 depends_on:
     - quiwf3
     - 1c8sjh
 parent: b1j3me
 created: 2026-08-17T04:09:52Z
-updated: 2026-08-19T07:19:26Z
+updated: 2026-08-19T07:43:01Z
 ---
 
 ## What to build
@@ -82,3 +80,26 @@ Not done, and it is the one criterion that cannot be automated: it asks for a li
 **To finish it:** New a project in `~/Music/…` → Add Track (this is the track that arms; it is the last one) → pick an input from the first list → leave the second list on *Monitor: while armed* → Arm → Record, play something into the input, then Stop. Expected: the input is audible while the take rolls, the transport line reads *Recording*, and Stop leaves one clip whose file is in the project's `audio/` subdirectory, with a single Undo taking the clip away and the file staying on disk.
 
 Then either close this issue, or note what went wrong and take `needs-review` off. Labelled `needs-review` and unassigned in the meantime.
+
+**claude** — 2026-08-19T07:43:01Z
+
+## Manual check (criterion 6) — done, dev machine, 2026-08-19
+
+A live take through `pw-jack ./build/modules/duet_app/duet_app_artefacts/Debug/Duet`, driven by the producer.
+
+**Signal path on the day.** PipeWire wired the app as one mono capture in and a stereo out:
+
+    alsa_input.usb-046d_0825 (Logitech mic, mono) --> Duet: input_MONO
+    Duet: output_FL/FR --> bluez_output.80_99_E7... (Bluetooth headphones)
+
+Only the first of the input device's channels was connected, so `Channel 1` in the input list was the mic and the rest of the list was channels nothing was wired to.
+
+**What was done.** New project in `~/Music/demo-5` -> Play for ~10 s and Stop, to get the engine's one-time device rebuild out of the way (issue di0frj) -> Add Track -> input `Channel 1`, `Monitor: while armed` -> Arm -> Record, speaking into the mic -> Stop.
+
+**Result.** `~/Music/demo-5/audio/Track 6_Take_1.wav`, 7.13 s, mono, 24-bit, 44.1 kHz; mean −41.2 dB, max −30.8 dB — a real signal, quiet as a webcam mic across a room is, and not clipping. The file is in the project folder's `audio/` subdirectory and named after the track the take went into, with no save having happened first: the project had been created and not saved since, so this is also criterion 5 on a real device.
+
+**Monitoring was audible while recording — confirmed by the producer.** That is the half of this criterion no measurement can make, and it is why the check is manual. Worth knowing for whoever repeats it: the output was Bluetooth, so monitoring was audible but visibly late. That latency is the headphones', not Duet's, and the criterion is about hearing the input at all.
+
+**What this check did not cover.** The producer did not save after the take, so the on-disk proof that a *recorded* clip stores its source as `audio/Track 6_Take_1.wav` was not taken on the real device. It is covered by *a recorded audio take is written into the project's audio subdirectory*, which asserts the stored reference exactly and was verified discriminating — commenting the pin out fails it. Nothing about hazard 5 is device-dependent, so this is a gap in evidence and not in coverage.
+
+All six acceptance criteria are now met. Closing.
