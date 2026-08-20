@@ -1,15 +1,13 @@
 ---
 id: xxv9ng
 title: duet_gui module, the Graphite look, and Settings > Interface
-state: in-progress
+state: done
 priority: high
-labels:
-    - needs-review
 depends_on:
     - sea14w
 parent: 535bbo
 created: 2026-08-12T03:48:12Z
-updated: 2026-08-20T02:07:59Z
+updated: 2026-08-20T05:50:20Z
 ---
 
 ## What to build
@@ -89,3 +87,7 @@ Review change (2026-08-19): the default interface scale is now 1.5x, not the 1.2
 Two tests moved with it: the worked example is now 24 logical units -> 36 px at the default (24 px at 1.0 unchanged), and the two cases that used to set 1.5x explicitly now use 1.75x, because setting the value that is already the default is no change to make and the listener would rightly not fire. This issue's acceptance criterion has been reworded to the new number with the amendment named in it.
 
 Checked afterwards: format clean, lint clean, 90/90 ctest, and the shell run at the new default. One thing seen and not a defect: the window manager reopened Duet maximized once, having remembered that state from the earlier session; relaunching after un-maximizing gave the expected 930x495 (620x330 logical). Window geometry is app-global state a later slice owns.
+
+**claude** — 2026-08-20T05:50:20Z
+
+Approved and closed by the Target Producer (2026-08-20). The needs-review label came off with the closure — the review it marked is done.
