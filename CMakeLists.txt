@@ -53,12 +53,23 @@ FetchContent_Declare(tracktion
     GIT_SUBMODULES ""  # its only submodule is JUCE over SSH; we supply JUCE ourselves
 )
 
+# The DAW side of the AI seam frames JSON-RPC 2.0 and carries JSON tool payloads
+# (spec js437t names this library for it). Header-only, MIT, and the only new
+# production dependency the Collaborator service needs — the socket and the child
+# process are POSIX calls, and no HTTP ever reaches the DAW.
+set(JSON_BuildTests OFF CACHE INTERNAL "")
+set(JSON_Install OFF CACHE INTERNAL "")
+FetchContent_Declare(nlohmann_json
+    GIT_REPOSITORY https://github.com/nlohmann/json.git
+    GIT_TAG        65ee68451d8eb2b5f3a30b410476ab83deb3289b # tag v3.12.0
+)
+
 FetchContent_Declare(Catch2
     GIT_REPOSITORY https://github.com/catchorg/Catch2.git
     GIT_TAG        8b08d4d79514f45f7e4ce2a607ac9c94e920d1bb # tag v3.15.3
 )
 
-FetchContent_MakeAvailable(JUCE tracktion Catch2)
+FetchContent_MakeAvailable(JUCE tracktion nlohmann_json Catch2)
 
 # Every Duet target that compiles JUCE or engine sources links one of these two,
 # so that all of them see one identical configuration. JUCE modules are INTERFACE
@@ -99,6 +110,13 @@ target_link_libraries(duet_engine_config INTERFACE
     atomic
 )
 
+# The library's headers are vendored, so a consumer sees them as system headers
+# and the lint sweep cannot reach them. The same treatment duet_gui_fonts gets.
+set_target_properties(nlohmann_json PROPERTIES
+    INTERFACE_SYSTEM_INCLUDE_DIRECTORIES
+        "$<TARGET_PROPERTY:nlohmann_json,INTERFACE_INCLUDE_DIRECTORIES>")
+
+add_subdirectory(modules/duet_collab)
 add_subdirectory(modules/duet_model)
 add_subdirectory(modules/duet_persistence)
 add_subdirectory(modules/duet_gui)

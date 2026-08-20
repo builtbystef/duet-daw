@@ -26,6 +26,14 @@ They build into `build/linux-asan` and `build/linux-tsan`, each with its own cop
 of the vendored trees, so neither disturbs the ordinary build. CI configures with
 `-D DUET_CCACHE_ENABLED=OFF`; leave it on locally.
 
+On the dev machine the TSan binary refuses to start about four times in five —
+`FATAL: ThreadSanitizer: unexpected memory mapping`, before any test runs, and a
+core dump on some of the rest. That is this kernel's address-space randomization,
+not a finding: it hits every TSan binary the same way, an untouched engine test as
+readily as a new one. Run it with randomization off and it is reliable:
+`setarch $(uname -m) -R ctest --preset linux-tsan`. The CI runner does not need
+this. Measured on the dev machine on 2026-08-20 (issue d7h5f5).
+
 `linux-tsan` carries `-fno-sanitize=vptr`, and that exclusion is not a shrug at a
 finding. UBSan's vptr check probes an address through sanitizer_common's
 `IsAccessibleMemoryRange`, which opens a pipe to do it; TSan's `pipe` interceptor
