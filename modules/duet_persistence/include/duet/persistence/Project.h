@@ -1,8 +1,10 @@
 #pragma once
 
 #include <duet/model/Session.h>
+#include <duet/persistence/DataNode.h>
 
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -15,6 +17,12 @@
 */
 namespace duet::persistence
 {
+/** The name the interface's per-project view state has in the DUET tree, as
+    spec 535bbo settled it. Part of the project format, so it lives here rather
+    than with the view-model that fills it in.
+*/
+inline constexpr std::string_view viewTreeName = "VIEW";
+
 /** One open project. */
 class Project
 {
@@ -84,11 +92,35 @@ public:
     /** Reads one of Duet's own facts. Empty when the project holds none. */
     [[nodiscard]] std::string duetValue (std::string_view key) const;
 
+    //==============================================================================
+    /** Says where the interface's per-project view state is to be read from.
+
+        The view — zoom, scroll, which docks are open and how wide — belongs to
+        the project and comes back with it, but it is not a producer edit. So it
+        is not written when it changes: it is asked for here, once, as a save
+        begins, and written into the DUET tree with no undo history (ADR 0005,
+        spec 535bbo). That is what makes dragging a divider something an undo
+        never puts back, and something that never makes a project dirty.
+
+        One reader at a time. Without one, a save leaves whatever view the
+        project already held alone.
+    */
+    void onCaptureViewState (std::function<DataNode()> capture);
+
+    /** The view the project holds. A project saved before the interface existed,
+        or by nothing that had a view to give, gives back an empty VIEW node —
+        which is what the interface reads its own defaults from.
+    */
+    [[nodiscard]] DataNode viewState() const;
+
 private:
     Project (std::filesystem::path folder, std::unique_ptr<duet::model::Session> session);
 
+    void writeViewState();
+
     std::filesystem::path projectFolder;
     std::unique_ptr<duet::model::Session> editSession;
+    std::function<DataNode()> captureViewState;
     bool unsavedChanges = false;
 };
 } // namespace duet::persistence

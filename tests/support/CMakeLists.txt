@@ -10,5 +10,5 @@ add_library(duet::test_support ALIAS duet_test_support)
 target_include_directories(duet_test_support PUBLIC include)
 target_compile_features(duet_test_support PRIVATE cxx_std_20)
 target_link_libraries(duet_test_support
-    PUBLIC duet::model duet::persistence
+    PUBLIC duet::gui duet::model duet::persistence
     PRIVATE duet_engine_config)

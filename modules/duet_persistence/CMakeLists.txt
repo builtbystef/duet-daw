@@ -5,6 +5,7 @@
 # is the one back door through the engine seam — persistence writes the project's
 # whole state, and the engine's state tree is that state.
 add_library(duet_persistence STATIC
+    src/DataNode.cpp
     src/Project.cpp
     src/ProjectLayout.cpp)
 add_library(duet::persistence ALIAS duet_persistence)

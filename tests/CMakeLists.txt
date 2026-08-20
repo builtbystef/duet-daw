@@ -25,9 +25,14 @@ add_executable(duet_tests
     ProjectLayoutTests.cpp
     ProjectAndTransportOpsTests.cpp
     ProjectTests.cpp
+    ProjectViewTests.cpp
     RecordingTests.cpp
+    RenderingTests.cpp
     SessionTests.cpp
-    TrackOpsTests.cpp)
+    ShortcutTests.cpp
+    TrackOpsTests.cpp
+    ViewStateTests.cpp
+    WindowGeometryTests.cpp)
 
 target_compile_features(duet_tests PRIVATE cxx_std_20)
 target_link_libraries(duet_tests PRIVATE

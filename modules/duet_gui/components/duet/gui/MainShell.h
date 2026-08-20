@@ -1,0 +1,147 @@
+#pragma once
+
+#include <duet/gui/Appearance.h>
+#include <duet/gui/Shortcuts.h>
+#include <duet/gui/ViewState.h>
+
+#include <juce_gui_basics/juce_gui_basics.h>
+
+#include <functional>
+#include <memory>
+
+namespace duet::gui
+{
+class AcceleratedSurface;
+
+/** The names the shell's areas carry, so that what is on screen can be named
+    from outside it — by a test, and by anything that has to find one surface
+    among the others.
+*/
+namespace surfaceId
+{
+    inline constexpr const char* transport = "transport";
+    inline constexpr const char* arrangement = "arrangement";
+    inline constexpr const char* browser = "browser";
+    inline constexpr const char* collaborator = "collaborator";
+    inline constexpr const char* bottomPanel = "bottomPanel";
+    inline constexpr const char* pianoRoll = "pianoRoll";
+    inline constexpr const char* mixer = "mixer";
+} // namespace surfaceId
+
+/** The single main window the whole interface lives in.
+
+    A transport strip across the top, the arrangement in the centre, the browser
+    docked left and the Collaborator docked right, and a resizable, collapsible
+    bottom panel holding the Piano Roll and the Mixer. A draggable divider
+    separates each dock from the arrangement. One "Duet" button in the transport
+    strip opens the app menu, which is what this interface has instead of a menu
+    bar; plugin editors will be the only floating windows, and nothing tears off
+    (spec 535bbo).
+
+    What the shell shows is what the view state says, and every gesture that
+    changes the layout goes through the view state rather than around it — that
+    is what makes the layout the project's, restored when it reopens, and what
+    keeps it out of the producer's undo history.
+
+    The docked surfaces are empty until their own slices fill them in.
+*/
+class MainShell final : public juce::Component, private Appearance::Listener
+{
+public:
+    /** @param lookAndScale  the palette and the interface scale the shell is
+                             drawn and measured in
+        @param projectView   the layout of the open project. The shell writes the
+                             producer's gestures into it and lays itself out from
+                             it; the persistence facade is what saves it.
+    */
+    MainShell (Appearance& lookAndScale, ViewState& projectView);
+
+    ~MainShell() override;
+
+    //==============================================================================
+    /** Does what a panel key or a menu entry means. */
+    void perform (Command command);
+
+    /** Lays the shell out on a view it has not seen before — what opening a
+        project does.
+    */
+    void viewStateChanged();
+
+    //==============================================================================
+    /** What a divider drag means: where the producer has put the boundary, in
+        pixels from the shell's own left edge or top edge. The divider bars are
+        what call these, and driving them directly is how a drag is asserted.
+    */
+    void dragBrowserDivider (int x);
+    void dragCollaboratorDivider (int x);
+    void dragBottomDivider (int y);
+
+    //==============================================================================
+    /** The Duet menu, as the button opens it: the panel toggles, and whatever
+        the host has added under them.
+    */
+    [[nodiscard]] juce::PopupMenu duetMenu() const;
+
+    /** Runs the entry the producer chose. Zero is the menu dismissed. */
+    void menuItemChosen (int itemId);
+
+    /** The entries the host adds under the shell's own, and what to do when one
+        is chosen. Project commands arrive this way (issue ce17ym), because the
+        shell knows about panels and the host knows about projects.
+
+        Ids from `firstHostMenuId` up are the host's; below it are the shell's.
+    */
+    void setHostMenu (std::function<void (juce::PopupMenu&)> build,
+                      std::function<void (int)> chosen);
+
+    static constexpr int firstHostMenuId = 100;
+
+    //==============================================================================
+    /** The rendering escape hatch (spec 535bbo): puts the shell's surfaces on a
+        hardware-accelerated context instead of the software renderer they are
+        drawn on by default. The drawing is the same drawing — only who
+        rasterises it changes.
+    */
+    void setHardwareAccelerated (bool shouldBeAccelerated);
+
+    [[nodiscard]] bool isHardwareAccelerated() const { return accelerated; }
+
+    //==============================================================================
+    void paint (juce::Graphics& g) override;
+    void resized() override;
+    bool keyPressed (const juce::KeyPress& key) override;
+
+    /** The heights the shell's own chrome is drawn to, in logical units. */
+    static constexpr int transportStripHeight = 44;
+    static constexpr int dividerThickness = 6;
+
+private:
+    class Dock;
+    class BottomPanel;
+    class Divider;
+
+    void appearanceChanged() override;
+    void showDuetMenu();
+
+    Appearance& appearance;
+    ViewState& view;
+    Shortcuts shortcuts { panelShortcuts() };
+
+    juce::TextButton duetButton { "Duet" };
+    std::unique_ptr<Dock> transportStrip;
+    std::unique_ptr<Dock> arrangement;
+    std::unique_ptr<Dock> browser;
+    std::unique_ptr<Dock> collaborator;
+    std::unique_ptr<BottomPanel> bottom;
+    std::unique_ptr<Divider> browserDivider;
+    std::unique_ptr<Divider> collaboratorDivider;
+    std::unique_ptr<Divider> bottomDivider;
+    std::unique_ptr<AcceleratedSurface> hardwareContext;
+
+    std::function<void (juce::PopupMenu&)> buildHostMenu;
+    std::function<void (int)> hostMenuItemChosen;
+    bool accelerated = false;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainShell)
+};
+} // namespace duet::gui

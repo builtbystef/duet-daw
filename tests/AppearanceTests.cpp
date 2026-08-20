@@ -1,43 +1,17 @@
 #include <duet/gui/Appearance.h>
-#include <duet/gui/Settings.h>
+
+#include <duet/testing/TestSupport.h>
 
 #include <catch2/catch_test_macros.hpp>
-
-#include <map>
-#include <optional>
-#include <string>
-#include <string_view>
 
 using duet::gui::Appearance;
 using duet::gui::defaultInterfaceScale;
 using duet::gui::Theme;
 using duet::gui::ThemePreference;
+using duet::testing::StoredSettings;
 
 namespace
 {
-/** The app-global store, held in memory. A second Appearance over the same one
-    is the next launch: nothing about a restart matters to these tests except
-    that the store outlives the object reading it.
-*/
-class StoredSettings final : public duet::gui::Settings
-{
-public:
-    [[nodiscard]] std::optional<std::string> value (std::string_view key) const override
-    {
-        const auto found = values.find (std::string { key });
-
-        return found == values.end() ? std::nullopt : std::optional { found->second };
-    }
-
-    void setValue (std::string_view key, std::string_view newValue) override
-    {
-        values[std::string { key }] = std::string { newValue };
-    }
-
-private:
-    std::map<std::string, std::string> values;
-};
-
 /** Counts what a surface would have been told. */
 class ChangeCounter final : public Appearance::Listener
 {
@@ -113,13 +87,13 @@ TEST_CASE ("a chosen theme ignores the desktop")
     REQUIRE (appearance.theme() == Theme::dark);
 }
 
-TEST_CASE ("a logical unit is a pixel at 1.0 and half as much again by default")
+TEST_CASE ("a logical unit is a pixel at 1.0 and a quarter as much again by default")
 {
     StoredSettings store;
     Appearance appearance { store, true };
 
     REQUIRE (appearance.interfaceScale() == defaultInterfaceScale);
-    REQUIRE (appearance.scaled (24) == 36);
+    REQUIRE (appearance.scaled (24) == 30);
 
     appearance.setInterfaceScale (1.0);
 

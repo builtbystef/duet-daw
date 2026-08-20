@@ -1,6 +1,7 @@
 #include <duet/gui/SettingsWindow.h>
 
 #include <duet/gui/GraphiteLookAndFeel.h>
+#include <duet/gui/Rendering.h>
 #include <duet/gui/Tokens.h>
 #include <duet/gui/Typography.h>
 
@@ -13,7 +14,7 @@ namespace duet::gui
 namespace
 {
     constexpr int windowWidth = 420;
-    constexpr int windowHeight = 220;
+    constexpr int windowHeight = 250;
     constexpr int labelWidth = 130;
     constexpr int tabBarHeight = 28;
     constexpr double scaleStep = 0.05;
@@ -36,14 +37,19 @@ namespace
         return 1;
     }
 
-    /** The Interface tab: the two rows this slice ships. */
+    /** The Interface tab. */
     class InterfaceTab final : public juce::Component, private Appearance::Listener
     {
     public:
-        explicit InterfaceTab (Appearance& lookAndScale) : appearance (lookAndScale)
+        InterfaceTab (Appearance& lookAndScale,
+                      Settings& store,
+                      std::function<void (bool)> renderingChanged)
+            : appearance (lookAndScale), settings (store),
+              reportRendering (std::move (renderingChanged))
         {
             themeLabel.setText ("Theme", juce::dontSendNotification);
             scaleLabel.setText ("Interface scale", juce::dontSendNotification);
+            renderingLabel.setText ("Rendering", juce::dontSendNotification);
 
             for (std::size_t index = 0; index < themeChoices.size(); ++index)
                 themeBox.addItem (themeChoices.at (index).second, static_cast<int> (index) + 1);
@@ -68,8 +74,25 @@ namespace
             scaleSlider.onValueChange = [this]
             { appearance.setInterfaceScale (scaleSlider.getValue()); };
 
-            for (auto* child : std::initializer_list<juce::Component*> {
-                     &themeLabel, &scaleLabel, &themeBox, &scaleSlider })
+            renderingButton.setButtonText ("Hardware acceleration");
+            renderingButton.setToggleState (hardwareAccelerationEnabled (settings),
+                                            juce::dontSendNotification);
+            renderingButton.onClick = [this]
+            {
+                const auto enabled = renderingButton.getToggleState();
+
+                setHardwareAccelerationEnabled (settings, enabled);
+
+                if (reportRendering)
+                    reportRendering (enabled);
+            };
+
+            for (auto* child : std::initializer_list<juce::Component*> { &themeLabel,
+                                                                         &scaleLabel,
+                                                                         &renderingLabel,
+                                                                         &themeBox,
+                                                                         &scaleSlider,
+                                                                         &renderingButton })
                 addAndMakeVisible (*child);
 
             appearance.addListener (this);
@@ -102,6 +125,7 @@ namespace
 
             layOutRow (themeLabel, themeBox);
             layOutRow (scaleLabel, scaleSlider);
+            layOutRow (renderingLabel, renderingButton);
         }
 
     private:
@@ -119,21 +143,28 @@ namespace
         }
 
         Appearance& appearance;
+        Settings& settings;
+        std::function<void (bool)> reportRendering;
         juce::Label themeLabel;
         juce::Label scaleLabel;
+        juce::Label renderingLabel;
         juce::ComboBox themeBox;
         juce::Slider scaleSlider;
+        juce::ToggleButton renderingButton;
     };
 
     /** The window's content: the tabs, and the appearance they are measured in. */
     class SettingsContent final : public juce::Component, private Appearance::Listener
     {
     public:
-        explicit SettingsContent (Appearance& lookAndScale) : appearance (lookAndScale)
+        SettingsContent (Appearance& lookAndScale,
+                         Settings& store,
+                         std::function<void (bool)> renderingChanged)
+            : appearance (lookAndScale)
         {
             tabs.addTab ("Interface",
                          juce::Colours::transparentBlack,
-                         new InterfaceTab { appearance },
+                         new InterfaceTab { appearance, store, std::move (renderingChanged) },
                          true);
 
             addAndMakeVisible (tabs);
@@ -175,7 +206,10 @@ namespace
     };
 } // namespace
 
-SettingsWindow::SettingsWindow (Appearance& lookAndScale, std::function<void()> onClose)
+SettingsWindow::SettingsWindow (Appearance& lookAndScale,
+                                Settings& store,
+                                std::function<void (bool)> renderingChanged,
+                                std::function<void()> onClose)
     : DocumentWindow ("Settings",
                       juce::Desktop::getInstance().getDefaultLookAndFeel().findColour (
                           juce::ResizableWindow::backgroundColourId),
@@ -183,7 +217,8 @@ SettingsWindow::SettingsWindow (Appearance& lookAndScale, std::function<void()> 
       closed (std::move (onClose))
 {
     setUsingNativeTitleBar (true);
-    setContentOwned (new SettingsContent { lookAndScale }, true);
+    setContentOwned (new SettingsContent { lookAndScale, store, std::move (renderingChanged) },
+                     true);
     setResizable (true, false);
     centreWithSize (getWidth(), getHeight());
     setVisible (true);

@@ -25,6 +25,96 @@ namespace
         return juce::Identifier { juce::String { std::string { name } } };
     }
 
+    /** One of Duet's own nodes, as the project file stores it.
+
+        Walked with a stack of its own rather than by recursion, which is the
+        rule the search below is written to as well. A `juce::ValueTree` is a
+        handle onto a shared node, so a child can be appended empty and filled
+        in afterwards through the handle that was kept.
+    */
+    juce::ValueTree toValueTree (const DataNode& node)
+    {
+        juce::ValueTree root { toIdentifier (node.type()) };
+        std::vector<std::pair<const DataNode*, juce::ValueTree>> remaining { { &node, root } };
+
+        while (! remaining.empty())
+        {
+            // Not const: a ValueTree is a handle, and writing through it is
+            // writing to the node it names.
+            auto [source, tree] = remaining.back();
+            remaining.pop_back();
+
+            for (const auto& [key, value] : source->values())
+                tree.setProperty (toIdentifier (key), juce::String { value }, nullptr);
+
+            for (const auto& child : source->children())
+            {
+                const juce::ValueTree childTree { toIdentifier (child.type()) };
+
+                tree.appendChild (childTree, nullptr);
+                remaining.emplace_back (&child, childTree);
+            }
+        }
+
+        return root;
+    }
+
+    /** A node with the values of one tree on it, and nothing under it yet. */
+    DataNode valuesOf (const juce::ValueTree& tree)
+    {
+        DataNode node { tree.getType().toString().toStdString() };
+
+        for (int index = 0; index < tree.getNumProperties(); ++index)
+        {
+            const auto key = tree.getPropertyName (index);
+
+            node.set (key.toString().toStdString(), tree[key].toString().toStdString());
+        }
+
+        return node;
+    }
+
+    /** The same node, back out of the project file.
+
+        Depth first and finished from the bottom up: a `DataNode` holds its
+        children by value, so a node is only added to its parent once nothing
+        more will be added to it, and nothing ever points into a vector that is
+        still growing.
+    */
+    DataNode toDataNode (const juce::ValueTree& tree)
+    {
+        struct Frame
+        {
+            juce::ValueTree source;
+            int nextChild = 0;
+            DataNode node;
+        };
+
+        std::vector<Frame> unfinished;
+        unfinished.push_back ({ tree, 0, valuesOf (tree) });
+
+        for (;;)
+        {
+            auto& frame = unfinished.back();
+
+            if (frame.nextChild < frame.source.getNumChildren())
+            {
+                const auto child = frame.source.getChild (frame.nextChild++);
+
+                unfinished.push_back ({ child, 0, valuesOf (child) });
+                continue;
+            }
+
+            auto finished = std::move (frame.node);
+            unfinished.pop_back();
+
+            if (unfinished.empty())
+                return finished;
+
+            unfinished.back().node.add (std::move (finished));
+        }
+    }
+
     /** The plugin's own node in a copy of the state, found by its item ID.
 
         The engine writes a plugin's parameters onto the node it was loaded
@@ -132,6 +222,8 @@ bool Project::save()
 {
     auto& edit = duet::model::EngineAccess::editOf (*editSession);
 
+    writeViewState();
+
     const auto snapshot = edit.state.createCopy();
     applyParameterBlobs (edit, snapshot);
 
@@ -195,5 +287,40 @@ std::string Project::duetValue (std::string_view key) const
     const auto duetTree = edit.state.getChildWithName (juce::Identifier { duetTreeName });
 
     return duetTree[toIdentifier (key)].toString().toStdString();
+}
+
+//==============================================================================
+void Project::onCaptureViewState (std::function<DataNode()> capture)
+{
+    captureViewState = std::move (capture);
+}
+
+DataNode Project::viewState() const
+{
+    auto& edit = duet::model::EngineAccess::editOf (*editSession);
+    const auto duetTree = edit.state.getChildWithName (juce::Identifier { duetTreeName });
+    const auto view = duetTree.getChildWithName (toIdentifier (viewTreeName));
+
+    return view.isValid() ? toDataNode (view) : DataNode { std::string { viewTreeName } };
+}
+
+void Project::writeViewState()
+{
+    if (! captureViewState)
+        return;
+
+    const auto view = captureViewState();
+
+    auto& edit = duet::model::EngineAccess::editOf (*editSession);
+    auto duetTree =
+        edit.state.getOrCreateChildWithName (juce::Identifier { duetTreeName }, nullptr);
+
+    // No undo manager, on this write and on the one that clears the last view
+    // out of the way: a view is not a producer edit, and an undo that could put
+    // a dock back is exactly what writing it this way prevents. The unsaved
+    // flag is left alone for the same reason — this write is part of the save
+    // that is about to clear it.
+    duetTree.removeChild (duetTree.getChildWithName (toIdentifier (view.type())), nullptr);
+    duetTree.appendChild (toValueTree (view), nullptr);
 }
 } // namespace duet::persistence

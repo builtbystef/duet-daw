@@ -1,6 +1,10 @@
 #pragma once
 
+#include <duet/gui/Settings.h>
+
 #include <filesystem>
+#include <map>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -16,6 +20,30 @@ class Session;
 */
 namespace duet::testing
 {
+/** The app-global settings store, held in memory.
+
+    A second reader over the same one is the next launch: nothing about a restart
+    matters to a test except that the store outlives what reads it.
+*/
+class StoredSettings final : public duet::gui::Settings
+{
+public:
+    [[nodiscard]] std::optional<std::string> value (std::string_view key) const override
+    {
+        const auto found = values.find (std::string { key });
+
+        return found == values.end() ? std::nullopt : std::optional { found->second };
+    }
+
+    void setValue (std::string_view key, std::string_view newValue) override
+    {
+        values[std::string { key }] = std::string { newValue };
+    }
+
+private:
+    std::map<std::string, std::string> values;
+};
+
 /** A project folder under the system temp directory, deleted with this object.
 
     A bare folder of the right shape, for suites that want one without going

@@ -7,6 +7,7 @@
 # they live here, against duet::gui_components, and never against paint.
 add_executable(duet_gui_tests
     GraphiteLookTests.cpp
+    MainShellTests.cpp
     TypographyTests.cpp)
 
 target_compile_features(duet_gui_tests PRIVATE cxx_std_20)

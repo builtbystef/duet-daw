@@ -9,7 +9,11 @@
 # view-models' state and forward input to them.
 add_library(duet_gui STATIC
     src/Appearance.cpp
-    src/Tokens.cpp)
+    src/Rendering.cpp
+    src/Shortcuts.cpp
+    src/Tokens.cpp
+    src/ViewState.cpp
+    src/WindowGeometry.cpp)
 add_library(duet::gui ALIAS duet_gui)
 
 target_include_directories(duet_gui PUBLIC include)
@@ -39,8 +43,10 @@ set_target_properties(duet_gui_fonts PROPERTIES
         "$<TARGET_PROPERTY:duet_gui_fonts,INTERFACE_INCLUDE_DIRECTORIES>")
 
 add_library(duet_gui_components STATIC
+    components_src/AcceleratedSurface.cpp
     components_src/GraphiteLookAndFeel.cpp
     components_src/InterTypeface.cpp
+    components_src/MainShell.cpp
     components_src/SettingsWindow.cpp)
 add_library(duet::gui_components ALIAS duet_gui_components)
 
@@ -48,4 +54,8 @@ target_include_directories(duet_gui_components PUBLIC components)
 target_compile_features(duet_gui_components PRIVATE cxx_std_20)
 target_link_libraries(duet_gui_components
     PUBLIC duet::gui duet_juce_config juce::juce_gui_basics
+    # The rendering escape hatch spec 535bbo settled: the software renderer is
+    # what every surface is drawn on, and this is the way out for one that ever
+    # stops holding.
+    PUBLIC juce::juce_opengl
     PRIVATE duet_gui_fonts)

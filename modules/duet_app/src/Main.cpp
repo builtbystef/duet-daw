@@ -4,33 +4,24 @@
 
 #include <duet/gui/Appearance.h>
 #include <duet/gui/GraphiteLookAndFeel.h>
+#include <duet/gui/MainShell.h>
+#include <duet/gui/Rendering.h>
 #include <duet/gui/SettingsWindow.h>
-#include <duet/gui/Tokens.h>
-#include <duet/gui/Typography.h>
-
-#include <duet/model/Session.h>
+#include <duet/gui/ViewState.h>
+#include <duet/gui/WindowGeometry.h>
 
 #include <juce_gui_extra/juce_gui_extra.h>
 
-#include <array>
+#include <cstdint>
 #include <filesystem>
 #include <memory>
-#include <string_view>
+#include <utility>
 
 namespace duet::app
 {
 namespace
 {
-    // Logical units, not pixels: the interface scale is what turns one into the
-    // other, and the shell lays itself out through it (issue xxv9ng).
-    constexpr int windowWidth = 620;
-    constexpr int windowHeight = 330;
-    constexpr int statusRefreshMs = 100;
-    constexpr int controlRowHeight = 32;
-    constexpr int buttonWidth = 92;
-    constexpr int boxWidth = 160;
-    constexpr int labelHeight = 22;
-    constexpr int shellPadding = 12;
+    constexpr int titleRefreshMs = 400;
 
     std::filesystem::path toPath (const juce::File& file)
     {
@@ -41,134 +32,116 @@ namespace
         the shell's own text is UTF-8.
     */
     juce::String text (const char* utf8) { return juce::String { juce::CharPointer_UTF8 (utf8) }; }
+
+    /** The Duet menu's entries that are the host's rather than the shell's.
+
+        Ids from `firstHostMenuId` up are the host's, which is what keeps them
+        clear of the panel toggles the shell puts above them.
+    */
+    enum HostMenuId : std::uint8_t
+    {
+        newProject = duet::gui::MainShell::firstHostMenuId,
+        openProject,
+        saveProject,
+        playProject,
+        stopProject,
+        openSettings
+    };
 } // namespace
 
-/** The shell's only surface until the producer-facing interface (issue 535bbo)
-    lands: a project lifecycle thin enough to walk the persistence facade end to
-    end, one edit that proves an Action reaches disk, and the transport.
+/** What the main window holds: the interface, and the project it is open on.
 
-    Deliberately throwaway. The Duet-menu lifecycle — Save As, Recent, the close
-    prompt, the untitled-folder flow — is issue ce17ym's, and it replaces all of
-    this.
+    The shell knows about panels and the producer's view of them; this knows
+    about projects. The two meet in two places — the Duet menu, where the host's
+    project commands go under the shell's panel toggles, and the view state,
+    which the shell writes the producer's layout into and which this hands to the
+    persistence facade to capture as a save begins.
+
+    The project commands here are scaffolding: the untitled-project flow, Save
+    As, Recent and the close prompt are issue ce17ym's, and Play and Stop belong
+    to the transport bar (issue 1fumn6). They are in the menu so that the app can
+    still open a project and be heard until those slices land.
 */
-class MainComponent final : public juce::Component,
-                            private juce::Timer,
-                            private duet::gui::Appearance::Listener
+class ShellHost final : public juce::Component, private juce::Timer
 {
 public:
-    MainComponent (duet::gui::Appearance& lookAndScale,
-                   std::function<void (const juce::String&)> titleChanged)
-        : appearance (lookAndScale), reportTitle (std::move (titleChanged))
+    ShellHost (duet::gui::Appearance& lookAndScale,
+               duet::gui::Settings& store,
+               std::function<void (const juce::String&)> titleChanged)
+        : appearance (lookAndScale), settings (store), reportTitle (std::move (titleChanged))
     {
-        settingsButton.onClick = [this] { openSettings(); };
-        newButton.onClick = [this] { chooseFolder (true); };
-        openButton.onClick = [this] { chooseFolder (false); };
-        saveButton.onClick = [this] { saveProject(); };
-        addTrackButton.onClick = [this] { addTrack(); };
-        nextEditButton.onClick = [this] { stepThroughTheVocabulary(); };
-        undoButton.onClick = [this] { undoOneStep(); };
-        playButton.onClick = [this]
-        { withProject ([] (auto& p) { p.session().startPlayback(); }); };
-        stopButton.onClick = [this] { withProject ([] (auto& p) { p.session().stopPlayback(); }); };
-        armButton.onClick = [this] { armTheLastTrack(); };
-        recordButton.onClick = [this]
-        { withProject ([] (auto& p) { p.session().startRecording(); }); };
-        inputBox.onChange = [this] { chooseInput(); };
-        monitorBox.onChange = [this] { chooseMonitoring(); };
+        shell.setHostMenu ([this] (juce::PopupMenu& menu) { addHostEntries (menu); },
+                           [this] (int itemId) { hostItemChosen (itemId); });
 
-        for (const auto& [mode, name] : monitorModes)
-            monitorBox.addItem (juce::String (std::string { name }), static_cast<int> (mode) + 1);
+        // The software renderer is the default, and this is the producer's own
+        // answer from the last launch (spec 535bbo).
+        shell.setHardwareAccelerated (duet::gui::hardwareAccelerationEnabled (settings));
 
-        armButton.setClickingTogglesState (true);
-
-        for (auto* button : { &newButton,
-                              &openButton,
-                              &saveButton,
-                              &settingsButton,
-                              &addTrackButton,
-                              &playButton,
-                              &stopButton,
-                              &recordButton,
-                              &armButton,
-                              &nextEditButton,
-                              &undoButton })
-            addAndMakeVisible (*button);
-
-        for (auto* box : { &inputBox, &monitorBox })
-            addAndMakeVisible (*box);
-
-        for (auto* label : { &projectLabel, &deviceLabel, &transportLabel, &vocabularyLabel })
-            addAndMakeVisible (*label);
-
-        // The one numeric readout the shell has: tabular figures, so the seconds
-        // counting up do not shift the text sideways as they count.
-        transportLabel.setFont (
-            duet::gui::readoutFont (appearance.scaled (duet::gui::typography::body)));
-
-        appearance.addListener (this);
-        setSize (appearance.scaled (windowWidth), appearance.scaled (windowHeight));
-        refresh();
-        startTimer (statusRefreshMs);
+        addAndMakeVisible (shell);
+        refreshTitle();
+        startTimer (titleRefreshMs);
     }
 
-    ~MainComponent() override { appearance.removeListener (this); }
+    ~ShellHost() override = default;
 
-    void paint (juce::Graphics& g) override
-    {
-        g.fillAll (getLookAndFeel().findColour (juce::ResizableWindow::backgroundColourId));
-    }
+    /** Puts the keys on the shell. The panel keys are the shell's, and a window
+        that has just opened has given the focus to nothing.
+    */
+    void takeKeyboardFocus() { shell.grabKeyboardFocus(); }
 
-    void resized() override
-    {
-        // Every measurement below is in logical units, and every one of them
-        // goes through the interface scale: that is what makes the setting
-        // re-lay the shell out where it stands, with no restart.
-        auto area = getLocalBounds().reduced (appearance.scaled (shellPadding));
-
-        const auto row = appearance.scaled (controlRowHeight);
-        const auto button = appearance.scaled (buttonWidth);
-        const auto box = appearance.scaled (boxWidth);
-        const auto gap = appearance.scaled (duet::gui::metrics::rowGap) / 2;
-
-        auto lifecycle = area.removeFromTop (row);
-        for (auto* control : { &newButton, &openButton, &saveButton, &settingsButton })
-            control->setBounds (lifecycle.removeFromLeft (button).reduced (gap));
-
-        auto transport = area.removeFromTop (row);
-        for (auto* control : { &addTrackButton, &playButton, &stopButton })
-            control->setBounds (transport.removeFromLeft (button).reduced (gap));
-
-        auto recording = area.removeFromTop (row);
-        inputBox.setBounds (recording.removeFromLeft (box).reduced (gap));
-        monitorBox.setBounds (recording.removeFromLeft (box).reduced (gap));
-        for (auto* control : { &armButton, &recordButton })
-            control->setBounds (recording.removeFromLeft (button).reduced (gap));
-
-        auto vocabulary = area.removeFromTop (row);
-        for (auto* control : { &nextEditButton, &undoButton })
-            control->setBounds (vocabulary.removeFromLeft (button).reduced (gap));
-
-        for (auto* label : { &projectLabel, &deviceLabel, &transportLabel, &vocabularyLabel })
-            label->setBounds (area.removeFromTop (appearance.scaled (labelHeight)));
-    }
+    void resized() override { shell.setBounds (getLocalBounds()); }
 
 private:
-    void timerCallback() override { refresh(); }
+    void timerCallback() override { refreshTitle(); }
 
-    /** The theme or the scale has changed under the shell. The measurements are
-        logical, so this is a layout and not only a repaint.
-    */
-    void appearanceChanged() override
+    void addHostEntries (juce::PopupMenu& menu) const
     {
-        transportLabel.setFont (
-            duet::gui::readoutFont (appearance.scaled (duet::gui::typography::body)));
-
-        sendLookAndFeelChange();
-        resized();
-        repaint();
+        menu.addItem (HostMenuId::newProject, "New Project...");
+        menu.addItem (HostMenuId::openProject, "Open Project...");
+        menu.addItem (HostMenuId::saveProject, "Save Project", project != nullptr);
+        menu.addSeparator();
+        menu.addItem (HostMenuId::playProject, "Play", project != nullptr);
+        menu.addItem (HostMenuId::stopProject, "Stop", project != nullptr);
+        menu.addSeparator();
+        menu.addItem (HostMenuId::openSettings, "Settings...");
     }
 
-    void openSettings()
+    void hostItemChosen (int itemId)
+    {
+        switch (itemId)
+        {
+            case HostMenuId::newProject:
+                chooseFolder (true);
+                break;
+
+            case HostMenuId::openProject:
+                chooseFolder (false);
+                break;
+
+            case HostMenuId::saveProject:
+                if (project != nullptr)
+                    project->save();
+                break;
+
+            case HostMenuId::playProject:
+                if (project != nullptr)
+                    project->session().startPlayback();
+                break;
+
+            case HostMenuId::stopProject:
+                if (project != nullptr)
+                    project->session().stopPlayback();
+                break;
+
+            default:
+                openSettingsWindow();
+                break;
+        }
+
+        refreshTitle();
+    }
+
+    void openSettingsWindow()
     {
         if (settingsWindow != nullptr)
         {
@@ -177,14 +150,10 @@ private:
         }
 
         settingsWindow = std::make_unique<duet::gui::SettingsWindow> (
-            appearance, [this] { settingsWindow.reset(); });
-    }
-
-    template <typename Job>
-    void withProject (Job job)
-    {
-        if (project != nullptr)
-            job (*project);
+            appearance,
+            settings,
+            [this] (bool accelerated) { shell.setHardwareAccelerated (accelerated); },
+            [this] { settingsWindow.reset(); });
     }
 
     void chooseFolder (bool forNewProject)
@@ -222,16 +191,20 @@ private:
         {
             problem =
                 forNewProject ? "Could not create a project there" : "No project to open there";
-            refresh();
+            refreshTitle();
             return;
         }
 
         problem = {};
-        demoStep = 0;
-        demoBus = duet::model::noTrack;
-        demoReverbBus = duet::model::noTrack;
-        demoReverb = duet::model::noPlugin;
-        lastDemoStep = {};
+
+        // The producer's layout for this project, and the arrangement that gets
+        // it back onto disk: the view is asked for as a save begins and never
+        // written by a gesture, so nothing about resizing a panel makes the
+        // project dirty or reaches the undo history.
+        view = duet::gui::ViewState {};
+        view.readFrom (project->viewState());
+        project->onCaptureViewState ([this] { return view.toData(); });
+        shell.viewStateChanged();
 
         if (forNewProject)
         {
@@ -241,147 +214,16 @@ private:
             project->save();
         }
 
-        refresh();
+        refreshTitle();
     }
 
-    void saveProject()
-    {
-        withProject (
-            [this] (auto& open)
-            {
-                problem = open.save() ? juce::String {} : juce::String ("Could not save");
-                refresh();
-            });
-    }
-
-    void addTrack()
-    {
-        withProject (
-            [] (auto& open)
-            {
-                const auto number = open.session().audioTrackCount() + 1;
-                open.session().performAction ("Add a track",
-                                              [number] (auto& ops) {
-                                                  ops.createTrack (duet::model::TrackKind::audio,
-                                                                   "Track "
-                                                                       + std::to_string (number));
-                                              });
-            });
-
-        refresh();
-    }
-
-    /** The track a take is recorded into: the last one added, which is the one
-        Add Track just made.
-    */
-    [[nodiscard]] duet::model::TrackRef recordTrack() const
-    {
-        if (project == nullptr)
-            return duet::model::noTrack;
-
-        const auto tracks = project->session().tracks();
-
-        return tracks.empty() ? duet::model::noTrack : tracks.back().track;
-    }
-
-    void chooseInput()
-    {
-        withProject (
-            [this] (auto& open)
-            {
-                const auto chosen = inputBox.getSelectedId();
-                const auto inputs = open.session().availableInputs();
-
-                if (chosen < 1 || chosen > static_cast<int> (inputs.size()))
-                    return;
-
-                const auto input = inputs[static_cast<std::size_t> (chosen - 1)].input;
-                open.session().setTrackInput (recordTrack(), input);
-                monitorBox.setSelectedId (static_cast<int> (open.session().inputMonitoring (input))
-                                              + 1,
-                                          juce::dontSendNotification);
-            });
-
-        refresh();
-    }
-
-    void chooseMonitoring()
-    {
-        withProject (
-            [this] (auto& open)
-            {
-                const auto chosen = monitorBox.getSelectedId();
-
-                if (chosen < 1 || chosen > static_cast<int> (monitorModes.size()))
-                    return;
-
-                open.session().setInputMonitoring (
-                    open.session().track (recordTrack()).input,
-                    monitorModes.at (static_cast<std::size_t> (chosen - 1)).first);
-            });
-
-        refresh();
-    }
-
-    void armTheLastTrack()
-    {
-        withProject (
-            [this] (auto& open)
-            { open.session().setTrackRecordArmed (recordTrack(), armButton.getToggleState()); });
-
-        refresh();
-    }
-
-    /** Fills the input list once a project is open, keeping whatever the
-        producer chose selected.
-    */
-    void listInputs()
-    {
-        if (project == nullptr || inputBox.getNumItems() > 0)
-            return;
-
-        int id = 1;
-
-        for (const auto& input : project->session().availableInputs())
-            inputBox.addItem (juce::String (input.name)
-                                  + (input.kind == duet::model::InputKind::midi ? " (MIDI)" : ""),
-                              id++);
-    }
-
-    void refresh()
-    {
-        const auto hasProject = project != nullptr;
-
-        for (auto* button : { &saveButton,
-                              &addTrackButton,
-                              &playButton,
-                              &stopButton,
-                              &recordButton,
-                              &armButton,
-                              &nextEditButton,
-                              &undoButton })
-            button->setEnabled (hasProject);
-
-        for (auto* box : { &inputBox, &monitorBox })
-            box->setEnabled (hasProject);
-
-        listInputs();
-
-        if (hasProject)
-            armButton.setToggleState (project->session().track (recordTrack()).recordArmed,
-                                      juce::dontSendNotification);
-
-        nextEditButton.setEnabled (hasProject && demoStep < demoStepNames.size());
-
-        vocabularyLabel.setText (vocabularyText(), juce::dontSendNotification);
-        projectLabel.setText (projectText(), juce::dontSendNotification);
-        deviceLabel.setText (deviceText(), juce::dontSendNotification);
-        transportLabel.setText (transportText(), juce::dontSendNotification);
-        reportTitle (titleText());
-    }
+    void refreshTitle() { reportTitle (titleText()); }
 
     [[nodiscard]] juce::String titleText() const
     {
+        if (problem.isNotEmpty())
+            return text ("Duet — ") + problem;
+
         if (project == nullptr)
             return "Duet";
 
@@ -392,279 +234,74 @@ private:
                + (project->hasUnsavedChanges() ? juce::String (" *") : juce::String());
     }
 
-    [[nodiscard]] juce::String projectText() const
-    {
-        if (problem.isNotEmpty())
-            return problem;
-
-        if (project == nullptr)
-            return text ("No project — New or Open to start");
-
-        return juce::String (project->folder().string()) + text (" — ")
-               + juce::String (project->session().audioTrackCount()) + " tracks"
-               + (project->hasUnsavedChanges() ? ", unsaved" : ", saved");
-    }
-
-    [[nodiscard]] juce::String deviceText() const
-    {
-        if (project == nullptr)
-            return "No audio device";
-
-        const auto device = project->session().audioDeviceDescription();
-
-        return device.empty() ? juce::String ("No audio device")
-                              : juce::String ("Device: ") + juce::String (device);
-    }
-
-    /** One Action from each domain of the vocabulary, one to a press.
-
-        Scaffolding, and deliberately so: the producer-facing surfaces are issue
-        535bbo's, and until they arrive this is how the vocabulary is listened to
-        with the transport rolling. Press Play, then press this, and each step
-        lands in the sound without a gap. Undo takes them back one at a time.
-    */
-    /** The monitoring modes, in the order the box lists them. */
-    static const std::array<std::pair<duet::model::InputMonitoring, std::string_view>, 3>
-        monitorModes;
-
-    static constexpr std::array<std::string_view, 7> demoStepNames { "Add notes",
-                                                                     "Duplicate and loop the clip",
-                                                                     "Route into a group bus",
-                                                                     "Set the mixer and a send",
-                                                                     "Add a reverb and set it",
-                                                                     "Draw a volume curve",
-                                                                     "Change the tempo" };
-
-    /** Takes the demo back one press, and the walk back with it.
-
-        The counter is what names the next step and what decides whether there
-        is one, so an undo that left it alone would leave the label describing a
-        step that had just been taken away — and the next press would run the
-        step after it against a project missing what it needs.
-    */
-    void undoOneStep()
-    {
-        withProject (
-            [this] (auto& open)
-            {
-                if (open.session().undo() && demoStep > 0)
-                    --demoStep;
-            });
-
-        refresh();
-    }
-
-    void stepThroughTheVocabulary()
-    {
-        withProject (
-            [this] (auto& open)
-            {
-                auto& session = open.session();
-                const auto tracks = session.tracks();
-
-                if (tracks.empty() || tracks.front().clips.empty())
-                    return;
-
-                const auto track = tracks.front().track;
-                const auto clip = tracks.front().clips.front().clip;
-                const auto name = juce::String (std::string { demoStepNames.at (demoStep) });
-
-                switch (demoStep)
-                {
-                    case 0:
-                        session.performAction (
-                            demoStepNames.at (0),
-                            [clip] (auto& ops)
-                            {
-                                for (int note = 0; note < 8; ++note)
-                                    ops.addNote (clip, 45 + note * 2, note * 1.0, 0.9, 90);
-                            });
-                        break;
-
-                    case 1:
-                        session.performAction (demoStepNames.at (1),
-                                               [&] (auto& ops)
-                                               {
-                                                   ops.setClipLoop (clip, true, 8.0);
-
-                                                   // Bar 9 and not bar 5. The
-                                                   // copy is meant to be out of
-                                                   // earshot so that what this
-                                                   // step demonstrates is the
-                                                   // loop, and bar 5 is exactly
-                                                   // where the transport wraps —
-                                                   // near enough to the seam that
-                                                   // its opening note is on top
-                                                   // of it.
-                                                   ops.duplicateClip (clip,
-                                                                      duet::model::noTrack,
-                                                                      session.barStartSeconds (9));
-                                               });
-                        break;
-
-                    case 2:
-                        session.performAction (demoStepNames.at (2),
-                                               [&] (auto& ops)
-                                               {
-                                                   demoBus = ops.createTrack (
-                                                       duet::model::TrackKind::group, "Bus");
-                                                   ops.setTrackOutput (track, demoBus);
-                                               });
-                        break;
-
-                    case 3:
-                        session.performAction (demoStepNames.at (3),
-                                               [&] (auto& ops)
-                                               {
-                                                   ops.setTrackVolumeDb (track, -6.0);
-                                                   ops.setTrackPan (track, -0.4);
-
-                                                   // Its own bus, and not the one the track already
-                                                   // outputs to: a send into that bus would be a
-                                                   // second copy of a signal it is carrying anyway,
-                                                   // which is both a meaningless routing and 6 dB
-                                                   // nobody asked for.
-                                                   demoReverbBus = ops.createTrack (
-                                                       duet::model::TrackKind::group, "Reverb");
-                                                   ops.setSend (track, demoReverbBus, -12.0);
-                                               });
-                        break;
-
-                    case 4:
-                        session.performAction (
-                            demoStepNames.at (4),
-                            [&] (auto& ops)
-                            {
-                                // First in the bus's chain: a position counts the
-                                // producer's plugins, so this is in front of the
-                                // effects the producer has on the bus and behind
-                                // the return that feeds it.
-                                demoReverb = ops.addPlugin (
-                                    demoReverbBus, duet::model::BuiltinPlugin::reverb, 0);
-                                ops.setPluginParameter (demoReverb, "room size", 0.9);
-
-                                // All wet: what the bus carries is the send, and
-                                // the dry signal is already on its way out
-                                // through the group bus.
-                                ops.setPluginParameter (demoReverb, "wet level", 1.0);
-                                ops.setPluginParameter (demoReverb, "dry level", 0.0);
-                            });
-                        break;
-
-                    case 5:
-                        session.performAction (
-                            demoStepNames.at (5),
-                            [track] (auto& ops)
-                            {
-                                ops.setAutomationPoints (
-                                    duet::model::AutomationTarget::trackVolumeOf (track),
-                                    { { 0.0, -24.0 }, { 4.0, -6.0 }, { 8.0, -24.0 } });
-                            });
-                        break;
-
-                    default:
-                        session.performAction (demoStepNames.at (6),
-                                               [] (auto& ops)
-                                               {
-                                                   ops.setTempo (140.0);
-                                                   ops.setTimeSignature (6, 8);
-                                               });
-                        break;
-                }
-
-                lastDemoStep = name;
-                ++demoStep;
-            });
-
-        refresh();
-    }
-
-    [[nodiscard]] juce::String vocabularyText() const
-    {
-        if (project == nullptr)
-            return {};
-
-        if (demoStep >= demoStepNames.size())
-            return text ("Vocabulary demo done — ") + lastDemoStep;
-
-        return text ("Next edit: ") + juce::String (std::string { demoStepNames.at (demoStep) });
-    }
-
-    [[nodiscard]] juce::String transportText() const
-    {
-        if (project == nullptr)
-            return "Stopped";
-
-        auto& session = project->session();
-
-        const auto* state = "Stopped";
-
-        if (session.isRecording())
-            state = "Recording";
-        else if (session.isPlaying())
-            state = "Playing";
-
-        return juce::String (state) + text (" — ")
-               + juce::String (session.playbackPositionSeconds(), 2) + " s" + text (" — into ")
-               + juce::String (session.track (recordTrack()).name);
-    }
-
     duet::gui::Appearance& appearance;
+    duet::gui::Settings& settings;
     std::function<void (const juce::String&)> reportTitle;
-    std::unique_ptr<duet::gui::SettingsWindow> settingsWindow;
+
+    /** The open project's view. One per project, and the shell lays itself out
+        from this one for the run of the app.
+    */
+    duet::gui::ViewState view;
+    duet::gui::MainShell shell { appearance, view };
+
     std::unique_ptr<duet::persistence::Project> project;
+    std::unique_ptr<duet::gui::SettingsWindow> settingsWindow;
     std::unique_ptr<juce::FileChooser> chooser;
     juce::String problem;
 
-    juce::TextButton newButton { "New" };
-    juce::TextButton openButton { "Open" };
-    juce::TextButton saveButton { "Save" };
-    juce::TextButton settingsButton { "Settings" };
-    juce::TextButton addTrackButton { "Add Track" };
-    juce::TextButton playButton { "Play" };
-    juce::TextButton stopButton { "Stop" };
-    juce::TextButton recordButton { "Record" };
-    juce::TextButton armButton { "Arm" };
-    juce::ComboBox inputBox;
-    juce::ComboBox monitorBox;
-    juce::TextButton nextEditButton { "Next Edit" };
-    juce::TextButton undoButton { "Undo" };
-    juce::Label projectLabel;
-    juce::Label deviceLabel;
-    juce::Label transportLabel;
-    juce::Label vocabularyLabel;
-    std::size_t demoStep = 0;
-    duet::model::TrackRef demoBus = duet::model::noTrack;
-    duet::model::TrackRef demoReverbBus = duet::model::noTrack;
-    duet::model::PluginRef demoReverb = duet::model::noPlugin;
-    juce::String lastDemoStep;
-
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainComponent)
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ShellHost)
 };
 
-const std::array<std::pair<duet::model::InputMonitoring, std::string_view>, 3>
-    MainComponent::monitorModes { { { duet::model::InputMonitoring::off, "Monitor: off" },
-                                    { duet::model::InputMonitoring::whileArmed,
-                                      "Monitor: while armed" },
-                                    { duet::model::InputMonitoring::on, "Monitor: on" } } };
-
+/** The one main window. Its geometry is app-global: where the producer put it is
+    where it opens next time, whichever project opens in it (spec 535bbo).
+*/
 class MainWindow final : public juce::DocumentWindow
 {
 public:
-    MainWindow (const juce::String& name, duet::gui::Appearance& appearance)
+    MainWindow (const juce::String& name,
+                duet::gui::Appearance& lookAndScale,
+                duet::gui::Settings& store)
         : DocumentWindow (name,
                           juce::Desktop::getInstance().getDefaultLookAndFeel().findColour (
                               juce::ResizableWindow::backgroundColourId),
-                          allButtons)
+                          allButtons),
+          settings (store)
     {
         setUsingNativeTitleBar (true);
-        setContentOwned (new MainComponent { appearance,
-                                             [this] (const juce::String& title)
-                                             { setName (title); } },
-                         true);
+
+        auto content = std::make_unique<ShellHost> (
+            lookAndScale, store, [this] (const juce::String& title) { setName (title); });
+
+        host = content.get();
+        setContentOwned (content.release(), false);
         setResizable (true, false);
-        centreWithSize (getWidth(), getHeight());
+
+        if (const auto stored = duet::gui::storedWindowBounds (settings); stored.has_value())
+        {
+            setBounds (stored->x, stored->y, stored->width, stored->height);
+        }
+        else
+        {
+            // The default is in the desktop's own pixels and is not scaled: the
+            // interface scale is what the chrome inside the window is measured
+            // in, and a window bigger than the screen it opens on is a window
+            // with its docks off both edges.
+            const auto screen = juce::Desktop::getInstance()
+                                    .getDisplays()
+                                    .getPrimaryDisplay()
+                                    ->userBounds.toNearestInt();
+
+            centreWithSize (juce::jmin (duet::gui::defaultWindowWidth, screen.getWidth()),
+                            juce::jmin (duet::gui::defaultWindowHeight, screen.getHeight()));
+        }
+
+        // Only from here on: the geometry above is what was stored, and storing
+        // it back while it is being applied would write the window manager's
+        // opinion over the producer's.
+        restored = true;
+
         setVisible (true);
+        host->takeKeyboardFocus();
     }
 
     ~MainWindow() override = default;
@@ -673,6 +310,34 @@ public:
     {
         juce::JUCEApplication::getInstance()->systemRequestedQuit();
     }
+
+    void moved() override
+    {
+        DocumentWindow::moved();
+        rememberWhereItIs();
+    }
+
+    void resized() override
+    {
+        DocumentWindow::resized();
+        rememberWhereItIs();
+    }
+
+private:
+    void rememberWhereItIs()
+    {
+        if (! restored)
+            return;
+
+        const auto bounds = getBounds();
+
+        duet::gui::storeWindowBounds (
+            settings, { bounds.getX(), bounds.getY(), bounds.getWidth(), bounds.getHeight() });
+    }
+
+    duet::gui::Settings& settings;
+    ShellHost* host = nullptr;
+    bool restored = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainWindow)
 };
@@ -703,7 +368,7 @@ public:
         juce::LookAndFeel::setDefaultLookAndFeel (look.get());
         desktop.addDarkModeSettingListener (this);
 
-        window = std::make_unique<MainWindow> (getApplicationName(), *appearance);
+        window = std::make_unique<MainWindow> (getApplicationName(), *appearance, *settings);
     }
 
     void shutdown() override
