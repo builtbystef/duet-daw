@@ -36,10 +36,13 @@ namespace settingKey
 
 /** What one logical unit is worth in pixels until the producer says otherwise.
 
-    A quarter more than 1:1: the visual reference's pixel sizes read too small at
-    1:1 on a workstation display, which is what the r4m858 prototype settled.
+    Half as much again as 1:1. The visual reference's pixel sizes read too small
+    at 1:1 on a workstation display, which is what the r4m858 prototype settled;
+    1.25x was that prototype's answer, and the Target Producer raised it to 1.5x
+    on seeing the shell run (review of issue xxv9ng, 2026-08-19), which amends
+    spec 535bbo.
 */
-inline constexpr double defaultInterfaceScale = 1.25;
+inline constexpr double defaultInterfaceScale = 1.5;
 
 /** The look the whole interface is drawn with: which palette is in force, and
     how big a logical unit is.

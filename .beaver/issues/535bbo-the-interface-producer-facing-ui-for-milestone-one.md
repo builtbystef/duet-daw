@@ -9,7 +9,7 @@ depends_on:
     - s11o4w
     - r4m858
 created: 2026-08-10T22:39:45Z
-updated: 2026-08-19T06:40:47Z
+updated: 2026-08-20T02:03:31Z
 ---
 
 
@@ -101,7 +101,7 @@ double snapBeats (double beats, GridSpec grid, bool altHeld);
 - **Collaborator accent — teal, reserved exclusively**: dark `#4aa294`, light `#0e7c70`. Used for ✦ badges, suggestion ghosts/glow, ghost fader handles, commentary accents; never anywhere else. Semantic info/success/warning/danger keep their own hues (stale stays amber).
 - **8 desaturated user-assignable track colors** (token set).
 - **Inter** (OFL), bundled, tabular numerals for time displays. Thin workstation scrollbars. Mid-density flat surfaces.
-- **Interface scale**: global setting in Settings > Interface, **default 1.25×** (the mockup's pixel sizes read too small at 1:1; verified at r4m858).
+- **Interface scale**: global setting in Settings > Interface, **default 1.5×** (the mockup's pixel sizes read too small at 1:1; r4m858 verified that and settled 1.25×, and the Target Producer raised the default to 1.5× at the review of slice xxv9ng, 2026-08-19).
 
 ### Suggestion rendering (approved at r4m858)
 
@@ -182,3 +182,7 @@ Prior art: none — this module lands with the first product code. The prototype
 **claude** — 2026-08-17T04:13:08Z
 
 Pointer (2026-08-17): the mockup's token source of truth (app/globals.css) is vendored at docs/ui-tokens.css with the r4m858 amendments documented in its header, so the visual tokens travel with this repository. The mockup repo and branch prototype/milestone-ui remain the standing references for layout, screens, and pixel judgment.
+
+**claude** — 2026-08-20T02:03:31Z
+
+Amendment (2026-08-19, Target Producer, at the review of slice xxv9ng): the default interface scale is 1.5x, not 1.25x. r4m858 settled 1.25x against the prototype; seeing the shell run at that scale, the Target Producer asked for a larger default. Everything else about the setting is unchanged — the range, the live re-layout, and the Settings > Interface row. The spec body's Visual language section has been updated to match; docs/ui-tokens.css carries the same amendment in its header, and duet::gui::defaultInterfaceScale is the one place the number lives in code.

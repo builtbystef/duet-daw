@@ -113,13 +113,13 @@ TEST_CASE ("a chosen theme ignores the desktop")
     REQUIRE (appearance.theme() == Theme::dark);
 }
 
-TEST_CASE ("a logical unit is a pixel at 1.0 and a quarter more by default")
+TEST_CASE ("a logical unit is a pixel at 1.0 and half as much again by default")
 {
     StoredSettings store;
     Appearance appearance { store, true };
 
     REQUIRE (appearance.interfaceScale() == defaultInterfaceScale);
-    REQUIRE (appearance.scaled (24) == 30);
+    REQUIRE (appearance.scaled (24) == 36);
 
     appearance.setInterfaceScale (1.0);
 
@@ -133,14 +133,15 @@ TEST_CASE ("a scale the producer changes lays the interface out again")
     ChangeCounter surface;
     appearance.addListener (&surface);
 
-    appearance.setInterfaceScale (1.5);
+    // Off the default, or setting it would be no change to make.
+    appearance.setInterfaceScale (1.75);
 
-    REQUIRE (appearance.scaled (24) == 36);
+    REQUIRE (appearance.scaled (24) == 42);
     REQUIRE (surface.changes == 1);
 
     // The same scale again is not a change, and a surface that laid itself out
     // for every set() would do it for every drag of the slider.
-    appearance.setInterfaceScale (1.5);
+    appearance.setInterfaceScale (1.75);
 
     REQUIRE (surface.changes == 1);
 
@@ -168,13 +169,13 @@ TEST_CASE ("theme and interface scale round-trip through the store across a rest
     {
         Appearance appearance { store, true };
         appearance.setThemePreference (ThemePreference::light);
-        appearance.setInterfaceScale (1.5);
+        appearance.setInterfaceScale (1.75);
     }
 
     const Appearance nextLaunch { store, true };
 
     REQUIRE (nextLaunch.themePreference() == ThemePreference::light);
-    REQUIRE (nextLaunch.interfaceScale() == 1.5);
+    REQUIRE (nextLaunch.interfaceScale() == 1.75);
 }
 
 TEST_CASE ("a stored preference the app does not know falls back to the desktop")

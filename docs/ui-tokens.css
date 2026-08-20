@@ -19,7 +19,9 @@
      - Collaborator accent (absent from this sheet — it predates the teal
        decision): dark #4aa294, light #0e7c70. Reserved exclusively for the
        Collaborator; never reuse the achromatic accent-* tokens for it.
-     - Default interface scale 1.25x (the px sizes below read too small at 1:1).
+     - Default interface scale 1.5x (the px sizes below read too small at 1:1).
+       r4m858 settled 1.25x; the Target Producer raised it to 1.5x on seeing
+       the shell run (review of xxv9ng, 2026-08-19).
 
    Tailwind/shadcn plumbing (@import, @theme, the shadcn bridge, @layer rules)
    is mockup infrastructure — only the raw token values transfer to duet_gui.

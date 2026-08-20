@@ -9,7 +9,7 @@ depends_on:
     - sea14w
 parent: 535bbo
 created: 2026-08-12T03:48:12Z
-updated: 2026-08-19T20:42:14Z
+updated: 2026-08-20T02:07:59Z
 ---
 
 ## What to build
@@ -28,7 +28,7 @@ Standing visual reference: the Target Producer's mockup repo at `~/Code/temp/due
 - [ ] Eight desaturated, user-assignable track colors exist as tokens in both modes.
 - [ ] Inter ships inside the binary as the application typeface, and a numeric readout renders with tabular numerals (the same digit string occupies identical width as its digits change).
 - [ ] Theme resolution, worked: first launch with no stored preference under an OS set to dark → dark; the producer chooses Light → light survives a restart even while the OS says dark; the producer chooses Follow OS → an OS flip changes the theme without a restart.
-- [ ] Interface scale, worked: a surface whose logical height is 24 units measures 24 px at scale 1.0 and 30 px at the default 1.25×; changing the setting re-lays out live, with no restart.
+- [ ] Interface scale, worked: a surface whose logical height is 24 units measures 24 px at scale 1.0 and 36 px at the default 1.5× (the default was 1.25× when this issue was written; the Target Producer raised it at review on 2026-08-19, and spec 535bbo is amended to match); changing the setting re-lays out live, with no restart.
 - [ ] The Settings window opens with an Interface tab carrying theme and interface scale; both values round-trip through the app-global settings interface across a restart.
 - [ ] Scrollbars are the thin workstation form and surfaces are mid-density and flat, in both modes.
 - [ ] Closure waits for user review.
@@ -81,3 +81,11 @@ Issue **uztxbx** (blocked on this one): the app's settings store and a session's
 ## What you must do
 
 This issue's body says closure waits for user review. Run `pw-jack ./build/modules/duet_app/duet_app_artefacts/Debug/Duet`, press Settings, and judge the look in both modes and at a couple of scales. Then close this issue to approve, or leave a note with the changes you want and remove the `needs-review` label.
+
+**claude** — 2026-08-20T02:07:59Z
+
+Review change (2026-08-19): the default interface scale is now 1.5x, not the 1.25x this slice first shipped. The Target Producer ran the shell, found 1.25x still small, and chose 1.5x. r4m858 had settled 1.25x against the prototype, so this amends spec 535bbo — its Visual language clause and a note there now say so, and docs/ui-tokens.css carries the same amendment in its header. The number lives in exactly one place in code, duet::gui::defaultInterfaceScale.
+
+Two tests moved with it: the worked example is now 24 logical units -> 36 px at the default (24 px at 1.0 unchanged), and the two cases that used to set 1.5x explicitly now use 1.75x, because setting the value that is already the default is no change to make and the listener would rightly not fire. This issue's acceptance criterion has been reworded to the new number with the amendment named in it.
+
+Checked afterwards: format clean, lint clean, 90/90 ctest, and the shell run at the new default. One thing seen and not a defect: the window manager reopened Duet maximized once, having remembered that state from the earlier session; relaunching after un-maximizing gave the expected 930x495 (620x330 logical). Window geometry is app-global state a later slice owns.
