@@ -137,3 +137,35 @@ TEST_CASE ("a project nobody has given a view to opens on the interface's defaul
     REQUIRE (restored.browserWidthPx() == ViewState::defaultBrowserWidthPx);
     REQUIRE (restored.collaboratorVisible());
 }
+
+TEST_CASE ("a project reopens at the zoom and the scroll the producer left")
+{
+    const TempProject temp;
+    const auto folder = temp.folder() / "Nocturne";
+
+    {
+        const auto project = Project::create (folder);
+        REQUIRE (project != nullptr);
+
+        ViewState view;
+        attach (*project, view);
+
+        // The worked example spec 535bbo names: neither number is a round one,
+        // and both have to come back as themselves.
+        view.setHZoomPxPerBeat (63.5);
+        view.setHScrollBeats (12.25);
+
+        REQUIRE_FALSE (project->hasUnsavedChanges());
+        REQUIRE (project->save());
+    }
+
+    const auto reopened = Project::open (folder);
+    REQUIRE (reopened != nullptr);
+
+    ViewState restored;
+    restored.readFrom (reopened->viewState());
+
+    REQUIRE (restored.hZoomPxPerBeat() == 63.5);
+    REQUIRE (restored.hScrollBeats() == 12.25);
+    REQUIRE_FALSE (reopened->hasUnsavedChanges());
+}

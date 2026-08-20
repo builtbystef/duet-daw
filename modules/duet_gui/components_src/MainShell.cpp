@@ -1,6 +1,7 @@
 #include <duet/gui/MainShell.h>
 
 #include <duet/gui/AcceleratedSurface.h>
+#include <duet/gui/ArrangementCanvas.h>
 #include <duet/gui/GraphiteLookAndFeel.h>
 #include <duet/gui/Tokens.h>
 #include <duet/gui/Typography.h>
@@ -256,8 +257,11 @@ private:
 MainShell::MainShell (Appearance& lookAndScale, ViewState& projectView)
     : appearance (lookAndScale), view (projectView)
 {
+    shortcuts.add (panelShortcuts());
+    shortcuts.add (timelineShortcuts());
+
     transportStrip = std::make_unique<Dock> (appearance, surfaceId::transport, juce::String());
-    arrangement = std::make_unique<Dock> (appearance, surfaceId::arrangement, "Arrangement");
+    arrangement = std::make_unique<ArrangementCanvas> (appearance, arrangementView);
     browser = std::make_unique<Dock> (appearance, surfaceId::browser, "Browser");
     collaborator = std::make_unique<Dock> (appearance, surfaceId::collaborator, "Collaborator");
     bottom = std::make_unique<BottomPanel> (
@@ -363,6 +367,14 @@ void MainShell::perform (Command command)
             view.setBottomVisible (! view.bottomVisible());
             break;
 
+        case Command::zoomIn:
+        case Command::zoomOut:
+        case Command::zoomToFit:
+            // The timeline's own, and the surface that draws it is what knows
+            // what a zoom means.
+            arrangementView.perform (command);
+            break;
+
         case Command::showPianoRoll:
         case Command::showMixer:
             // A tab behind a closed panel is not a tab the producer can see, so
@@ -376,8 +388,17 @@ void MainShell::perform (Command command)
     viewStateChanged();
 }
 
+void MainShell::setTimelineClock (TimelineClock* projectClock)
+{
+    arrangementView.setClock (projectClock);
+    viewStateChanged();
+}
+
 void MainShell::viewStateChanged()
 {
+    // A project the window has just opened brings its own tempo and metre with
+    // it, and the grid counts in those.
+    arrangementView.refresh();
     resized();
 
     // The panel's own bounds are unchanged by a tab switch, and a same-bounds

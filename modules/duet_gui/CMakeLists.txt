@@ -9,8 +9,11 @@
 # view-models' state and forward input to them.
 add_library(duet_gui STATIC
     src/Appearance.cpp
+    src/ArrangementView.cpp
     src/Rendering.cpp
+    src/SessionClock.cpp
     src/Shortcuts.cpp
+    src/TimelineGeometry.cpp
     src/Tokens.cpp
     src/ViewState.cpp
     src/WindowGeometry.cpp)
@@ -44,6 +47,7 @@ set_target_properties(duet_gui_fonts PROPERTIES
 
 add_library(duet_gui_components STATIC
     components_src/AcceleratedSurface.cpp
+    components_src/ArrangementCanvas.cpp
     components_src/GraphiteLookAndFeel.cpp
     components_src/InterTypeface.cpp
     components_src/MainShell.cpp

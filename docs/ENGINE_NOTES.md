@@ -320,3 +320,25 @@ send, which puts the producer's plugins in one stretch between the return and
 the fader. A chain position in the vocabulary counts inside that stretch and
 is clamped to it (`rawPositionFor`, ADR 0007), so a plugin can never be put
 in front of the return that feeds it.
+
+### The transport's position stands still without a real device
+
+**The engine.** While blocks are pushed through the hosted audio device
+interface, `TransportControl::isPlaying()` is true, the graph runs and the
+meters read, but `getPosition()` stays where it was. The position advances only
+while a real device is open and the message loop runs.
+
+**Where.** `TransportControl::getPosition()` reads the position the playhead
+publishes; the publishing happens on the message thread's own timer, which is
+not running while blocks are being pushed.
+
+**Proved.** `5he6vd`, with `tests/scratch`. Playing four half-second stretches
+through the hosted interface left the position at 0.0 s every time. The same
+edit on the ALSA device also read 0.0 s through the first `pumpMessages` call,
+however long that call ran, and advanced from the second one on — 0.16 s, 0.37 s,
+0.57 s over successive 200 ms pumps.
+
+**Duet.** What playback puts out is asserted with no device (ADR 0006), but a
+test about the playhead *moving* needs one, and skips where there is none. It
+also has to pump until the position moves rather than pump once for long enough:
+`ArrangementViewTests` does both.

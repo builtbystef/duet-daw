@@ -6,7 +6,7 @@ priority: low
 labels:
     - bug
 created: 2026-08-20T09:40:13Z
-updated: 2026-08-20T09:40:13Z
+updated: 2026-08-20T10:54:44Z
 ---
 
 ## What happened
@@ -21,3 +21,11 @@ This is not a wrong answer from the model; it is a bound that has no margin. It 
 
 - [ ] The three device-rebuild take cases pass on a machine loaded enough to make the current 5 ms pump miss, without waiting on the engine's own four-second timer.
 - [ ] What the test asserts is unchanged: that the take starts at the lower bound, and not before it.
+
+## Notes
+
+**claude** — 2026-08-20T10:54:44Z
+
+A second take test of the same shape failed the same way, on 2026-08-20 during issue 5he6vd: `an undo during a take neither stops it nor moves the playhead` (tests/RecordingTests.cpp), at `REQUIRE (session.isRecording())` after `runUntilThePlayheadMoves` — the take had stopped. It failed once inside a single-process `duet_tests` run and once immediately after, while the machine had just been running the Duet app under `pw-jack` and a screen capture, and then passed three times on its own and twice in a full `ctest` sweep on the same tree.
+
+Same root cause class as the body's: a take assertion timed against wall-clock while the audio device is contended. Worth covering when the three device-rebuild cases are fixed, since it is the same bound with the same lack of margin.

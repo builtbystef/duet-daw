@@ -6,6 +6,7 @@
 #include <duet/gui/GraphiteLookAndFeel.h>
 #include <duet/gui/MainShell.h>
 #include <duet/gui/Rendering.h>
+#include <duet/gui/SessionClock.h>
 #include <duet/gui/SettingsWindow.h>
 #include <duet/gui/ViewState.h>
 #include <duet/gui/WindowGeometry.h>
@@ -82,7 +83,12 @@ public:
         startTimer (titleRefreshMs);
     }
 
-    ~ShellHost() override = default;
+    ~ShellHost() override
+    {
+        // The shell reads the clock, and the clock reads the session: it stops
+        // reading before either of them goes.
+        shell.setTimelineClock (nullptr);
+    }
 
     /** Puts the keys on the shell. The panel keys are the shell's, and a window
         that has just opened has given the focus to nothing.
@@ -180,6 +186,12 @@ private:
 
     void openFolder (const std::filesystem::path& folder, bool forNewProject)
     {
+        // The clock reads the session, so it goes before the session does, and
+        // the shell is told before either — a surface never holds a clock past
+        // the project it belongs to.
+        shell.setTimelineClock (nullptr);
+        clock.reset();
+
         // The old project goes first: a session holds an engine, and an engine
         // holds the audio device.
         project.reset();
@@ -204,7 +216,11 @@ private:
         view = duet::gui::ViewState {};
         view.readFrom (project->viewState());
         project->onCaptureViewState ([this] { return view.toData(); });
-        shell.viewStateChanged();
+
+        // The timeline is drawn against the project's tempo and metre, and the
+        // playhead against its transport.
+        clock = std::make_unique<duet::gui::SessionClock> (project->session());
+        shell.setTimelineClock (clock.get());
 
         if (forNewProject)
         {
@@ -245,6 +261,7 @@ private:
     duet::gui::MainShell shell { appearance, view };
 
     std::unique_ptr<duet::persistence::Project> project;
+    std::unique_ptr<duet::gui::SessionClock> clock;
     std::unique_ptr<duet::gui::SettingsWindow> settingsWindow;
     std::unique_ptr<juce::FileChooser> chooser;
     juce::String problem;

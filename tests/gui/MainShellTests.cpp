@@ -265,3 +265,34 @@ TEST_CASE ("the surfaces are on the software renderer until something asks for t
 
     REQUIRE_FALSE (open.shell.isHardwareAccelerated());
 }
+
+TEST_CASE ("the window's zoom keys reach the timeline")
+{
+    OpenShell open;
+
+    // The whole chain, from the key the producer presses: the window's one
+    // keyboard table, the arrangement's view-model, and the project's view.
+    REQUIRE (open.shell.keyPressed (juce::KeyPress { '-' }));
+
+    const auto zoomedOut = open.view.hZoomPxPerBeat();
+
+    REQUIRE (zoomedOut < ViewState::defaultZoomPxPerBeat);
+
+    REQUIRE (
+        open.shell.keyPressed (juce::KeyPress { '+', juce::ModifierKeys::shiftModifier, '+' }));
+
+    REQUIRE (open.view.hZoomPxPerBeat() > zoomedOut);
+}
+
+TEST_CASE ("the arrangement is the ruler and the timeline under it")
+{
+    const OpenShell open;
+
+    const auto& arrangement = open.surface (duet::gui::surfaceId::arrangement);
+    const auto& ruler = open.surface (duet::gui::surfaceId::arrangementRuler);
+
+    REQUIRE (ruler.isVisible());
+    REQUIRE (ruler.getWidth() == arrangement.getWidth());
+    REQUIRE (ruler.getY() == 0);
+    REQUIRE (ruler.getHeight() < arrangement.getHeight());
+}

@@ -8,7 +8,7 @@ depends_on:
     - nfjr5x
 parent: 535bbo
 created: 2026-08-12T03:49:23Z
-updated: 2026-08-17T04:09:59Z
+updated: 2026-08-20T10:54:53Z
 ---
 
 ## What to build
@@ -35,3 +35,12 @@ Track lifecycle is producer-driven from the header: drag a header to reorder, do
 **claude** — 2026-08-17T04:09:59Z
 
 Scope note (2026-08-17): the header's record-arm toggle drives the arm op from foundation slice nfjr5x (now a dependency); this slice does not implement arming itself.
+
+**claude** — 2026-08-20T10:54:53Z
+
+Waiting for this slice, left by 5he6vd (the arrangement's geometry and canvas):
+
+- `ArrangementCanvas` paints the ruler and the grid and nothing down the canvas yet. Tracks are laid out under the ruler, in `ViewState`'s per-track rows.
+- A vertical zoom (Ctrl+Shift+scroll) is `ViewState::scaleTrackHeights`, which grows every row the view holds at once. A view with no rows in it has nothing to grow, so the gesture is real but invisible until tracks put rows there.
+- The vertical scroll (`ViewState::vScrollPx`) is held at zero from below and nothing from above: the upper bound is the content height, which is the sum of the track rows this slice lays out. `ArrangementView::scroll` is where that clamp goes.
+- `ArrangementView::setWidthPx` takes the canvas width alone for the same reason — the height matters to nothing until there are tracks down it.

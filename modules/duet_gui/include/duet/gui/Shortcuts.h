@@ -19,7 +19,14 @@ enum class Command : std::uint8_t
     toggleCollaborator,
     toggleBottomPanel,
     showPianoRoll,
-    showMixer
+    showMixer,
+
+    /** The arrangement's, and every later surface that draws musical time: the
+        zoom keys spec 535bbo names.
+    */
+    zoomIn,
+    zoomOut,
+    zoomToFit
 };
 
 /** A key press, as the policy sees it. No JUCE type crosses this seam, so what
@@ -54,6 +61,11 @@ public:
     /** Registers what a key press means. The last registration for a key wins. */
     void add (KeyStroke key, Command command);
 
+    /** Registers everything another table holds, the same way: what the main
+        window does with the tables its surfaces bring it.
+    */
+    void add (const Shortcuts& other);
+
     /** What a press means right now, or nothing when it means nothing. */
     [[nodiscard]] std::optional<Command> commandFor (KeyStroke key, bool textFieldHasFocus) const;
 
@@ -65,4 +77,9 @@ private:
     bottom tabs (spec 535bbo).
 */
 [[nodiscard]] Shortcuts panelShortcuts();
+
+/** The keys the surfaces that draw musical time register: zoom in, zoom out,
+    and zoom to fit.
+*/
+[[nodiscard]] Shortcuts timelineShortcuts();
 } // namespace duet::gui

@@ -5,6 +5,7 @@
 using duet::gui::Command;
 using duet::gui::panelShortcuts;
 using duet::gui::Shortcuts;
+using duet::gui::timelineShortcuts;
 
 TEST_CASE ("the panel keys are the ones the interface is driven by")
 {
@@ -47,4 +48,18 @@ TEST_CASE ("a key held with a modifier is not something a text field could be ty
 
     REQUIRE (shortcuts.commandFor ({ 'b', true }, true) == Command::toggleBrowser);
     REQUIRE_FALSE (shortcuts.commandFor ({ 'b' }, false).has_value());
+}
+
+TEST_CASE ("the zoom keys are the ones spec 535bbo names")
+{
+    const auto shortcuts = timelineShortcuts();
+
+    REQUIRE (shortcuts.commandFor ({ '-' }, false) == Command::zoomOut);
+    REQUIRE (shortcuts.commandFor ({ '0' }, false) == Command::zoomToFit);
+
+    // A keyboard that types + with Shift and one that has a key of its own for
+    // it both mean zoom in, and so does the = the + is printed above.
+    REQUIRE (shortcuts.commandFor ({ '+' }, false) == Command::zoomIn);
+    REQUIRE (shortcuts.commandFor ({ '+', false, false, true }, false) == Command::zoomIn);
+    REQUIRE (shortcuts.commandFor ({ '=' }, false) == Command::zoomIn);
 }

@@ -34,6 +34,12 @@ void Shortcuts::add (KeyStroke key, Command command)
         entries.emplace_back (registered, command);
 }
 
+void Shortcuts::add (const Shortcuts& other)
+{
+    for (const auto& [key, command] : other.entries)
+        add (key, command);
+}
+
 std::optional<Command> Shortcuts::commandFor (KeyStroke key, bool textFieldHasFocus) const
 {
     const auto pressed = normalised (key);
@@ -47,6 +53,23 @@ std::optional<Command> Shortcuts::commandFor (KeyStroke key, bool textFieldHasFo
                       [&pressed] (const auto& entry) { return entry.first == pressed; });
 
     return found == entries.end() ? std::nullopt : std::optional { found->second };
+}
+
+Shortcuts timelineShortcuts()
+{
+    Shortcuts shortcuts;
+
+    // A punctuation key says nothing about whether Shift produced the character
+    // or modified it: a + is a Shift and an = on one keyboard and a key of its
+    // own on another, and the producer means the same thing either way.
+    shortcuts.add ({ '+' }, Command::zoomIn);
+    shortcuts.add ({ '+', false, false, true }, Command::zoomIn);
+    shortcuts.add ({ '=' }, Command::zoomIn);
+    shortcuts.add ({ '-' }, Command::zoomOut);
+    shortcuts.add ({ '_', false, false, true }, Command::zoomOut);
+    shortcuts.add ({ '0' }, Command::zoomToFit);
+
+    return shortcuts;
 }
 
 Shortcuts panelShortcuts()

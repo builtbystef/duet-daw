@@ -1,6 +1,7 @@
 #pragma once
 
 #include <duet/gui/Appearance.h>
+#include <duet/gui/ArrangementView.h>
 #include <duet/gui/Shortcuts.h>
 #include <duet/gui/ViewState.h>
 
@@ -12,6 +13,8 @@
 namespace duet::gui
 {
 class AcceleratedSurface;
+class ArrangementCanvas;
+class TimelineClock;
 
 /** The names the shell's areas carry, so that what is on screen can be named
     from outside it — by a test, and by anything that has to find one surface
@@ -21,6 +24,7 @@ namespace surfaceId
 {
     inline constexpr const char* transport = "transport";
     inline constexpr const char* arrangement = "arrangement";
+    inline constexpr const char* arrangementRuler = "arrangementRuler";
     inline constexpr const char* browser = "browser";
     inline constexpr const char* collaborator = "collaborator";
     inline constexpr const char* bottomPanel = "bottomPanel";
@@ -43,7 +47,8 @@ namespace surfaceId
     is what makes the layout the project's, restored when it reopens, and what
     keeps it out of the producer's undo history.
 
-    The docked surfaces are empty until their own slices fill them in.
+    The docked surfaces are empty until their own slices fill them in; the
+    arrangement is the first that is not.
 */
 class MainShell final : public juce::Component, private Appearance::Listener
 {
@@ -66,6 +71,13 @@ public:
         project does.
     */
     void viewStateChanged();
+
+    /** The clock of the project open in the window, or nothing when none is:
+        what the timeline is drawn against and where the playhead is. The host
+        hands it over as it opens a project, and takes it back before the
+        project goes.
+    */
+    void setTimelineClock (TimelineClock* projectClock);
 
     //==============================================================================
     /** What a divider drag means: where the producer has put the boundary, in
@@ -125,11 +137,21 @@ private:
 
     Appearance& appearance;
     ViewState& view;
-    Shortcuts shortcuts { panelShortcuts() };
+
+    /** One table for the whole window: the shell's panel keys, and the zoom keys
+        of the surfaces that draw musical time.
+    */
+    Shortcuts shortcuts;
+
+    /** The arrangement's view-model. The shell owns it because the shell owns
+        the surface that paints it, and it is what later surfaces on the same
+        timeline will read.
+    */
+    ArrangementView arrangementView { view };
 
     juce::TextButton duetButton { "Duet" };
     std::unique_ptr<Dock> transportStrip;
-    std::unique_ptr<Dock> arrangement;
+    std::unique_ptr<ArrangementCanvas> arrangement;
     std::unique_ptr<Dock> browser;
     std::unique_ptr<Dock> collaborator;
     std::unique_ptr<BottomPanel> bottom;

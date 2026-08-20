@@ -11,6 +11,7 @@ add_subdirectory(sidecar_double)
 
 add_executable(duet_tests
     AppearanceTests.cpp
+    ArrangementViewTests.cpp
     AutomationOpsTests.cpp
     ClipOpsTests.cpp
     CollaboratorServiceTests.cpp
@@ -30,6 +31,7 @@ add_executable(duet_tests
     RenderingTests.cpp
     SessionTests.cpp
     ShortcutTests.cpp
+    TimelineGeometryTests.cpp
     TrackOpsTests.cpp
     ViewStateTests.cpp
     WindowGeometryTests.cpp)

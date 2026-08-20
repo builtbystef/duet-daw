@@ -86,6 +86,26 @@ TEST_CASE ("one track's row is not another's")
     REQUIRE_FALSE (view.lanesExpanded (keys));
 }
 
+TEST_CASE ("a vertical zoom is every track row growing at once")
+{
+    ViewState view;
+
+    view.setTrackHeightPx (bass, 120);
+    view.setTrackHeightPx (keys, 60);
+    view.scaleTrackHeights (2.0);
+
+    REQUIRE (view.trackHeightPx (bass) == 240);
+    REQUIRE (view.trackHeightPx (keys) == 120);
+
+    // A row stops where a track is still a track: the tallest row is as far as
+    // a vertical zoom goes, and the shortest is as far down as it comes.
+    view.scaleTrackHeights (100.0);
+    REQUIRE (view.trackHeightPx (bass) == ViewState::maximumTrackHeightPx);
+
+    view.scaleTrackHeights (0.0001);
+    REQUIRE (view.trackHeightPx (bass) == ViewState::minimumTrackHeightPx);
+}
+
 TEST_CASE ("a view comes back from the VIEW tree exactly as it went in")
 {
     ViewState view;

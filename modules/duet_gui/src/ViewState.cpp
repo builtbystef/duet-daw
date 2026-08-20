@@ -1,6 +1,7 @@
 #include <duet/gui/ViewState.h>
 
 #include <algorithm>
+#include <cmath>
 #include <string>
 
 namespace duet::gui
@@ -71,6 +72,14 @@ int ViewState::trackHeightPx (duet::model::TrackRef track) const
 void ViewState::setTrackHeightPx (duet::model::TrackRef track, int newHeight)
 {
     trackRows[track].heightPx = std::clamp (newHeight, minimumTrackHeightPx, maximumTrackHeightPx);
+}
+
+void ViewState::scaleTrackHeights (double factor)
+{
+    for (auto& [track, row] : trackRows)
+        row.heightPx = std::clamp (static_cast<int> (std::lround (row.heightPx * factor)),
+                                   minimumTrackHeightPx,
+                                   maximumTrackHeightPx);
 }
 
 bool ViewState::lanesExpanded (duet::model::TrackRef track) const

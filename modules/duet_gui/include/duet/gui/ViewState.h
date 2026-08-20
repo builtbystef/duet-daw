@@ -104,6 +104,12 @@ public:
     [[nodiscard]] int trackHeightPx (duet::model::TrackRef track) const;
     void setTrackHeightPx (duet::model::TrackRef track, int newHeight);
 
+    /** Grows or shrinks every row at once, which is what a vertical zoom is:
+        the timeline has no zoom of its own downwards — a track is as tall as the
+        producer left it, and zooming is doing that to all of them together.
+    */
+    void scaleTrackHeights (double factor);
+
     [[nodiscard]] bool lanesExpanded (duet::model::TrackRef track) const;
     void setLanesExpanded (duet::model::TrackRef track, bool shouldBeExpanded);
 
