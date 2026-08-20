@@ -49,6 +49,66 @@ inline te::AuxReturnPlugin* returnOn (te::AudioTrack& bus)
     return nullptr;
 }
 
+/** Whether a plugin in a track's chain is one the producer put there.
+
+    The rest are Duet's own, and the producer never asked for any of them: the
+    volume-and-pan fader and the level meter every track is born with, the return
+    that puts a send into a bus, and the send that feeds it.
+*/
+inline bool isProducersPlugin (te::Plugin& plugin)
+{
+    return dynamic_cast<te::VolumeAndPanPlugin*> (&plugin) == nullptr
+           && dynamic_cast<te::LevelMeterPlugin*> (&plugin) == nullptr
+           && dynamic_cast<te::AuxReturnPlugin*> (&plugin) == nullptr
+           && dynamic_cast<te::AuxSendPlugin*> (&plugin) == nullptr;
+}
+
+/** Where in the whole chain a plugin at a producer-chain position belongs.
+
+    The producer's plugins occupy one stretch of the chain: after the return that
+    feeds a bus, because a plugin in front of the return processes silence, and
+    before the fader, the meter and any send, because those are what the chain
+    ends with. A position counts inside that stretch and is clamped to it, so
+    that position zero is first among the producer's effects and no position can
+    put one of them where it would never be heard.
+*/
+inline int rawPositionFor (const te::PluginList& chain, int producerPosition)
+{
+    const auto wanted = std::max (0, producerPosition);
+    int raw = 0;
+    int seen = 0;
+
+    for (int index = 0; index < chain.size(); ++index)
+    {
+        auto* plugin = chain[index];
+
+        if (plugin == nullptr)
+            continue;
+
+        if (isProducersPlugin (*plugin))
+        {
+            if (seen == wanted)
+                return index;
+
+            ++seen;
+            raw = index + 1;
+            continue;
+        }
+
+        // The return is the one thing the effects go after; everything else Duet
+        // owns ends the stretch.
+        if (dynamic_cast<te::AuxReturnPlugin*> (plugin) != nullptr)
+        {
+            raw = index + 1;
+            continue;
+        }
+
+        break;
+    }
+
+    return raw;
+}
+
 inline te::EditItemID toItemID (std::uint64_t ref)
 {
     return te::EditItemID::fromRawID (static_cast<juce::uint64> (ref));

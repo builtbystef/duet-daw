@@ -161,3 +161,67 @@ TEST_CASE ("a compressor takes a parameter and a sidechain source from another t
         REQUIRE (session.track (bass).plugins.front().sidechainSource == duet::model::noTrack);
     }
 }
+
+TEST_CASE ("a chain position counts the producer's plugins, not the ones Duet put there")
+{
+    const TempProject project;
+    const auto tone = project.writeTone ("stab.wav", 1.0, 440.0);
+    Session session { project.editFile() };
+
+    TrackRef source = duet::model::noTrack;
+    TrackRef reverbBus = duet::model::noTrack;
+
+    session.performAction ("Send a stab into a bus",
+                           [&] (auto& ops)
+                           {
+                               source = ops.createTrack (TrackKind::audio, "Stab");
+                               ops.insertAudioClip (source, "stab", tone, 0.0, 1.0);
+
+                               // Somewhere for the render to put the tail, as the
+                               // reverb-send test in MixerOpsTests explains.
+                               const auto room = ops.createTrack (TrackKind::midi, "Room to ring");
+                               ops.insertMidiClip (room, "Room", 0.0, 3.0);
+
+                               reverbBus = ops.createTrack (TrackKind::group, "Reverb");
+                               ops.setSend (source, reverbBus, 0.0);
+                           });
+
+    // The send put a return, and every track is born with a fader and a meter.
+    // The producer asked for none of them, so neither chain has anything in it.
+    REQUIRE (session.track (reverbBus).plugins.empty());
+    REQUIRE (session.track (source).plugins.empty());
+
+    PluginRef eq = duet::model::noPlugin;
+    PluginRef reverb = duet::model::noPlugin;
+
+    session.performAction ("Add the effects",
+                           [&] (auto& ops)
+                           {
+                               eq = ops.addPlugin (reverbBus, BuiltinPlugin::eq, 0);
+                               reverb = ops.addPlugin (reverbBus, BuiltinPlugin::reverb, 1);
+                               ops.setPluginParameter (reverb, "room size", 0.9);
+                               ops.setPluginParameter (reverb, "wet level", 1.0);
+                               ops.setPluginParameter (reverb, "dry level", 0.0);
+                           });
+
+    REQUIRE (session.track (reverbBus).plugins.size() == 2);
+    REQUIRE (positionOf (session, reverbBus, eq) == 0);
+    REQUIRE (positionOf (session, reverbBus, reverb) == 1);
+
+    session.performAction ("Put the reverb first",
+                           [&] (auto& ops) { ops.reorderPlugin (reverb, 0); });
+
+    REQUIRE (positionOf (session, reverbBus, reverb) == 0);
+    REQUIRE (positionOf (session, reverbBus, eq) == 1);
+
+    // The same position zero as addPlugin's: first among the producer's effects
+    // and still behind the return, so the bus is heard rather than silent.
+    const auto rendered = project.folder() / "reordered.wav";
+
+    REQUIRE (session.renderToFile (rendered));
+
+    const auto tail = duet::testing::peakLevelBetween (rendered, 1.3, 2.5);
+
+    INFO ("tail level: " << tail);
+    REQUIRE (tail > 0.01);
+}

@@ -195,14 +195,14 @@ struct ClipInfo
     std::filesystem::path sourceFile;
 };
 
-/** What a plugin in a track's chain looks like from outside the model. */
+/** What one of the producer's plugins looks like from outside the model. */
 struct PluginInfo
 {
     PluginRef plugin = noPlugin;
     std::string name;
 
     /** Which built-in this is, or nothing for a plugin Duet does not ship —
-        the engine's own fader and meter, and the external plugins to come.
+        the external plugins to come.
     */
     std::optional<BuiltinPlugin> builtin;
 
@@ -259,6 +259,13 @@ struct TrackInfo
     bool recordArmed = false;
 
     std::vector<SendInfo> sends;
+
+    /** The producer's plugin chain, in order. The plugins Duet puts on a track
+        for its own reasons are not in it — the fader and meter every track is
+        born with, the return that puts a send into a bus, and the send that
+        feeds it — so an index into this list is the position addPlugin and
+        reorderPlugin count in.
+    */
     std::vector<PluginInfo> plugins;
     std::vector<ClipInfo> clips;
 };
@@ -435,10 +442,12 @@ public:
     void setSend (TrackRef track, TrackRef bus, double levelDb);
 
     //==============================================================================
-    // Plugin chains. A position is an index into the whole chain, the engine's
-    // own fader and meter included: they are chain members like any other, and
-    // hiding them would make a position mean one thing here and another in the
-    // signal path.
+    // Plugin chains. A position counts the producer's plugins and nothing else,
+    // so that position zero is first among the producer's effects rather than in
+    // front of the return that feeds a bus. It is the same index space that
+    // TrackInfo::plugins reads back in, and a position outside the chain is
+    // clamped to its ends. The plugins Duet puts on a track for its own reasons
+    // keep their places around the producer's, wherever a position lands.
 
     PluginRef addPlugin (TrackRef track, BuiltinPlugin plugin, int position);
     void removePlugin (PluginRef plugin);

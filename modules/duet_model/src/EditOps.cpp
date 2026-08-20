@@ -618,7 +618,8 @@ PluginRef EditOps::addPlugin (TrackRef track, BuiltinPlugin plugin, int position
     if (created == nullptr)
         return noPlugin;
 
-    audioTrack->pluginList.insertPlugin (created, position, nullptr);
+    audioTrack->pluginList.insertPlugin (
+        created, rawPositionFor (audioTrack->pluginList, position), nullptr);
     stateParametersExplicitly (*created);
     return toRef<PluginRef> (created->itemID);
 }
@@ -645,7 +646,7 @@ void EditOps::reorderPlugin (PluginRef plugin, int newPosition)
     const te::Plugin::Ptr held { p };
 
     held->removeFromParent();
-    list->insertPlugin (held, newPosition, nullptr);
+    list->insertPlugin (held, rawPositionFor (*list, newPosition), nullptr);
 }
 
 void EditOps::setPluginParameter (PluginRef plugin, std::string_view parameterId, double value)

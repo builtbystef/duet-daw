@@ -298,3 +298,25 @@ child.
 playback context. `TrackInfo::input` and `recordArmed` are read straight out
 of `INPUTDEVICES`, so asking a question about a track does not open the
 machine's audio hardware.
+
+### Where the engine's own plugins sit in a track's chain
+
+**The engine.** A track the engine makes is born with a `VolumeAndPanPlugin`
+and a `LevelMeterPlugin`, in that order, and they stay at the end of the
+chain. `AuxReturnPlugin` and `AuxSendPlugin` are ordinary chain members with
+no reserved place of their own — where they land is whatever index the caller
+passes.
+
+**Where.** `PluginList::addDefaultTrackPlugins`, called for each new track;
+`PluginList::insertPlugin`.
+
+**Proved.** `6i7an7`, with `tests/scratch`. A bus that a send had been made
+into and one equaliser added to read back `Aux Return #1`, `4-Band
+Equaliser`, `Volume & Pan Plugin`, `Level Meter`; the source track read
+`Volume & Pan Plugin`, `Level Meter`, `Aux Send #1`.
+
+**Duet.** `setSend` inserts the return at the head of the bus and appends the
+send, which puts the producer's plugins in one stretch between the return and
+the fader. A chain position in the vocabulary counts inside that stretch and
+is clamped to it (`rawPositionFor`, ADR 0007), so a plugin can never be put
+in front of the return that feeds it.

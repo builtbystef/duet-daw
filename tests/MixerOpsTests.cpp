@@ -176,13 +176,14 @@ TEST_CASE ("a send into a reverb bus is heard, and rings on after the source sto
                                reverbBus = ops.createTrack (TrackKind::group, "Reverb");
                                ops.setSend (source, reverbBus, 0.0);
 
-                               // Position 1, after the return setSend puts at the
-                               // head of the bus. A reverb in front of the return
-                               // sits upstream of the only thing feeding it, so it
-                               // processes silence and is never heard — which is
-                               // exactly what this test is here to catch.
+                               // First in the chain means first among the
+                               // producer's effects, not in front of the return
+                               // that puts the send into the bus. A reverb the
+                               // return does not feed processes silence and is
+                               // never heard — which is exactly what this test is
+                               // here to catch.
                                const auto reverb =
-                                   ops.addPlugin (reverbBus, duet::model::BuiltinPlugin::reverb, 1);
+                                   ops.addPlugin (reverbBus, duet::model::BuiltinPlugin::reverb, 0);
                                ops.setPluginParameter (reverb, "room size", 0.9);
                                ops.setPluginParameter (reverb, "wet level", 1.0);
                                ops.setPluginParameter (reverb, "dry level", 0.0);

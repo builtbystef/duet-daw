@@ -1,13 +1,14 @@
 ---
 id: 6i7an7
 title: plugin.add's position counts the plugins a producer never put there
-state: todo
+state: done
+assignee: claude
 priority: high
 labels:
     - bug
 parent: b1j3me
 created: 2026-08-19T04:15:47Z
-updated: 2026-08-19T04:15:47Z
+updated: 2026-08-20T08:05:52Z
 ---
 
 ## What is wrong
@@ -38,3 +39,19 @@ Either way `PluginInfo` needs to say what a plugin is for, since today a fader a
 ## Already covered
 
 MixerOpsTests has "a send into a reverb bus is heard, and rings on after the source stops", which renders a stab through a send into a reverb bus and asserts the tail outlives the source. It fails against the reverb placed at 0. That test should keep passing whatever this issue decides.
+
+## Notes
+
+**claude** — 2026-08-20T08:05:52Z
+
+Decision: a chain position counts the producer's plugins, and TrackInfo::plugins lists exactly that chain, so the vocabulary's position and the read-back index are one index space. Recorded as ADR 0007; ARCHITECTURE.md's duet_model bullet points at it.
+
+The translation lives in `rawPositionFor` (SessionImpl.h) and both addPlugin and reorderPlugin go through it. The producer's plugins occupy one stretch of the raw chain — after the AuxReturn that feeds a bus, before the fader, the meter and any AuxSend — and a position counts inside that stretch and is clamped to its ends, so no position can put a plugin in front of the return that feeds it. `isProducersPlugin` is a blacklist of the four Duet puts there (VolumeAndPan, LevelMeter, AuxReturn, AuxSend), because an external VST3 is the producer's and is not enumerable.
+
+Why the list drops Duet's plugins rather than marking them: the issue's "PluginInfo needs to say what a plugin is for" presumes they stay listed. With them unlisted the need goes away, and the stronger property holds — every entry is the producer's, and its index is the position to pass back in. Two index spaces in the same struct is the shape of the bug this issue is about. Nothing in the facade needs a ref to one of Duet's own: track volume and pan are on TrackInfo, the meter is Session::trackPeakDb, the return is TrackInfo::sends.
+
+Tests: MixerOpsTests' "a send into a reverb bus is heard" now passes 0 rather than 1 — red before the change (tail 0.0), green after. PluginOpsTests gained "a chain position counts the producer's plugins, not the ones Duet put there": it asserts both chains read empty while the return, faders, meters and send exist, then adds two effects, reorders, and renders — the render is what proves reorder's position 0 is the same position 0, and it goes red (tail 0.0) if reorderPlugin skips the translation, which was checked.
+
+The magic 1 is gone from Main.cpp and from DemoWalkthroughTests. Also recorded in ENGINE_NOTES.md, as a further fact proved with tests/scratch: a track the engine makes is born with a VolumeAndPanPlugin and a LevelMeterPlugin that stay at the end of the chain, and AuxReturn/AuxSend have no reserved place of their own.
+
+All four checks pass; the full suite is 103/103.

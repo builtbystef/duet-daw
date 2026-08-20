@@ -256,7 +256,8 @@ std::vector<TrackInfo> Session::tracks() const
 
         for (auto* plugin : track->pluginList.getPlugins())
         {
-            trackInfo.plugins.push_back (describe (*plugin));
+            if (isProducersPlugin (*plugin))
+                trackInfo.plugins.push_back (describe (*plugin));
 
             if (auto* send = dynamic_cast<te::AuxSendPlugin*> (plugin))
                 if (const auto bus = busTrackFor (*impl->edit, send->busNumber); bus != noTrack)
