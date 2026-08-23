@@ -1,0 +1,50 @@
+{
+  "enabled": true,
+  "permissionPromptTimeoutSeconds": 30,
+  "network": {
+    "allowLocalBinding": false,
+    "allowAllUnixSockets": true
+  },
+  "filesystem": {
+    "denyRead": [
+      "~/Main",
+      "~/.ssh",
+      "~/.gnupg",
+      "~/.aws",
+      "~/.kube",
+      "~/.docker",
+      "~/.config/gh",
+      "~/.config/gcloud",
+      "~/.local/share/keyrings",
+      "~/.claude/.credentials.json",
+      "~/.claude.json",
+      "~/.codex/auth.json",
+      "~/.pi/agent/auth.json",
+      "~/.netrc",
+      "~/.npmrc",
+      "~/.pgpass",
+      "/run/docker.sock",
+      "/run/podman/podman.sock",
+      "/run/user/1000/podman/podman.sock"
+    ],
+    "allowRead": [],
+    "allowWrite": [
+      ".",
+      "/tmp",
+      "~/.cache",
+      "~/.npm",
+      "~/.local/share/pnpm",
+      "~/go/pkg/mod"
+    ],
+    "denyWrite": [
+      ".pi",
+      ".claude",
+      "~/.cache/ccache",
+      "~/.cache/go-build",
+      ".env",
+      ".env.*",
+      "*.pem",
+      "*.key"
+    ]
+  }
+}

@@ -15,6 +15,9 @@
       "cacheVariables": {
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
         "CMAKE_CONFIGURATION_TYPES": "Debug;Release"
+      },
+      "environment": {
+        "CCACHE_DIR": "${sourceDir}/build/.ccache"
       }
     },
     {
