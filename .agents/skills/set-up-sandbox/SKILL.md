@@ -1,54 +1,107 @@
 ---
 name: set-up-sandbox
-description: Sets a project up with a disposable container sandbox for a coding agent. In the sandbox, the agent can write anything and run anything, with full network access. The host filesystem stays out of reach. Produces a committed start script. The developer runs the script to enter the sandbox and start their agent.
+description: Sets a project up with native, project-local sandboxing for coding agents — Claude Code and Pi run directly against the repository, with the OS enforcing the boundary. No container, no image build. Produces committed config under .claude/ and .pi/. The developer then starts the agent CLIs exactly as usual.
 disable-model-invocation: true
 ---
 
 # Set Up Sandbox
 
-Give the current repository a disposable container sandbox for coding agents. This session runs **on the host**, and it is the last step without a sandbox. Afterward, the developer runs `sandbox/start.sh`, gets a shell at `/workspace`, and starts the agent with permission prompts off. This is safe, because the blast radius is the repository.
+Give the current repository OS-enforced sandboxing for coding agents — no container, no wrapper. Each agent's own sandbox carries the policy, committed in the repo: `.claude/settings.json` for Claude Code, and `.pi/sandbox.json` plus `.pi/extensions/pi-permission-system/config.json` for Pi. The developer starts the CLIs exactly as usual.
 
-The security model. Each step preserves it:
+The skill covers Claude Code and Pi. To support another agent, the developer adds its own template and cautions section, held to the same bar: measure what its sandbox actually enforces before trusting it — an agent that cannot block reads cannot hide the protected paths and must never run unattended — and follow the invariants below.
 
-> Anything inside the repository may be destroyed or leaked. Everything outside the repository must be inaccessible.
+The security model, which every step must preserve:
 
-The network is open — there is no egress control. For this reason, tell the user plainly: secrets that they cannot afford to leak do not belong in the repository.
+> Writes are confined to the repository, temp, and the shared package caches ("Shared package caches" below) — the machine cannot be damaged. Protected paths — the user's private directories (`~/Main` for this machine's owner; another user replaces that) and credential material — are unreachable, read and write. Everything else on the machine is readable, by design. Anything inside the repository may be destroyed or leaked.
+
+This is a deny-list model: enumerate what is protected, allow the rest. An earlier version of this skill did the opposite — mask all of `$HOME`, then carve back in what work needs — and every new tool on the host broke it. Never reintroduce allow-list masking, `allowRead` carve-ins, or toolchain probing: the default sandbox is already read-open and write-closed (measured, below), so the only lists to maintain are the protected paths and the command denies.
+
+What each agent enforces — measured on Linux against Claude Code 2.1.241 and pi-sandbox 0.6.5, not taken from docs:
+
+| Agent | Writes outside the repo | Protected-path reads | Notes |
+| --- | --- | --- | --- |
+| Claude Code | blocked | blocked | Bash covered by `sandbox.filesystem.denyRead` (bwrap mask), native tools by `permissions.deny` |
+| Pi | blocked | blocked | Shell and native tools both |
+
+Three layers, strongest first: the OS sandbox (the boundary), command deny rules (policy on top), model instructions (not a security layer). Egress is open where the agent honours the setting. Tell the user the consequences plainly: open reads plus open egress mean a prompt injection in anything an agent reads can leak anything readable — other repos, dotfiles, shell history, transcripts. The credential denies and secret-file globs bound that damage; they are the main line now, not a second layer. Secrets on this machine are throwaway by policy (production secrets come from a secret manager, never the disk).
 
 ## Invariants
 
-A problem that you find never makes it valid to break one of these:
+No problem you hit makes it valid to break one of these:
 
-- Never use `--privileged`. Always use `--cap-drop=all` and `--security-opt=no-new-privileges`.
-- Never mount `/`, `$HOME`, `~/.ssh`, `~/.aws`, `~/.gnupg`, or a host folder with agent configuration.
-- Never expose a container-control socket (`podman.sock`, `docker.sock`). Such a socket is host root with another name.
-- The only host mount is the repository, read-write at `/workspace`. Agent state lives in a named volume.
-- Print privileged installations (the runtime, WSL2) for the human to run. Then verify them. Never run them yourself.
+- Fail closed. Claude Code: `failIfUnavailable: true`, `allowUnsandboxedCommands: false`. Pi: hard denies, no ask-to-escape. A sandbox that cannot start must stop the agent, not wave it through.
+- Never write config that only looks like a boundary. If the CLI accepts a key and then ignores it, leave the key out and say so in a comment. Trust what was measured, not what the docs promise.
+- Cover the native file tools, not only Bash. Claude Code's `filesystem.denyRead` reaches the native Read tool only as a permission *prompt* (fails closed headless, but a prompt is not a deny) — the `permissions.deny` rules are the hard layer. Never generate the `sandbox` block without its `permissions` block.
+- No agent may edit its own policy — or another agent's. Deny rules and read-only mounts close that path for both agents. Lasting rule for the user anyway: review `git diff -- .claude/ .pi/` before each session.
+- Never generate or recommend the bypass flags. `--dangerously-skip-permissions` auto-approves everything the deny rules do not name (including native-tool reads of `denyRead` paths, which are only a prompt away).
+- Print privileged commands (`bubblewrap`/`socat` installs, AppArmor changes) for the human to run, then verify them; never run them yourself. The Pi extensions are third-party code inside the trust boundary: pin their versions and point the user at their sources before they install.
 
 ## The conversation
 
-Detect the OS and the installed runtimes. Inspect the repository for its stack. Then settle three items with the user, in conversation. Give a recommendation for each item:
+Detect the OS and installed agent CLIs, inspect the repository's stack, then settle these with the user, recommending a default for each:
 
-1. **Platform** — Windows outside WSL2: stop, and get the user into WSL2 first.
-2. **Runtime** — rootless Podman, or Docker. Recommend rootless Podman when neither is settled. Make sure that the runtime operates before you continue (`podman info --format '{{.Host.Security.Rootless}}'` → `true`; for Docker, a hello-world run). The image runs as the non-root user `agent` (uid 1000) — agent CLIs refuse their full-permission flags under root. For this reason `{{user-flag}}` must keep the workspace ownership correct: rootless Podman gets `--userns=keep-id:uid=1000,gid=1000` (this maps the host user onto `agent`); rootful Docker gets `--user "$(id -u):$(id -g)"`.
-3. **Image contents** — propose the stack toolchain, from what the repository shows. Ask which agent CLIs to include (Claude Code: `npm install -g @anthropic-ai/claude-code`; Codex: `npm install -g @openai/codex`; another CLI: the install command from the user, exactly as given). Use the base `ubuntu:24.04`, unless something indicates a different base.
+1. **Platform** — macOS needs nothing. Linux and WSL2 need `bubblewrap` and `socat`; print the install command. Ubuntu 24.04+ also needs the AppArmor bwrap fix (cautions), or no Claude Code Bash command runs at all. Windows outside WSL2: stop, and get the user into WSL2 first.
+2. **Agents** — which of the two this project uses. Generate config only for those, and show the enforcement table before they choose. Pi's sandbox is two extensions — core Pi has none, and project trust is not a sandbox: `pi-sandbox` is the OS boundary, `@gotgenes/pi-permission-system` the hard-deny policy layer. One pinned global install per machine serves every project — `pi install npm:pi-sandbox@<version>` and `pi install npm:@gotgenes/pi-permission-system@<version>`. Pin is the security control: an unpinned entry silently auto-upgrades, and upgrades have changed enforcement semantics before. Check `~/.pi/agent/settings.json` for unpinned entries and have the user pin them. This repo's [package.json](package.json) mirrors the pinned versions so Dependabot flags new releases; a release PR means review-and-re-verify, never auto-merge.
+3. **Protected directories** — `~/Main` is the default on this machine; ask which other directories should be unreachable and add them to every agent's deny lists. Missing-path denies are tolerated (measured: the Claude Code sandbox starts fine with a `denyRead` entry that does not exist on disk), so the list is a stable superset — no trimming against the host, no re-run when tools are installed. Say what is *not* protected: every other repo, dotfiles, and agent transcripts are readable by design. Never deny the agents' own transcript directories (`~/.claude/projects` etc.) — Claude Code spills oversized tool output there and must read it back; transcripts protect nothing that open reads don't already expose.
+4. **Command denies** — `sudo`, `su`, `doas`, `pkexec`, `ssh`, `scp`, `git push` are the default. Deploy tools (`terraform`, `kubectl`, `aws`, `gcloud`) get denies only when installed on the host — ask which.
+5. **Container sockets** — when docker/podman are installed and the user is in the `docker` group, the socket is a decision, not a default: an agent that reaches it can `docker run -v /:/host` and get root on the host — a complete escape from every layer here. If the project's workflow runs on containers, present that trade-off and let the user choose. Allowed: drop the socket-path denies, set Pi's `allowAllUnixSockets: true`, and record the choice in a dated config comment. Denied: add `Bash(docker:*)`/`Bash(podman:*)` denies and keep the socket paths in Pi's `denyRead` — but list each socket **once, by its real path** (`/run/docker.sock`, never also `/var/run/docker.sock`): `/var/run` is a symlink to `/run`, and masking the same target twice makes bwrap fail on every command (`bwrap: Can't create file at /var/run/docker.sock` — fail-closed, measured on 2026-08-23).
+6. **Unix sockets** — Claude Code and pi-sandbox block `socket(AF_UNIX)` through the same optional seccomp filter, and on Linux it is all-or-nothing: the per-path allowlists are macOS-only and silently ignored. Grep the sources *and tests* for `AF_UNIX`, `socketpair`, `sun_path`, or local-socket IPC — if the project creates any, its own checks will fail with `Operation not permitted` under the default. Present the choice and apply it to both agents at once: allow (`sandbox.network.allowAllUnixSockets: true` for Claude Code, `allowAllUnixSockets: true` for Pi) or keep blocked. Allowing does not open the container sockets from item 5.
 
-If `sandbox/` exists, this is an update. Ask what the user wants changed. Repair the existing setup. Do not recreate it.
+If sandbox config already exists, this is an update: ask what the user wants changed and repair it, don't recreate it. Config generated by the old allow-list version of this skill (recognisable by `allowRead` carve-in lists and a `denyRead` of `~/` or `/home`) should be replaced with the current templates, keeping the project's own choices from items 3–6.
 
-## Generate, build, smoke test
+## Generate
 
-Fill [assets/templates/Containerfile](assets/templates/Containerfile) and [assets/templates/start.sh](assets/templates/start.sh) (executable). Commit both to `sandbox/`. Build `sandbox-<repo-name>`. Do not weaken the template's security flags. The resource limits are the user's to adjust. The script mounts exactly two items: the repository at `/workspace`, and a named volume at the container home. The developer logs the agent in one time, inside. The credential persists in the volume, and it never touches the host. The script itself runs on the host, and a sandboxed agent can edit it. That is the one intended hole. The header and the handover both give the answer: review `git diff -- sandbox/` before each start.
+### Write order
 
-Then prove that the sandbox holds. Run each check through `./sandbox/start.sh bash -c '<check>'`:
+Your own agent's config takes effect the moment it lands: the running session re-initializes its sandbox, the policy directories become read-only, and the protected paths vanish. Do anything that needs them first — Pi schema verification, any `pi install` — then write the other agents' files, and your own agent's config **last**. If a lockout happens anyway: stage the remaining files in a directory at the repo root (the root stays writable) and hand the user one copy command for a separate terminal — never the `!` prefix, which runs inside the session's sandbox. A transient `apply-seccomp: unshare(CLONE_NEWUSER): Invalid argument` fails closed — retry once, and never diagnose host state from inside the sandbox.
 
-1. Exactly two mounts (`inspect` a container that runs).
-2. `/workspace` is writable. Host paths are invisible.
-3. The network is up: `curl -sI https://example.com`. If DNS fails, but a raw IP operates, that is the rootless-network quirk on hosts with systemd-resolved. Add `--dns 1.1.1.1` (or the host's real upstream) to the script, and test again.
-4. Each installed agent CLI answers `--version`.
-5. Non-root: `id -u` inside is `1000`, not `0`. Root in the container makes agent CLIs refuse their full-permission flags, and that defeats the purpose of the sandbox.
-6. Ownership round-trip: run `touch /workspace/.sandbox-check` inside. Confirm on the host that the user owns the file. Then delete the file. Wrong ownership means that `{{user-flag}}` is wrong for this runtime.
+### Templates
 
-A failed check is a finding. Repair, and test again. All checks must be green before the handover.
+Fill the templates for the selected agents. The deny lists are the whole policy — nothing to probe on the read side. Adjust only: the protected directories from item 3, the command denies from item 4, the socket choices from items 5–6, the secret-glob root (`~/Code` on this machine) to wherever the user keeps repositories, and the cache carve-out paths ("Shared package caches" below).
+
+| Agent       | Destination                                        | Template                                                                        |
+| ----------- | -------------------------------------------------- | ------------------------------------------------------------------------------- |
+| Claude Code | `.claude/settings.json`                            | [claude-settings.json](assets/templates/claude-settings.json)                   |
+| Pi          | `.pi/sandbox.json`, `.pi/extensions/pi-permission-system/config.json` | [pi-sandbox.json](assets/templates/pi-sandbox.json), [pi-permission-system.json](assets/templates/pi-permission-system.json) |
+
+### Shared package caches
+
+Package managers must write their caches, and writes outside the repository are otherwise blocked — so the templates carve the machine-wide cache directories into the writable set (measured on 2.1.241: `filesystem.allowWrite` carve-outs work, writes persist to the real filesystem, and a nested `denyWrite` inside a carve-out wins). The dividing line is integrity verification, and it is a deliberate, accepted trade-off — say it in the handover:
+
+- **Writable: verified caches.** npm's cacache, the pnpm store, uv, pip, cargo's registry (lockfile checksums), and the Go module cache (`go.sum`) all check content hashes at use, so a poisoned entry is caught or inert. Confirm pnpm's `verifyStoreIntegrity` has not been turned off. The residual risk — a cache poisoning that slips past verification and reaches the user's own shell in another project — is the one persistence channel this setup accepts, in exchange for repos needing no cache config at all.
+- **Never writable: compiled-object caches.** ccache and Go's build cache feed unverified object code straight into future binaries — the templates deny them inside the carve-out (`~/.cache/ccache`, `~/.cache/go-build`). A project that uses ccache points it into the repo instead: repo-local `CCACHE_DIR`, e.g. via a CMake preset `environment` block (build presets inherit the configure preset's environment).
+
+While generating, confirm the carve-out paths match the host — `pnpm store path`, `npm config get cache`, `uv cache dir` — and add the stack's equivalents for managers not in the template. A mismatch fails closed: the install errors with `Read-only file system`, and the fix is adding the real path, never widening to `~/`.
+
+### Claude Code cautions
+
+Measured behaviour of `filesystem.denyRead` (2.1.241): a denied directory is masked with an empty tmpfs — its *contents* report `No such file or directory`, its *name* still shows in `ls ~` (it is a mount point), and a write into it "succeeds" into the tmpfs and evaporates. A denied *file* reports `Permission denied`. A native-tool Read of a denied path becomes a permission prompt — denied headless, but grantable interactively, which is why the `permissions.deny` twins stay.
+
+- The `filesystem` block lives in `.claude/settings.json` so relative paths resolve against the project root — never move it to user-level settings. No `~/.*` dotfile globs anywhere in the config (measured on 2.1.238: they crash every Bash call at spawn; fail-closed). `denyRead` takes literal paths, not globs; secret-file globs belong in `permissions.deny` only.
+- File denies must be spelled `Edit(path)` — Claude Code does not match `Write(path)` rules (Edit rules cover all file-editing tools). `Read(path)` rules match normally.
+- The single `WebFetch(domain:*)` allow rule opens egress and does double duty: allow rules also pre-allow domains for the sandbox proxy, covering `curl` and `npm install`. It only applies after the workspace trust dialog — headless hosts need `hasTrustDialogAccepted: true` in `~/.claude.json`.
+- Ubuntu 24.04+ AppArmor trap: every Bash command can fail with an apply-seccomp / nested-userns error. Check with `bwrap --dev-bind / / -- cat /proc/self/attr/current` (want `unconfined`). The fix, printed for the human: unload and disable the `bwrap-userns-restrict` profile, install a `flags=(unconfined)` AppArmor profile for `/usr/bin/bwrap` containing `userns,`, reload with `apparmor_parser -r`. Verify: `bwrap --unshare-all --dev-bind / / -- bwrap --unshare-user --dev-bind / / -- true` succeeds. Until fixed it fails closed — a blocked agent, not an exposed one.
+- Self-policy, measured on 2.1.238: a live sandbox mounts the policy directories read-only to the shell. A session started before the config existed does not have that mount, so keep the `Edit(.claude/**)`/`Edit(.pi/**)` denies — and re-check after upgrades.
+- Deny beats allow with no way back: `Read(.env.*)` also hides a committed `.env.example` the project may tell agents to read. Where one exists, name the real variants (`.env.local`, ...) instead of the blanket glob. (Pi differs: there a later, more-specific allow wins.)
+- Rc-file write denies must survive symlinks: `~/.zshrc → ~/dotfiles/zsh/.zshrc` makes the deny bypassable through its target. `ls -la` the rc files and deny the target directory (e.g. `Edit(~/dotfiles/**)`) when they are links.
+- When the optional seccomp filter is installed, sandboxed shells cannot create `AF_UNIX` sockets — project code and tests die with `Operation not permitted` (measured on 2.1.241). `sandbox.network.allowAllUnixSockets: true` is the only Linux control; see conversation item 6.
+
+### Pi cautions
+
+- The templates' schemas belong to the extensions, not Pi — verify every key against the pinned versions (`npm pack` the tarballs, read the README and the shipped JSON schema) *before* your own agent's config lands, including that `~` expands in the filesystem lists.
+- pi-sandbox's read and write lists have **opposite precedence** (verified in `@carderne/sandbox-runtime` 0.0.70 source, `sandbox-schemas.d.ts` and `policy.ts`, on 2026-08-23). Reads are a deny-list: everything not in `denyRead` is readable, and `allowRead`'s only effect is to **re-allow within denied regions, taking precedence over `denyRead`** — a broad entry like `~/` silently re-opens `~/Main` and every credential deny. The template therefore omits `allowRead` entirely; every entry it could hold is either a no-op or a hole. Confirm the pinned version accepts the key's absence, and if a denied region ever needs a carve-back (the `*.env.example` pattern), that is the one legitimate use. Writes are the reverse (allow-list with deny-within-allow), which is exactly what makes the nested ccache deny a hard block. Re-verify both precedences on every pi-sandbox version bump.
+- Glob syntax, measured on pi-permission-system 26.3.1: `**` is not a token — it behaves as a plain `*`, which already crosses path separators. Write `*.env` (a leading `*` matches zero characters). Relative patterns also match in cwd-absolute form but not the reverse — pair `.pi/*` with a `*/.pi/*` twin. Ordering is last-match-wins: the `*.env.example` allow goes after the `*.env.*` deny. Validate the finished config against the package's shipped schema (`additionalProperties: false`).
+- Project trust gates everything: pi-permission-system loads project config only for a project trusted in `~/.pi/agent/trust.json` — untrusted means the entire `.pi/` policy is silently skipped. Tell the user to accept the trust prompt on first run and confirm with `/sandbox`, watching for a `project_trust.skipped` warning.
+- A global `~/.pi/agent/sandbox.json` merges its path and domain arrays with the project's — it can silently widen the policy. Check it before writing the project file.
+- pi-sandbox refuses to initialize without ripgrep (`rg`) on PATH.
+- Generate no `allowedDomains`/`deniedDomains`: on 0.6.5 the project-local domain keys are silently ignored — the built-in allowlist governs. Warn the user that an unattended run can stall on a domain the project needs; the failing command names it.
+- `denyWrite` must keep `.pi` and `.claude`: project config *overrides* global config, so this hard write-block is what stops the agent loosening its own — or the other agent's — policy.
+- `allowAllUnixSockets: false` requires the AppArmor fix above; without it every Bash command fails with the nested-userns error. Apply the fix, or fall back to `true` (the container sockets stay blocked by path in `denyRead`). Either way, confirm a Bash command runs.
+- `external_directory: "deny"` never prompts and can block Pi from reading its own install (e.g. under `~/.nvm`); carve that in with the top-level `piInfrastructureReadPaths` key if Pi fails to start.
+- pi-sandbox 0.6.5 injects `TMPDIR=/tmp/claude` into sandboxed shells but never creates the directory — anything using the system temp dir dies instantly, and the error misleadingly names a Claude path inside a Pi session. Print the durable fix for the human, once per machine: `echo 'd /tmp/claude 0700 <user> <user> -' | sudo tee /etc/tmpfiles.d/pi-sandbox.conf && sudo systemd-tmpfiles --create`. Re-check on every version bump.
 
 ## Hand over
 
-Tell the user: `./sandbox/start.sh` → a shell at `/workspace`. The user starts the agent — full-permission mode is the point. Give the exact command for each CLI that they had included (Claude Code: `claude --dangerously-skip-permissions`; Codex: `codex --dangerously-bypass-approvals-and-sandbox`; another CLI: its equivalent). Never put an agent start into `start.sh`. The shell is the handover point. The developer selects the agent. Log the agent in one time, inside; the login persists. **Push from the host** — host keys never enter the sandbox. The two lasting rules: no secrets in the repository that the user cannot lose, and review `git diff -- sandbox/` before each start.
+Tell the user: start each agent exactly as usual — `claude`, `pi` — in this repository; the sandbox rides along, no wrapper. Each agent reads its config at startup, so it applies from the next session on. Name the standing blind spot: `.claude/settings.local.json` is untracked and silently overrides project settings — `git diff` never shows it. Two behaviours to expect, not to investigate: a Claude Code session dying on `apply-seccomp` means the sandbox failed to start — fail-closed, not exposure — and under Claude Code a denied directory masks as empty (reads report `No such file or directory`, writes into it evaporate).
+
+Sandboxed Bash runs without prompts (`autoAllowBashIfSandboxed`), so sessions are already near-autonomous. For unattended runs give the exact commands — `claude -p --permission-mode acceptEdits` and `pi -p --approve` — and repeat that the bypass flags undo this setup. The lasting rules: commit and push before unattended runs (the repository is the blast radius, `.git` included, and agents cannot push — the remote is the backup); no secrets on this machine the user cannot lose; the developer pushes from their own shell after review; review `git diff -- .claude/ .pi/` before each session; a repository without this config has no protection — run the skill there first. Point at the levers outside the machine: spend caps in the provider consoles, scoped tokens (a `gh` token can delete repositories), dev-only secret-manager configs.

@@ -1,0 +1,55 @@
+{
+  "$schema": "https://raw.githubusercontent.com/gotgenes/pi-packages/main/packages/pi-permission-system/schemas/permissions.schema.json",
+
+  "yoloMode": false,
+  "permissionReviewLog": true,
+
+  "permission": {
+    "*": "allow",
+    "path": {
+      "*": "allow",
+      "*.env": "deny",
+      "*.env.*": "deny",
+      "*.env.example": "allow",
+      "*.pem": "deny",
+      "*.key": "deny",
+      ".pi/*": "deny",
+      "*/.pi/*": "deny",
+      ".claude/*": "deny",
+      "*/.claude/*": "deny",
+      "~/.claude/*": "allow",
+      "~/.pi/*": "allow",
+      "~/Main/*": "deny",
+      "~/.ssh/*": "deny",
+      "~/.gnupg/*": "deny",
+      "~/.aws/*": "deny",
+      "~/.kube/*": "deny",
+      "~/.docker/*": "deny",
+      "~/.config/gh/*": "deny",
+      "~/.config/gcloud/*": "deny",
+      "~/.local/share/keyrings/*": "deny",
+      "~/.claude/.credentials.json": "deny",
+      "~/.claude.json": "deny",
+      "~/.codex/auth.json": "deny",
+      "~/.pi/agent/auth.json": "deny",
+      "~/.netrc": "deny",
+      "~/.npmrc": "deny",
+      "~/.pgpass": "deny"
+    },
+    "bash": {
+      "*": "allow",
+      "sudo *": "deny",
+      "su *": "deny",
+      "doas *": "deny",
+      "pkexec *": "deny",
+      "ssh *": "deny",
+      "scp *": "deny",
+      "git push*": "deny",
+      "terraform apply*": "deny",
+      "terraform destroy*": "deny",
+      "kubectl apply*": "deny",
+      "kubectl delete*": "deny"
+    },
+    "external_directory": "deny"
+  }
+}
