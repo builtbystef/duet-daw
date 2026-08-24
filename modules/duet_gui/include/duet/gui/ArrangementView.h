@@ -3,6 +3,12 @@
 #include <duet/gui/Shortcuts.h>
 #include <duet/gui/TimelineGeometry.h>
 
+#include <duet/model/Session.h>
+
+#include <filesystem>
+#include <string>
+#include <vector>
+
 namespace duet::gui
 {
 class TimelineClock;
@@ -13,6 +19,38 @@ class ViewState;
     No JUCE type crosses this seam, so what a gesture does can be asserted with
     no window on screen.
 */
+struct NoteDrawing
+{
+    int x = 0;
+    int width = 0;
+    int pitch = 0;
+};
+
+struct ClipDrawing
+{
+    duet::model::ClipRef clip = duet::model::noClip;
+    std::string name;
+    int x = 0;
+    int width = 0;
+    bool holdsMidi = false;
+    std::filesystem::path sourceFile;
+    std::vector<NoteDrawing> notes;
+};
+
+struct TrackDrawing
+{
+    duet::model::TrackRef track = duet::model::noTrack;
+    std::string name;
+    duet::model::TrackKind kind = duet::model::TrackKind::audio;
+    duet::model::TrackColour colour = duet::model::TrackColour::orange;
+    bool muted = false;
+    bool soloed = false;
+    bool recordArmed = false;
+    int y = 0;
+    int height = 0;
+    std::vector<ClipDrawing> clips;
+};
+
 struct ScrollGesture
 {
     /** How far the wheel turned, in notches. Away from the producer is
@@ -59,6 +97,10 @@ public:
     */
     void setClock (TimelineClock* projectClock);
 
+    /** The project whose tracks this surface presents, or nothing while no
+        project is open. */
+    void setSession (duet::model::Session* openProject);
+
     /** Takes the project's metre, which is what the grid counts bars in. The
         canvas calls this before it draws, so that a time signature the producer
         has just changed is the one on screen.
@@ -71,6 +113,26 @@ public:
         it is matters to nothing until there are tracks down it (issue s1jzd4).
     */
     void setWidthPx (int widthPx);
+    void setHeightPx (int heightPx);
+
+    /** Track rows and clips in canvas coordinates, freshly read from the model. */
+    [[nodiscard]] std::vector<TrackDrawing> tracks();
+
+    [[nodiscard]] int contentHeightPx() const;
+    [[nodiscard]] int addTrackRowY() const;
+
+    //==============================================================================
+    /** Producer gestures at the Action seam. */
+    duet::model::TrackRef addTrack (duet::model::TrackKind kind);
+    void reorderTrack (duet::model::TrackRef track, int newIndex);
+    void renameTrack (duet::model::TrackRef track, std::string name);
+    duet::model::TrackRef duplicateTrack (duet::model::TrackRef track);
+    void deleteTrack (duet::model::TrackRef track);
+    void setTrackColour (duet::model::TrackRef track, duet::model::TrackColour colour);
+    void toggleMute (duet::model::TrackRef track);
+    void toggleSolo (duet::model::TrackRef track);
+    void toggleRecordArm (duet::model::TrackRef track);
+    void resizeTrack (duet::model::TrackRef track, int heightPx);
 
     [[nodiscard]] TimelineGeometry& geometry() { return timeline; }
     [[nodiscard]] const TimelineGeometry& geometry() const { return timeline; }
@@ -110,6 +172,7 @@ public:
         one notch is.
     */
     static constexpr int scrollPixelsPerNotch = 60;
+    static constexpr int addTrackRowHeightPx = 36;
     static constexpr double zoomFactorPerNotch = 1.25;
 
     /** How much of a zoom one press of a zoom key is. More than a wheel notch,
@@ -121,5 +184,7 @@ private:
     ViewState& view;
     TimelineGeometry timeline { view };
     TimelineClock* clock = nullptr;
+    duet::model::Session* session = nullptr;
+    int heightPx = 0;
 };
 } // namespace duet::gui

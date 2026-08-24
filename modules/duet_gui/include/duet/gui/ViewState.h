@@ -6,6 +6,7 @@
 
 #include <cstdint>
 #include <map>
+#include <span>
 
 namespace duet::gui
 {
@@ -102,6 +103,10 @@ public:
         default row, so a track the producer has just added needs no entry.
     */
     [[nodiscard]] int trackHeightPx (duet::model::TrackRef track) const;
+    void ensureTrack (duet::model::TrackRef track);
+    void syncTracks (std::span<const duet::model::TrackRef> tracks);
+    void removeTrack (duet::model::TrackRef track);
+    [[nodiscard]] bool hasTrack (duet::model::TrackRef track) const;
     void setTrackHeightPx (duet::model::TrackRef track, int newHeight);
 
     /** Grows or shrinks every row at once, which is what a vertical zoom is:

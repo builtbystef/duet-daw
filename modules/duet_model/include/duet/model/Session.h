@@ -87,6 +87,19 @@ enum class TrackKind : std::uint8_t
     group
 };
 
+/** One of the eight colours the Target Producer can assign to a track. */
+enum class TrackColour : std::uint8_t
+{
+    orange,
+    coral,
+    mint,
+    cyan,
+    yellow,
+    red,
+    purple,
+    blue
+};
+
 /** The plugins Duet ships: the engine's own devices under Duet's names.
 
     Milestone one's built-ins are engine-shipped (decision on spec b1j3me,
@@ -249,6 +262,7 @@ struct TrackInfo
 
     bool muted = false;
     bool soloed = false;
+    TrackColour colour = TrackColour::orange;
 
     /** The input this track records from, or noInput for a track that records
         from nothing.
@@ -356,6 +370,9 @@ public:
                           std::string_view name,
                           std::optional<BuiltinPlugin> instrument = {});
 
+    /** Copies a track and everything on it after the last track. */
+    TrackRef duplicateTrack (TrackRef track);
+
     /** Removes a track and everything on it. */
     void removeTrack (TrackRef track);
 
@@ -433,6 +450,7 @@ public:
 
     void setTrackMute (TrackRef track, bool muted);
     void setTrackSolo (TrackRef track, bool soloed);
+    void setTrackColour (TrackRef track, TrackColour colour);
 
     /** Sets how much of a track is sent into a bus, in decibels.
 

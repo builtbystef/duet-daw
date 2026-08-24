@@ -10,6 +10,7 @@ namespace
         other two kinds are legible from the track itself.
     */
     constexpr const char* trackKindProperty = "duetTrackKind";
+    constexpr const char* trackColourProperty = "duetTrackColour";
     constexpr const char* groupKindName = "group";
 
     /** The engine names the fader's two parameters this, and Duet's are them. */
@@ -295,6 +296,9 @@ TrackRef EditOps::createTrack (TrackKind kind,
         track->state.setProperty (
             juce::Identifier { trackKindProperty }, groupKindName, &session.impl->undoManager());
 
+    const auto colour = (te::getAudioTracks (edit).size() - 1) % 8;
+    track->state.setProperty (juce::Identifier { trackColourProperty }, colour, nullptr);
+
     for (auto* plugin : track->pluginList.getPlugins())
         stateParametersExplicitly (*plugin);
 
@@ -304,6 +308,19 @@ TrackRef EditOps::createTrack (TrackKind kind,
         addPlugin (ref, *instrument, 0);
 
     return ref;
+}
+
+TrackRef EditOps::duplicateTrack (TrackRef track)
+{
+    auto* source = session.impl->trackFor (track);
+
+    if (source == nullptr)
+        return noTrack;
+
+    auto copy = session.impl->edit->copyTrack (
+        source, te::TrackInsertPoint::getEndOfTracks (*session.impl->edit));
+
+    return copy != nullptr ? toRef<TrackRef> (copy->itemID) : noTrack;
 }
 
 void EditOps::removeTrack (TrackRef track)
@@ -552,6 +569,14 @@ void EditOps::setTrackSolo (TrackRef track, bool soloed)
 {
     if (auto* audioTrack = session.impl->trackFor (track))
         audioTrack->state.setProperty (te::IDs::solo, soloed, &session.impl->undoManager());
+}
+
+void EditOps::setTrackColour (TrackRef track, TrackColour colour)
+{
+    if (auto* audioTrack = session.impl->trackFor (track))
+        audioTrack->state.setProperty (juce::Identifier { trackColourProperty },
+                                       static_cast<int> (colour),
+                                       &session.impl->undoManager());
 }
 
 void EditOps::setSend (TrackRef track, TrackRef bus, double levelDb)

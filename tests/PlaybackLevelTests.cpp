@@ -64,6 +64,21 @@ TEST_CASE ("a track routed through a group bus is heard at the output")
     REQUIRE (outputPeak > audibleDb);
 }
 
+TEST_CASE ("muting a track silences it during playback")
+{
+    const TempProject project;
+    Session session { project.editFile() };
+    session.loadDemoContent();
+
+    const auto track = session.tracks().front().track;
+    session.performAction ("Mute Track", [track] (auto& ops) { ops.setTrackMute (track, true); });
+    duet::testing::pumpMessages (200);
+
+    REQUIRE (session.playWithoutAudioDevice (playedSeconds));
+    REQUIRE (session.trackPeakDb (track) <= duet::model::silentDb);
+    REQUIRE (session.outputPeakDb() <= duet::model::silentDb);
+}
+
 TEST_CASE ("the output says when a project has run out of headroom")
 {
     const TempProject project;

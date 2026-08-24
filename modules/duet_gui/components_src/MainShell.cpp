@@ -394,6 +394,12 @@ void MainShell::setTimelineClock (TimelineClock* projectClock)
     viewStateChanged();
 }
 
+void MainShell::setSession (duet::model::Session* openProject)
+{
+    arrangementView.setSession (openProject);
+    viewStateChanged();
+}
+
 void MainShell::viewStateChanged()
 {
     // A project the window has just opened brings its own tempo and metre with

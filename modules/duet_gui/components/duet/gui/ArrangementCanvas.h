@@ -3,9 +3,12 @@
 #include <duet/gui/Appearance.h>
 #include <duet/gui/ArrangementView.h>
 
+#include <juce_audio_utils/juce_audio_utils.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include <memory>
+#include <optional>
+#include <unordered_map>
 
 namespace duet::gui
 {
@@ -21,7 +24,9 @@ namespace duet::gui
     and never from a lock: the transport is asked where it is, and asking is a
     read of a value the audio thread put there.
 */
-class ArrangementCanvas final : public juce::Component, private juce::Timer
+class ArrangementCanvas final : public juce::Component,
+                                private juce::Timer,
+                                private juce::ChangeListener
 {
 public:
     ArrangementCanvas (Appearance& lookAndScale, ArrangementView& arrangement);
@@ -33,11 +38,17 @@ public:
     void resized() override;
     void mouseWheelMove (const juce::MouseEvent& event,
                          const juce::MouseWheelDetails& wheel) override;
+    void mouseDown (const juce::MouseEvent& event) override;
+    void mouseDoubleClick (const juce::MouseEvent& event) override;
+    void mouseDrag (const juce::MouseEvent& event) override;
+    void mouseUp (const juce::MouseEvent& event) override;
 
     //==============================================================================
     /** The chrome's measurements, in logical units. */
     static constexpr int rulerHeight = 24;
     static constexpr int playheadThickness = 2;
+    static constexpr int trackHeaderWidth = 188;
+    static constexpr int headerControlWidth = 24;
 
     /** How tall a bar tick, a beat tick and a fine tick are drawn in the ruler,
         as a fraction of its height.
@@ -53,6 +64,7 @@ private:
     class Ruler;
 
     void timerCallback() override;
+    void changeListenerCallback (juce::ChangeBroadcaster* source) override;
 
     /** Repaints the column the playhead was in and the one it is in now, and
         nothing else: the arrangement is a large surface and the playhead is a
@@ -62,10 +74,23 @@ private:
 
     [[nodiscard]] juce::Rectangle<int> timelineArea() const;
     [[nodiscard]] juce::Rectangle<int> playheadColumn (int x) const;
+    [[nodiscard]] std::optional<TrackDrawing> trackAt (int y);
+    void beginRename (duet::model::TrackRef track);
+    void showTrackMenu (duet::model::TrackRef track);
+    void commitRename();
 
     Appearance& appearance;
     ArrangementView& view;
     std::unique_ptr<Ruler> ruler;
+    juce::AudioFormatManager audioFormats;
+    juce::AudioThumbnailCache thumbnailCache { 32 };
+    std::unordered_map<duet::model::ClipRef, std::unique_ptr<juce::AudioThumbnail>> thumbnails;
+    std::unique_ptr<juce::TextEditor> nameEditor;
+    duet::model::TrackRef editingTrack = duet::model::noTrack;
+    duet::model::TrackRef draggedTrack = duet::model::noTrack;
+    duet::model::TrackRef resizingTrack = duet::model::noTrack;
+    int dragStartY = 0;
+    int resizeStartHeight = 0;
     int playheadX = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ArrangementCanvas)

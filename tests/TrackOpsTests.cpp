@@ -6,6 +6,7 @@
 
 using duet::model::BuiltinPlugin;
 using duet::model::Session;
+using duet::model::TrackColour;
 using duet::model::TrackKind;
 using duet::model::TrackRef;
 using duet::testing::TempProject;
@@ -89,6 +90,65 @@ TEST_CASE ("a track's output is routed into a group bus, and the routing undoes 
                            [&] (auto& ops) { ops.setTrackOutput (vocals, noBus); });
 
     REQUIRE (session.track (vocals).output == duet::model::noTrack);
+}
+
+TEST_CASE ("a track colour is project state and undoes exactly")
+{
+    const TempProject project;
+    Session session { project.editFile() };
+
+    TrackRef keys = duet::model::noTrack;
+    session.performAction ("Add MIDI Track",
+                           [&] (auto& ops) { keys = ops.createTrack (TrackKind::midi, "Keys"); });
+
+    const auto beforeColour = session.stateDigest();
+    session.performAction ("Set Track Colour",
+                           [&] (auto& ops) { ops.setTrackColour (keys, TrackColour::blue); });
+
+    REQUIRE (session.track (keys).colour == TrackColour::blue);
+    REQUIRE (session.undoNames().front() == "Set Track Colour");
+    REQUIRE (session.undo());
+    REQUIRE (session.stateDigest() == beforeColour);
+    REQUIRE (session.redo());
+    REQUIRE (session.track (keys).colour == TrackColour::blue);
+}
+
+TEST_CASE ("duplicating a track copies its clips and producer plugin chain in one Action")
+{
+    const TempProject project;
+    Session session { project.editFile() };
+
+    TrackRef keys = duet::model::noTrack;
+    duet::model::ClipRef phrase = duet::model::noClip;
+    session.performAction ("Build Keys",
+                           [&] (auto& ops)
+                           {
+                               keys =
+                                   ops.createTrack (TrackKind::midi, "Keys", BuiltinPlugin::synth);
+                               phrase = ops.insertMidiClip (keys, "Phrase", 1.0, 4.0);
+                               ops.addNote (phrase, 60, 0.0, 1.0, 100);
+                               ops.addPlugin (keys, BuiltinPlugin::reverb, 1);
+                               ops.setTrackColour (keys, TrackColour::purple);
+                           });
+
+    const auto beforeDuplicate = session.stateDigest();
+    const auto trackCountBefore = session.tracks().size();
+    TrackRef copy = duet::model::noTrack;
+    session.performAction ("Duplicate Track",
+                           [&] (auto& ops) { copy = ops.duplicateTrack (keys); });
+
+    REQUIRE (copy != duet::model::noTrack);
+    REQUIRE (session.tracks().size() == trackCountBefore + 1);
+    REQUIRE (session.track (copy).clips.size() == 1);
+    REQUIRE (session.track (copy).plugins.size() == 2);
+    REQUIRE (session.track (copy).colour == TrackColour::purple);
+    REQUIRE (session.notes (session.track (copy).clips.front().clip).size() == 1);
+    REQUIRE (session.undoNames().front() == "Duplicate Track");
+
+    REQUIRE (session.undo());
+    REQUIRE (session.stateDigest() == beforeDuplicate);
+    REQUIRE (session.redo());
+    REQUIRE (session.tracks().size() == trackCountBefore + 1);
 }
 
 TEST_CASE ("audio routed through a group bus still reaches the output")

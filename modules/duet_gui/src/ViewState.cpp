@@ -69,8 +69,31 @@ int ViewState::trackHeightPx (duet::model::TrackRef track) const
     return row == trackRows.end() ? defaultTrackHeightPx : row->second.heightPx;
 }
 
+void ViewState::ensureTrack (duet::model::TrackRef track)
+{
+    if (track != duet::model::noTrack)
+        trackRows.try_emplace (track);
+}
+
+void ViewState::syncTracks (std::span<const duet::model::TrackRef> tracks)
+{
+    for (const auto track : tracks)
+        ensureTrack (track);
+
+    std::erase_if (trackRows,
+                   [tracks] (const auto& row)
+                   { return std::find (tracks.begin(), tracks.end(), row.first) == tracks.end(); });
+}
+
+void ViewState::removeTrack (duet::model::TrackRef track) { trackRows.erase (track); }
+
+bool ViewState::hasTrack (duet::model::TrackRef track) const { return trackRows.contains (track); }
+
 void ViewState::setTrackHeightPx (duet::model::TrackRef track, int newHeight)
 {
+    if (track == duet::model::noTrack)
+        return;
+
     trackRows[track].heightPx = std::clamp (newHeight, minimumTrackHeightPx, maximumTrackHeightPx);
 }
 

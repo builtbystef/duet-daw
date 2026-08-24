@@ -57,7 +57,7 @@ add_library(duet::gui_components ALIAS duet_gui_components)
 target_include_directories(duet_gui_components PUBLIC components)
 target_compile_features(duet_gui_components PRIVATE cxx_std_20)
 target_link_libraries(duet_gui_components
-    PUBLIC duet::gui duet_juce_config juce::juce_gui_basics
+    PUBLIC duet::gui duet_juce_config juce::juce_audio_utils juce::juce_gui_basics
     # The rendering escape hatch spec 535bbo settled: the software renderer is
     # what every surface is drawn on, and this is the way out for one that ever
     # stops holding.

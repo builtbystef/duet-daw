@@ -78,6 +78,7 @@ public:
         project goes.
     */
     void setTimelineClock (TimelineClock* projectClock);
+    void setSession (duet::model::Session* openProject);
 
     //==============================================================================
     /** What a divider drag means: where the producer has put the boundary, in

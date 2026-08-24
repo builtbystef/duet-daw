@@ -88,6 +88,7 @@ public:
         // The shell reads the clock, and the clock reads the session: it stops
         // reading before either of them goes.
         shell.setTimelineClock (nullptr);
+        shell.setSession (nullptr);
     }
 
     /** Puts the keys on the shell. The panel keys are the shell's, and a window
@@ -190,6 +191,7 @@ private:
         // the shell is told before either — a surface never holds a clock past
         // the project it belongs to.
         shell.setTimelineClock (nullptr);
+        shell.setSession (nullptr);
         clock.reset();
 
         // The old project goes first: a session holds an engine, and an engine
@@ -220,6 +222,7 @@ private:
         // The timeline is drawn against the project's tempo and metre, and the
         // playhead against its transport.
         clock = std::make_unique<duet::gui::SessionClock> (project->session());
+        shell.setSession (&project->session());
         shell.setTimelineClock (clock.get());
 
         if (forNewProject)

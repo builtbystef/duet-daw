@@ -236,6 +236,11 @@ std::vector<TrackInfo> Session::tracks() const
         trackInfo.kind = trackKindOf (*track);
         trackInfo.muted = track->isMuted (false);
         trackInfo.soloed = track->isSolo (false);
+        trackInfo.colour = static_cast<TrackColour> (
+            juce::jlimit (0,
+                          7,
+                          static_cast<int> (track->state.getProperty (
+                              juce::Identifier { "duetTrackColour" }, 0))));
 
         if (const auto destination = impl->destinationStateFor (trackInfo.track);
             destination.isValid())
