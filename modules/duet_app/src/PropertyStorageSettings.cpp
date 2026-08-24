@@ -11,7 +11,13 @@ struct PropertyStorageSettings::Impl
     te::PropertyStorage storage { "Duet" };
 };
 
-PropertyStorageSettings::PropertyStorageSettings() : impl (std::make_unique<Impl>()) {}
+PropertyStorageSettings::PropertyStorageSettings() : impl (std::make_unique<Impl>())
+{
+    auto& file = impl->storage.getPropertiesFile();
+    file.reload();
+    file.setValue ("duetApplicationVersion", JUCE_APPLICATION_VERSION_STRING);
+    file.save();
+}
 
 PropertyStorageSettings::~PropertyStorageSettings() { impl->storage.getPropertiesFile().save(); }
 

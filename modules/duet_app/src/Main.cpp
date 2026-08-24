@@ -198,13 +198,29 @@ private:
         // holds the audio device.
         project.reset();
 
-        project = forNewProject ? duet::persistence::Project::create (folder)
-                                : duet::persistence::Project::open (folder);
+        std::string openFailure;
+
+        if (forNewProject)
+        {
+            project = duet::persistence::Project::create (folder);
+        }
+        else
+        {
+            auto opened = duet::persistence::Project::openWithResult (folder);
+            project = std::move (opened.project);
+            openFailure = std::move (opened.message);
+        }
 
         if (project == nullptr)
         {
             problem =
-                forNewProject ? "Could not create a project there" : "No project to open there";
+                forNewProject ? "Could not create a project there" : juce::String { openFailure };
+
+            if (! forNewProject && ! openFailure.empty())
+                juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon,
+                                                        "Could not open project",
+                                                        juce::String { openFailure });
+
             refreshTitle();
             return;
         }

@@ -7,6 +7,7 @@
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 
 #include <fstream>
+#include <sstream>
 
 using Catch::Matchers::WithinAbs;
 using duet::model::TrackKind;
@@ -20,6 +21,27 @@ namespace
     up: what "create a project" is asked to make out of nothing.
 */
 std::filesystem::path freshFolderIn (const TempProject& temp) { return temp.folder() / "Nocturne"; }
+
+std::string fileContents (const std::filesystem::path& file)
+{
+    const std::ifstream input { file };
+    std::ostringstream contents;
+    contents << input.rdbuf();
+    return std::move (contents).str();
+}
+
+void stampSchemaVersion (const std::filesystem::path& file, int from, int to)
+{
+    auto contents = fileContents (file);
+    const auto oldStamp = "duetSchemaVersion=\"" + std::to_string (from) + "\"";
+    const auto newStamp = "duetSchemaVersion=\"" + std::to_string (to) + "\"";
+    const auto position = contents.find (oldStamp);
+    REQUIRE (position != std::string::npos);
+    contents.replace (position, oldStamp.size(), newStamp);
+
+    std::ofstream output { file, std::ios::trunc };
+    output << contents;
+}
 } // namespace
 
 TEST_CASE ("a created project is a folder with an edit file and an audio subdirectory")
@@ -34,6 +56,94 @@ TEST_CASE ("a created project is a folder with an edit file and an audio subdire
     REQUIRE (std::filesystem::is_directory (folder));
     REQUIRE (std::filesystem::is_regular_file (duet::persistence::editFile (folder)));
     REQUIRE (std::filesystem::is_directory (duet::persistence::audioDirectory (folder)));
+}
+
+TEST_CASE ("every saved project carries the current Duet schema version")
+{
+    const TempProject temp;
+    const auto folder = freshFolderIn (temp);
+    const auto project = Project::create (folder);
+    REQUIRE (project != nullptr);
+
+    const auto saved = fileContents (duet::persistence::editFile (folder));
+    const auto stamp =
+        "duetSchemaVersion=\"" + std::to_string (duet::persistence::currentSchemaVersion) + "\"";
+    REQUIRE (saved.find (stamp) != std::string::npos);
+}
+
+TEST_CASE ("a project from a newer schema is refused without touching its file")
+{
+    const TempProject temp;
+    const auto folder = freshFolderIn (temp);
+    auto project = Project::create (folder);
+    REQUIRE (project != nullptr);
+    project.reset();
+
+    const auto neededVersion = duet::persistence::currentSchemaVersion + 1;
+    const auto file = duet::persistence::editFile (folder);
+    stampSchemaVersion (file, duet::persistence::currentSchemaVersion, neededVersion);
+    const auto before = fileContents (file);
+
+    const auto opened = Project::openWithResult (folder);
+
+    REQUIRE (opened.project == nullptr);
+    REQUIRE (opened.message
+             == "This project needs Duet schema version " + std::to_string (neededVersion)
+                    + "; open it with a newer Duet.");
+    REQUIRE (fileContents (file) == before);
+}
+
+TEST_CASE ("project migrations run one version at a time, oldest first")
+{
+    const TempProject temp;
+    const auto folder = freshFolderIn (temp);
+    auto project = Project::create (folder);
+    REQUIRE (project != nullptr);
+    project->setDuetValue ("projectNotes", "migrate me");
+    REQUIRE (project->save());
+    project.reset();
+
+    const auto file = duet::persistence::editFile (folder);
+    stampSchemaVersion (file, duet::persistence::currentSchemaVersion, 0);
+
+    auto opened = Project::openWithResult (folder);
+    REQUIRE (opened.project != nullptr);
+    REQUIRE (opened.message.empty());
+    REQUIRE (opened.project->viewState().intValue ("layoutVersion", 0) == 1);
+    REQUIRE (opened.project->duetValue ("sessionNotes") == "migrate me");
+    REQUIRE (opened.project->duetValue ("projectNotes").empty());
+
+    REQUIRE (opened.project->save());
+    opened.project.reset();
+
+    const auto saved = fileContents (file);
+    const auto currentStamp =
+        "duetSchemaVersion=\"" + std::to_string (duet::persistence::currentSchemaVersion) + "\"";
+    REQUIRE (saved.find (currentStamp) != std::string::npos);
+
+    const auto reopened = Project::openWithResult (folder);
+    REQUIRE (reopened.project != nullptr);
+    REQUIRE (reopened.project->duetValue ("sessionNotes") == "migrate me");
+}
+
+TEST_CASE ("the immediately preceding schema runs only its remaining migration")
+{
+    const TempProject temp;
+    const auto folder = freshFolderIn (temp);
+    auto project = Project::create (folder);
+    REQUIRE (project != nullptr);
+    project->setDuetValue ("projectNotes", "one step");
+    REQUIRE (project->save());
+    project.reset();
+
+    const auto file = duet::persistence::editFile (folder);
+    stampSchemaVersion (
+        file, duet::persistence::currentSchemaVersion, duet::persistence::currentSchemaVersion - 1);
+
+    const auto opened = Project::openWithResult (folder);
+    REQUIRE (opened.project != nullptr);
+    REQUIRE (opened.project->duetValue ("sessionNotes") == "one step");
+    REQUIRE (opened.project->viewState().intValue ("layoutVersion", 0) == 1);
 }
 
 TEST_CASE ("a project comes back from disk in the state it was saved in")

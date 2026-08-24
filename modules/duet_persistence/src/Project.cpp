@@ -14,6 +14,8 @@ namespace
 {
     /** Duet's half of the project file (ADR 0005). */
     constexpr const char* duetTreeName = "DUET";
+    constexpr const char* schemaVersionName = "duetSchemaVersion";
+    constexpr const char* layoutVersionName = "layoutVersion";
 
     juce::File toJuceFile (const std::filesystem::path& path)
     {
@@ -176,6 +178,60 @@ namespace
                 node.setProperty (te::IDs::parameters, blob.getMemoryBlock(), nullptr);
         }
     }
+
+    juce::ValueTree duetTreeOf (te::Edit& edit)
+    {
+        return edit.state.getOrCreateChildWithName (juce::Identifier { duetTreeName }, nullptr);
+    }
+
+    /** Schema 1 introduced the durable per-project view node. */
+    void migrateToSchema1 (juce::ValueTree duetTree)
+    {
+        duetTree.getOrCreateChildWithName (toIdentifier (viewTreeName), nullptr);
+    }
+
+    /** Schema 2 versioned the view layout and renamed the early notes key. */
+    void migrateToSchema2 (juce::ValueTree duetTree)
+    {
+        auto view = duetTree.getOrCreateChildWithName (toIdentifier (viewTreeName), nullptr);
+        view.setProperty (layoutVersionName, 1, nullptr);
+
+        const juce::Identifier oldNotes { "projectNotes" };
+        const juce::Identifier sessionNotes { "sessionNotes" };
+
+        if (duetTree.hasProperty (oldNotes) && ! duetTree.hasProperty (sessionNotes))
+            duetTree.setProperty (sessionNotes, duetTree[oldNotes], nullptr);
+
+        duetTree.removeProperty (oldNotes, nullptr);
+    }
+
+    bool migrateToCurrentSchema (juce::ValueTree duetTree, int storedVersion)
+    {
+        auto version = std::max (0, storedVersion);
+
+        while (version < currentSchemaVersion)
+        {
+            switch (version)
+            {
+                case 0:
+                    migrateToSchema1 (duetTree);
+                    break;
+
+                case 1:
+                    migrateToSchema2 (duetTree);
+                    break;
+
+                default:
+                    jassertfalse;
+                    return false;
+            }
+
+            ++version;
+            duetTree.setProperty (schemaVersionName, version, nullptr);
+        }
+
+        return true;
+    }
 } // namespace
 
 //==============================================================================
@@ -198,16 +254,39 @@ std::unique_ptr<Project> Project::create (const std::filesystem::path& folder)
 
 std::unique_ptr<Project> Project::open (const std::filesystem::path& folder)
 {
+    return openWithResult (folder).project;
+}
+
+ProjectOpenResult Project::openWithResult (const std::filesystem::path& folder)
+{
     auto session = duet::model::Session::openExisting (editFile (folder));
 
     if (session == nullptr)
-        return nullptr;
+        return { nullptr, "No readable project was found there." };
 
-    return std::unique_ptr<Project> { new Project { folder, std::move (session) } };
+    auto& edit = duet::model::EngineAccess::editOf (*session);
+    auto duetTree = duetTreeOf (edit);
+    const auto storedVersion = static_cast<int> (duetTree.getProperty (schemaVersionName, 0));
+
+    if (storedVersion > currentSchemaVersion)
+        return { nullptr,
+                 "This project needs Duet schema version " + std::to_string (storedVersion)
+                     + "; open it with a newer Duet." };
+
+    const auto migrated = storedVersion < currentSchemaVersion;
+
+    if (! migrateToCurrentSchema (duetTree, storedVersion))
+        return { nullptr, "This project's Duet schema could not be migrated." };
+
+    return { std::unique_ptr<Project> { new Project { folder, std::move (session), migrated } },
+             {} };
 }
 
-Project::Project (std::filesystem::path folder, std::unique_ptr<duet::model::Session> session)
-    : projectFolder (std::move (folder)), editSession (std::move (session))
+Project::Project (std::filesystem::path folder,
+                  std::unique_ptr<duet::model::Session> session,
+                  bool migrated)
+    : projectFolder (std::move (folder)), editSession (std::move (session)),
+      unsavedChanges (migrated)
 {
     // The shape of a project folder is this facade's, so this is where the model
     // is told which part of it a take goes into (ADR 0005).
@@ -222,6 +301,7 @@ bool Project::save()
 {
     auto& edit = duet::model::EngineAccess::editOf (*editSession);
 
+    duetTreeOf (edit).setProperty (schemaVersionName, currentSchemaVersion, nullptr);
     writeViewState();
 
     const auto snapshot = edit.state.createCopy();

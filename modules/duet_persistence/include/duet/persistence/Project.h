@@ -23,6 +23,11 @@ namespace duet::persistence
 */
 inline constexpr std::string_view viewTreeName = "VIEW";
 
+/** The project-format version written by this build. */
+inline constexpr int currentSchemaVersion = 2;
+
+struct ProjectOpenResult;
+
 /** One open project. */
 class Project
 {
@@ -35,8 +40,13 @@ public:
     */
     [[nodiscard]] static std::unique_ptr<Project> create (const std::filesystem::path& folder);
 
-    /** Opens the project a folder holds. Null when there is none to read. */
+    /** Opens the project a folder holds. Null when there is none to read or its
+        schema needs a newer Duet. */
     [[nodiscard]] static std::unique_ptr<Project> open (const std::filesystem::path& folder);
+
+    /** Opens with the reason for a refusal. Migrations finish before the
+        returned project can expose any of the DUET tree to a caller. */
+    [[nodiscard]] static ProjectOpenResult openWithResult (const std::filesystem::path& folder);
 
     ~Project();
 
@@ -114,7 +124,9 @@ public:
     [[nodiscard]] DataNode viewState() const;
 
 private:
-    Project (std::filesystem::path folder, std::unique_ptr<duet::model::Session> session);
+    Project (std::filesystem::path folder,
+             std::unique_ptr<duet::model::Session> session,
+             bool migrated = false);
 
     void writeViewState();
 
@@ -122,5 +134,13 @@ private:
     std::unique_ptr<duet::model::Session> editSession;
     std::function<DataNode()> captureViewState;
     bool unsavedChanges = false;
+};
+
+/** The result of trying to open a project. A refusal has no project and carries
+    the producer-facing reason; success has a project and no message. */
+struct ProjectOpenResult
+{
+    std::unique_ptr<Project> project;
+    std::string message;
 };
 } // namespace duet::persistence
