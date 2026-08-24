@@ -3,6 +3,7 @@
 #include <duet/persistence/Project.h>
 
 #include <duet/gui/Appearance.h>
+#include <duet/gui/AutosaveSettings.h>
 #include <duet/gui/GraphiteLookAndFeel.h>
 #include <duet/gui/MainShell.h>
 #include <duet/gui/Rendering.h>
@@ -99,7 +100,26 @@ public:
     void resized() override { shell.setBounds (getLocalBounds()); }
 
 private:
-    void timerCallback() override { refreshTitle(); }
+    void timerCallback() override
+    {
+        syncAutosaveInterval();
+
+        if (project != nullptr)
+            project->autosaveTick();
+
+        refreshTitle();
+    }
+
+    void syncAutosaveInterval()
+    {
+        if (project == nullptr)
+            return;
+
+        const auto stored = duet::gui::autosaveInterval (settings);
+
+        if (project->autosaveInterval() != stored)
+            project->setAutosaveInterval (stored);
+    }
 
     void addHostEntries (juce::PopupMenu& menu) const
     {
@@ -187,6 +207,38 @@ private:
 
     void openFolder (const std::filesystem::path& folder, bool forNewProject)
     {
+        if (! forNewProject && duet::persistence::Project::recoveryAvailable (folder))
+        {
+            const juce::Component::SafePointer<ShellHost> host { this };
+            const auto options =
+                juce::MessageBoxOptions {}
+                    .withIconType (juce::MessageBoxIconType::QuestionIcon)
+                    .withTitle ("Restore autosaved project?")
+                    .withMessage ("Duet found newer autosaved changes. Restore "
+                                  "them, or open the last explicitly saved project?")
+                    .withButton ("Restore")
+                    .withButton ("Open Saved");
+
+            juce::AlertWindow::showAsync (
+                options,
+                [host, folder] (int result)
+                {
+                    if (host != nullptr)
+                        host->openFolder (folder,
+                                          false,
+                                          result == 1 ? duet::persistence::RecoveryChoice::restore
+                                                      : duet::persistence::RecoveryChoice::decline);
+                });
+            return;
+        }
+
+        openFolder (folder, forNewProject, duet::persistence::RecoveryChoice::decline);
+    }
+
+    void openFolder (const std::filesystem::path& folder,
+                     bool forNewProject,
+                     duet::persistence::RecoveryChoice recoveryChoice)
+    {
         // The clock reads the session, so it goes before the session does, and
         // the shell is told before either — a surface never holds a clock past
         // the project it belongs to.
@@ -206,7 +258,7 @@ private:
         }
         else
         {
-            auto opened = duet::persistence::Project::openWithResult (folder);
+            auto opened = duet::persistence::Project::openWithResult (folder, recoveryChoice);
             project = std::move (opened.project);
             openFailure = std::move (opened.message);
         }
@@ -226,6 +278,7 @@ private:
         }
 
         problem = {};
+        project->setAutosaveInterval (duet::gui::autosaveInterval (settings));
 
         // The producer's layout for this project, and the arrangement that gets
         // it back onto disk: the view is asked for as a save begins and never

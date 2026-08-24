@@ -14,6 +14,7 @@ add_executable(duet_tests
     ArrangementTrackTests.cpp
     ArrangementViewTests.cpp
     AutomationOpsTests.cpp
+    AutosaveTests.cpp
     ClipOpsTests.cpp
     CollaboratorServiceTests.cpp
     DemoWalkthroughTests.cpp

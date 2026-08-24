@@ -23,4 +23,10 @@ std::filesystem::path editFile (const std::filesystem::path& projectFolder);
     a project.
 */
 std::filesystem::path partialSaveFile (const std::filesystem::path& projectFolder);
+
+/** The one crash-recovery snapshot beside the project file. */
+std::filesystem::path recoveryFile (const std::filesystem::path& projectFolder);
+
+/** Where an autosave is completed before it atomically replaces recovery. */
+std::filesystem::path partialRecoveryFile (const std::filesystem::path& projectFolder);
 } // namespace duet::persistence

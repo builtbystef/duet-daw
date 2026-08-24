@@ -10,6 +10,7 @@
 add_library(duet_gui STATIC
     src/Appearance.cpp
     src/ArrangementView.cpp
+    src/AutosaveSettings.cpp
     src/Rendering.cpp
     src/SessionClock.cpp
     src/Shortcuts.cpp

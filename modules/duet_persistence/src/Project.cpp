@@ -232,6 +232,25 @@ namespace
 
         return true;
     }
+
+    std::chrono::steady_clock::duration durationOf (AutosaveInterval interval)
+    {
+        using enum AutosaveInterval;
+
+        switch (interval)
+        {
+            case off:
+                return std::chrono::steady_clock::duration::max();
+            case twoMinutes:
+                return std::chrono::minutes { 2 };
+            case fiveMinutes:
+                return std::chrono::minutes { 5 };
+            case tenMinutes:
+                return std::chrono::minutes { 10 };
+        }
+
+        return std::chrono::minutes { 10 };
+    }
 } // namespace
 
 //==============================================================================
@@ -257,12 +276,16 @@ std::unique_ptr<Project> Project::open (const std::filesystem::path& folder)
     return openWithResult (folder).project;
 }
 
-ProjectOpenResult Project::openWithResult (const std::filesystem::path& folder)
+ProjectOpenResult Project::openWithResult (const std::filesystem::path& folder,
+                                           RecoveryChoice recoveryChoice)
 {
-    auto session = duet::model::Session::openExisting (editFile (folder));
+    const auto recoveryWasAvailable = recoveryAvailable (folder);
+    const auto restoring = recoveryChoice == RecoveryChoice::restore && recoveryWasAvailable;
+    const auto source = restoring ? recoveryFile (folder) : editFile (folder);
+    auto session = duet::model::Session::openExisting (source);
 
     if (session == nullptr)
-        return { nullptr, "No readable project was found there." };
+        return { nullptr, "No readable project was found there.", recoveryWasAvailable };
 
     auto& edit = duet::model::EngineAccess::editOf (*session);
     auto duetTree = duetTreeOf (edit);
@@ -271,15 +294,39 @@ ProjectOpenResult Project::openWithResult (const std::filesystem::path& folder)
     if (storedVersion > currentSchemaVersion)
         return { nullptr,
                  "This project needs Duet schema version " + std::to_string (storedVersion)
-                     + "; open it with a newer Duet." };
+                     + "; open it with a newer Duet.",
+                 recoveryWasAvailable };
 
     const auto migrated = storedVersion < currentSchemaVersion;
 
     if (! migrateToCurrentSchema (duetTree, storedVersion))
-        return { nullptr, "This project's Duet schema could not be migrated." };
+        return { nullptr,
+                 "This project's Duet schema could not be migrated.",
+                 recoveryWasAvailable };
 
-    return { std::unique_ptr<Project> { new Project { folder, std::move (session), migrated } },
-             {} };
+    if (! restoring)
+    {
+        std::error_code ignored;
+        std::filesystem::remove (recoveryFile (folder), ignored);
+        std::filesystem::remove (partialRecoveryFile (folder), ignored);
+    }
+
+    return { std::unique_ptr<Project> {
+                 new Project { folder, std::move (session), migrated || restoring } },
+             {},
+             recoveryWasAvailable };
+}
+
+bool Project::recoveryAvailable (const std::filesystem::path& folder)
+{
+    std::error_code failure;
+    const auto projectTime = std::filesystem::last_write_time (editFile (folder), failure);
+
+    if (failure)
+        return false;
+
+    const auto recoveryTime = std::filesystem::last_write_time (recoveryFile (folder), failure);
+    return ! failure && recoveryTime > projectTime;
 }
 
 Project::Project (std::filesystem::path folder,
@@ -299,6 +346,60 @@ Project::~Project() = default;
 //==============================================================================
 bool Project::save()
 {
+    if (! writeSnapshot (editFile (projectFolder), partialSaveFile (projectFolder)))
+        return false;
+
+    std::error_code ignored;
+    std::filesystem::remove (recoveryFile (projectFolder), ignored);
+    std::filesystem::remove (partialRecoveryFile (projectFolder), ignored);
+    unsavedChanges = false;
+    return true;
+}
+
+void Project::setAutosaveInterval (AutosaveInterval interval,
+                                   std::chrono::steady_clock::time_point now)
+{
+    autosaveEvery = interval;
+    lastAutosaveTick = now;
+}
+
+bool Project::autosaveTick (std::chrono::steady_clock::time_point now)
+{
+    if (autosaveEvery == AutosaveInterval::off)
+        return false;
+
+    if (now < lastAutosaveTick || now - lastAutosaveTick < durationOf (autosaveEvery))
+        return false;
+
+    lastAutosaveTick = now;
+
+    if (! unsavedChanges
+        || ! writeSnapshot (recoveryFile (projectFolder), partialRecoveryFile (projectFolder)))
+        return false;
+
+    // Some filesystems expose coarse mtimes. Recovery is offered only when it
+    // is newer than the explicit save, so make that ordering true even when two
+    // successful writes would otherwise receive the same timestamp.
+    std::error_code failure;
+    const auto savedTime = std::filesystem::last_write_time (editFile (projectFolder), failure);
+
+    if (! failure)
+    {
+        const auto recoveredTime =
+            std::filesystem::last_write_time (recoveryFile (projectFolder), failure);
+
+        if (! failure && recoveredTime <= savedTime)
+            std::filesystem::last_write_time (recoveryFile (projectFolder),
+                                              savedTime + decltype (savedTime)::duration { 1 },
+                                              failure);
+    }
+
+    return true;
+}
+
+bool Project::writeSnapshot (const std::filesystem::path& destination,
+                             const std::filesystem::path& partial)
+{
     auto& edit = duet::model::EngineAccess::editOf (*editSession);
 
     duetTreeOf (edit).setProperty (schemaVersionName, currentSchemaVersion, nullptr);
@@ -307,14 +408,13 @@ bool Project::save()
     const auto snapshot = edit.state.createCopy();
     applyParameterBlobs (edit, snapshot);
 
-    const auto partial = partialSaveFile (projectFolder);
     const auto xml = snapshot.createXml();
 
     if (xml == nullptr || ! xml->writeTo (toJuceFile (partial)))
         return false;
 
     std::error_code failure;
-    std::filesystem::rename (partial, editFile (projectFolder), failure);
+    std::filesystem::rename (partial, destination, failure);
 
     if (failure)
     {
@@ -323,7 +423,6 @@ bool Project::save()
         return false;
     }
 
-    unsavedChanges = false;
     return true;
 }
 

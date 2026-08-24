@@ -3,6 +3,8 @@
 #include <duet/model/Session.h>
 #include <duet/persistence/DataNode.h>
 
+#include <chrono>
+#include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <memory>
@@ -26,6 +28,26 @@ inline constexpr std::string_view viewTreeName = "VIEW";
 /** The project-format version written by this build. */
 inline constexpr int currentSchemaVersion = 2;
 
+/** How often a dirty project writes its one recovery snapshot. The values are
+    deliberately closed: they are the four choices in Settings > Interface.
+*/
+enum class AutosaveInterval : std::uint8_t
+{
+    off,
+    twoMinutes,
+    fiveMinutes,
+    tenMinutes
+};
+
+inline constexpr auto defaultAutosaveInterval = AutosaveInterval::tenMinutes;
+
+/** Which durable state to open after the producer answers a recovery offer. */
+enum class RecoveryChoice : std::uint8_t
+{
+    decline,
+    restore
+};
+
 struct ProjectOpenResult;
 
 /** One open project. */
@@ -46,7 +68,12 @@ public:
 
     /** Opens with the reason for a refusal. Migrations finish before the
         returned project can expose any of the DUET tree to a caller. */
-    [[nodiscard]] static ProjectOpenResult openWithResult (const std::filesystem::path& folder);
+    [[nodiscard]] static ProjectOpenResult
+        openWithResult (const std::filesystem::path& folder,
+                        RecoveryChoice recoveryChoice = RecoveryChoice::decline);
+
+    /** True when one newer recovery snapshot can be offered for this project. */
+    [[nodiscard]] static bool recoveryAvailable (const std::filesystem::path& folder);
 
     ~Project();
 
@@ -82,6 +109,23 @@ public:
         not that the state differs from the file.
     */
     [[nodiscard]] bool hasUnsavedChanges() const { return unsavedChanges; }
+
+    //==============================================================================
+    /** Changes how often this project writes recovery snapshots. The optional
+        time is the scheduling seam: the app uses the steady clock, while tests
+        can advance it without waiting for minutes.
+    */
+    void setAutosaveInterval (
+        AutosaveInterval interval,
+        std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now());
+
+    [[nodiscard]] AutosaveInterval autosaveInterval() const { return autosaveEvery; }
+
+    /** Gives the autosave scheduler its current time. Returns true only when an
+        elapsed, enabled interval wrote the dirty project to recovery.
+    */
+    bool
+        autosaveTick (std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now());
 
     /** Copies an audio file into the project's audio subdirectory and returns
         the copy, so that a clip inserted from it travels with the folder. A
@@ -128,11 +172,15 @@ private:
              std::unique_ptr<duet::model::Session> session,
              bool migrated = false);
 
+    bool writeSnapshot (const std::filesystem::path& destination,
+                        const std::filesystem::path& partial);
     void writeViewState();
 
     std::filesystem::path projectFolder;
     std::unique_ptr<duet::model::Session> editSession;
     std::function<DataNode()> captureViewState;
+    std::chrono::steady_clock::time_point lastAutosaveTick = std::chrono::steady_clock::now();
+    AutosaveInterval autosaveEvery = defaultAutosaveInterval;
     bool unsavedChanges = false;
 };
 
@@ -142,5 +190,6 @@ struct ProjectOpenResult
 {
     std::unique_ptr<Project> project;
     std::string message;
+    bool recoveryAvailable = false;
 };
 } // namespace duet::persistence
