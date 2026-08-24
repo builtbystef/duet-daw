@@ -7,6 +7,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <variant>
 #include <vector>
 
 /** The edit vocabulary layer over the engine's Edit.
@@ -72,6 +73,7 @@ inline constexpr InputRef noInput = 0;
 inline constexpr double silentDb = -100.0;
 
 class Session;
+class Suggestion;
 
 /** What a track is for.
 
@@ -552,6 +554,122 @@ private:
     Session& session;
 };
 
+/** A reference to an item an earlier operation in the same Suggestion creates.
+
+    Placeholder refs exist only inside the ordered operation list. They are
+    resolved afresh each time the Suggestion is auditioned or accepted, so a
+    later operation never depends on an engine ID that did not exist when the
+    Suggestion was made.
+*/
+struct SuggestionRef
+{
+    std::uint64_t value = 0;
+};
+
+/** Either an item already in the project or one an earlier operation creates. */
+using SuggestionTarget = std::variant<std::uint64_t, SuggestionRef>;
+
+/** An automation target carried by Suggestion data. */
+struct SuggestionAutomationTarget
+{
+    AutomationTarget::Kind kind = AutomationTarget::Kind::trackVolume;
+    SuggestionTarget item = std::uint64_t { 0 };
+    std::string parameterId;
+
+    [[nodiscard]] static SuggestionAutomationTarget trackVolumeOf (SuggestionTarget track);
+    [[nodiscard]] static SuggestionAutomationTarget trackPanOf (SuggestionTarget track);
+    [[nodiscard]] static SuggestionAutomationTarget parameterOf (SuggestionTarget plugin,
+                                                                 std::string_view parameterId);
+};
+
+/** A pending Suggestion: a name and an ordered list of edit operations.
+
+    It is data only. Building one does not touch a Session, its project file, or
+    its undo history. The Collaborator layer owns the pending data; the model
+    only applies it transiently for Audition or as one accepted Action.
+*/
+class Suggestion
+{
+public:
+    explicit Suggestion (std::string name);
+    ~Suggestion();
+
+    Suggestion (const Suggestion& other);
+    Suggestion& operator= (const Suggestion& other);
+    Suggestion (Suggestion&&) noexcept;
+    Suggestion& operator= (Suggestion&&) noexcept;
+
+    [[nodiscard]] const std::string& name() const;
+
+    /** Appends a track creation and returns the placeholder later operations
+        use to name that track.
+    */
+    SuggestionRef createTrack (TrackKind kind,
+                               std::string_view name,
+                               std::optional<BuiltinPlugin> instrument = {});
+    SuggestionRef duplicateTrack (SuggestionTarget track);
+    void removeTrack (SuggestionTarget track);
+    void renameTrack (SuggestionTarget track, std::string_view newName);
+    void moveTrack (SuggestionTarget track, int newIndex);
+    void setTrackOutput (SuggestionTarget track, SuggestionTarget bus);
+
+    SuggestionRef insertAudioClip (SuggestionTarget track,
+                                   std::string_view name,
+                                   std::filesystem::path sourceFile,
+                                   double startSeconds,
+                                   double lengthSeconds);
+    SuggestionRef insertMidiClip (SuggestionTarget track,
+                                  std::string_view name,
+                                  double startSeconds,
+                                  double lengthSeconds);
+    void moveClip (SuggestionTarget clip, double newStartSeconds);
+    void trimClip (SuggestionTarget clip, double newLengthSeconds);
+    void deleteClip (SuggestionTarget clip);
+    void setClipLoop (SuggestionTarget clip, bool looped, double loopLengthBeats);
+    SuggestionRef
+        duplicateClip (SuggestionTarget clip, SuggestionTarget toTrack, double startSeconds);
+
+    SuggestionRef addNote (SuggestionTarget clip,
+                           int pitch,
+                           double startBeats,
+                           double lengthBeats,
+                           int velocity);
+    void removeNote (SuggestionTarget note);
+    void moveNote (SuggestionTarget note, int newPitch, double newStartBeats);
+    void resizeNote (SuggestionTarget note, double newLengthBeats);
+    void setNoteVelocity (SuggestionTarget note, int velocity);
+
+    void setTrackVolumeDb (SuggestionTarget track, double db);
+    void setTrackPan (SuggestionTarget track, double pan);
+    void setTrackMute (SuggestionTarget track, bool muted);
+    void setTrackSolo (SuggestionTarget track, bool soloed);
+    void setTrackColour (SuggestionTarget track, TrackColour colour);
+    void setSend (SuggestionTarget track, SuggestionTarget bus, double levelDb);
+
+    SuggestionRef addPlugin (SuggestionTarget track, BuiltinPlugin plugin, int position);
+    SuggestionRef
+        addPlugin (SuggestionTarget track, std::string_view knownPluginIdentifier, int position);
+    void removePlugin (SuggestionTarget plugin);
+    void reorderPlugin (SuggestionTarget plugin, int newPosition);
+    void setPluginParameter (SuggestionTarget plugin, std::string_view parameterId, double value);
+    void setPluginSidechainSource (SuggestionTarget plugin, SuggestionTarget source);
+
+    void setAutomationPoints (SuggestionAutomationTarget target,
+                              std::vector<AutomationPoint> points);
+    void removeAutomationPoints (SuggestionAutomationTarget target,
+                                 double fromSeconds,
+                                 double toSeconds);
+
+    void setTempo (double bpm);
+    void setTimeSignature (int numerator, int denominator);
+
+private:
+    friend class Session;
+
+    struct Impl;
+    std::unique_ptr<Impl> impl;
+};
+
 /** One open project's model, and the transport that plays it.
 
     The message thread is the sole writer of the project model, so every member
@@ -616,6 +734,28 @@ public:
 
     /** The names of the Actions that redo would re-apply, the next one first. */
     [[nodiscard]] std::vector<std::string> redoNames() const;
+
+    //==============================================================================
+    // Suggestions and Audition.
+
+    /** Applies a pending Suggestion transiently to the real project, with no
+        producer undo history. False when another Suggestion is already live.
+    */
+    bool auditionSuggestion (const Suggestion& suggestion);
+
+    /** Reverts a live Audition exactly. A call while idle does nothing. */
+    void stopAudition();
+
+    /** True while the transient suggested state is the state being heard. */
+    [[nodiscard]] bool isAuditioning() const;
+
+    /** Reverts any live Audition, then applies the Suggestion as one named
+        Action. One undo therefore removes every operation.
+    */
+    bool acceptSuggestion (const Suggestion& suggestion);
+
+    /** Discards a pending Suggestion. If it is live, reverts it first. */
+    void rejectSuggestion (const Suggestion& suggestion);
 
     //==============================================================================
     /** The audio tracks of the project, in their running order. */
@@ -934,6 +1074,7 @@ private:
     Session (std::filesystem::path editFile, FromFile readIt);
 
     void startUndoHistory();
+    void applySuggestion (const Suggestion& suggestion);
 
     struct Impl;
     std::unique_ptr<Impl> impl;

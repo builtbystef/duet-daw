@@ -6,7 +6,8 @@
 add_library(duet_model STATIC
     src/EditOps.cpp
     src/Recording.cpp
-    src/Session.cpp)
+    src/Session.cpp
+    src/Suggestion.cpp)
 add_library(duet::model ALIAS duet_model)
 
 target_include_directories(duet_model PUBLIC include)

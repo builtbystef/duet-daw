@@ -360,6 +360,10 @@ Project::~Project() = default;
 //==============================================================================
 bool Project::save()
 {
+    // Audition is transient and never durable. An explicit save is also the
+    // producer choosing A: revert before the snapshot is captured.
+    editSession->stopAudition();
+
     if (! writeSnapshot (editFile (projectFolder), partialSaveFile (projectFolder)))
         return false;
 
@@ -386,6 +390,11 @@ bool Project::autosaveTick (std::chrono::steady_clock::time_point now)
         return false;
 
     lastAutosaveTick = now;
+
+    // A timer tick is consumed while B is heard. The next ordinary interval
+    // resumes autosave; the transient state is never written to recovery.
+    if (editSession->isAuditioning())
+        return false;
 
     if (! unsavedChanges
         || ! writeSnapshot (recoveryFile (projectFolder), partialRecoveryFile (projectFolder)))

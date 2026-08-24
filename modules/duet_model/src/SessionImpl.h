@@ -238,6 +238,20 @@ struct Session::Impl
     std::unique_ptr<te::Edit> edit;
     std::function<void()> projectChanged;
 
+    /** The canonical project state before the live Audition, and which pending
+        data produced it. The transport is kept outside both states.
+    */
+    juce::ValueTree stateBeforeAudition;
+    const Suggestion* auditionedSuggestion = nullptr;
+
+    /** The detached Edit that turns operation data into a complete suggested
+        state. It shares this session's Engine so Audition cannot create a
+        second app-global settings owner. Reused so its in-memory item-ID
+        allocator never reuses an ID from an earlier A/B cycle while the live
+        graph may still retain that item.
+    */
+    std::unique_ptr<te::Edit> suggestionEdit;
+
     juce::UndoManager& undoManager() const { return edit->getUndoManager(); }
 
     //==============================================================================
@@ -519,6 +533,12 @@ struct Session::Impl
 
     mutable std::unordered_map<NoteRef, NoteHandle> notesByRef;
     mutable NoteRef nextNoteRef = 1;
+
+    /** The corresponding session-only handles while suggestionEdit is the Edit
+        operations are being applied to.
+    */
+    std::unordered_map<NoteRef, NoteHandle> suggestionNotesByRef;
+    NoteRef nextSuggestionNoteRef = 1;
 
     /** The handle for a note, made on first sight of it. */
     NoteRef refForNote (ClipRef clip, const juce::ValueTree& noteState) const;

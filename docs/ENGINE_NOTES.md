@@ -420,3 +420,40 @@ save/reload test.
 **Duet.** The persistence snapshot asks the instance for its state while
 processing is suspended and writes the base64 blob only onto the copied plugin
 node. The live Edit and its redo stack are untouched.
+
+### Null ValueTree writes can provoke undo-tracked engine bookkeeping
+
+**The engine.** A complete project-state change written directly to the Edit's
+ValueTree with a null UndoManager can make an engine listener answer with its
+own write through the Edit's UndoManager. That answer opens an unnamed undo
+transaction and stashes the existing redo future even though the initiating
+write was deliberately non-undoable.
+
+**Where.** Edit and track listeners responding to ValueTree mutations; JUCE's
+`UndoManager::moveFutureTransactionsToStash`.
+
+**Proved.** `em487d`. Applying and reverting an Audition digest-exact left an
+empty named transaction in front of the producer's history and hid a pending
+redo.
+
+**Duet.** Each Audition state application begins a fresh transaction around the
+null writes and synchronously dispatches the engine's answers, then calls
+`undoCurrentTransactionOnly`. JUCE removes only those answers and restores its
+stashed redo transactions; the direct null writes remain.
+
+### Appended detached items do not advance an Edit's item-ID allocator
+
+**The engine.** Adding a detached ValueTree subtree carrying item IDs does not
+pass through `Edit::createNewItemID`, so the Edit's in-memory allocator does not
+advance. A graph may also retain an item after its transient tree has been
+removed. The next ordinary creation can therefore reuse the retained item's ID.
+
+**Where.** `Edit::createNewItemID` and the Edit item registries.
+
+**Proved.** `em487d`. Accepting immediately after Audition registered the new
+track and its plugins over the retained transient items with the same IDs;
+repeated A/B did the same when each detached Edit began its allocator again.
+
+**Duet.** The detached Edit is reused across A/B cycles, and before detached
+state enters the real Edit its item-ID allocator is advanced beyond every ID in
+that state. Accepting then allocates IDs beyond the transient ones.
