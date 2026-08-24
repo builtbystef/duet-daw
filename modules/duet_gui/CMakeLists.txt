@@ -11,6 +11,7 @@ add_library(duet_gui STATIC
     src/Appearance.cpp
     src/ArrangementView.cpp
     src/AutosaveSettings.cpp
+    src/PianoRoll.cpp
     src/Rendering.cpp
     src/ProjectsSettings.cpp
     src/Selection.cpp
@@ -56,6 +57,7 @@ add_library(duet_gui_components STATIC
     components_src/GraphiteLookAndFeel.cpp
     components_src/InterTypeface.cpp
     components_src/MainShell.cpp
+    components_src/PianoRollCanvas.cpp
     components_src/SettingsWindow.cpp)
 add_library(duet::gui_components ALIAS duet_gui_components)
 

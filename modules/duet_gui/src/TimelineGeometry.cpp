@@ -113,8 +113,11 @@ void TimelineGeometry::setWidthPx (int newWidth) { canvasWidth = std::max (0, ne
 
 GridSpec TimelineGeometry::gridFor() const
 {
-    const auto subdivision =
-        view.gridSize() == GridSize::eighth ? 0.5 : subdivisionFor (minimumGridSpacingPx, false);
+    auto subdivision = subdivisionFor (minimumGridSpacingPx, false);
+    if (view.gridSize() == GridSize::quarter)
+        subdivision = 1.0;
+    else if (view.gridSize() == GridSize::eighth)
+        subdivision = 0.5;
     return { subdivision, barBeats };
 }
 

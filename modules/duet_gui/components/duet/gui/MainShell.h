@@ -2,6 +2,7 @@
 
 #include <duet/gui/Appearance.h>
 #include <duet/gui/ArrangementView.h>
+#include <duet/gui/PianoRoll.h>
 #include <duet/gui/Shortcuts.h>
 #include <duet/gui/TransportBar.h>
 #include <duet/gui/ViewState.h>
@@ -16,6 +17,7 @@ namespace duet::gui
 {
 class AcceleratedSurface;
 class ArrangementCanvas;
+class PianoRollCanvas;
 class TimelineClock;
 
 /** The names the shell's areas carry, so that what is on screen can be named
@@ -159,6 +161,7 @@ private:
         timeline will read.
     */
     ArrangementView arrangementView { view };
+    PianoRoll pianoRoll { view, arrangementView.selection() };
     TransportBar transport { view };
 
     juce::TextButton duetButton { "Duet" };

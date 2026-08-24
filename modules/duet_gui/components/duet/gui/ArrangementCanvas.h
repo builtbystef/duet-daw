@@ -32,7 +32,7 @@ class ArrangementCanvas final : public juce::Component,
 public:
     ArrangementCanvas (Appearance& lookAndScale,
                        ArrangementView& arrangement,
-                       std::function<void()> showPianoRoll = {});
+                       std::function<void (duet::model::ClipRef)> showPianoRoll = {});
 
     ~ArrangementCanvas() override;
 
@@ -113,7 +113,7 @@ private:
     bool rubberBanding = false;
     bool clipDragged = false;
     int playheadX = 0;
-    std::function<void()> openPianoRoll;
+    std::function<void (duet::model::ClipRef)> openPianoRoll;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ArrangementCanvas)
 };

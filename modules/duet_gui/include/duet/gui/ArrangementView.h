@@ -180,6 +180,7 @@ public:
     void setSelectedClipColour (duet::model::TrackColour colour);
     [[nodiscard]] duet::model::ClipRef createMidiClip (duet::model::TrackRef track, double atBeats);
     [[nodiscard]] bool isMidiClip (duet::model::ClipRef clip) const;
+    [[nodiscard]] duet::model::ClipRef selectedMidiClip() const;
 
     [[nodiscard]] TimelineGeometry& geometry() { return timeline; }
     [[nodiscard]] const TimelineGeometry& geometry() const { return timeline; }

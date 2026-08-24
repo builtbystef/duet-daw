@@ -3,6 +3,7 @@
 #include <duet/gui/AcceleratedSurface.h>
 #include <duet/gui/ArrangementCanvas.h>
 #include <duet/gui/GraphiteLookAndFeel.h>
+#include <duet/gui/PianoRollCanvas.h>
 #include <duet/gui/Tokens.h>
 #include <duet/gui/Typography.h>
 
@@ -167,10 +168,16 @@ public:
         metre.setInputRestrictions (5, "0123456789/");
 
         grid.addItem ("Adaptive", 1);
-        grid.addItem ("1/8", 2);
+        grid.addItem ("1/4", 2);
+        grid.addItem ("1/8", 3);
         grid.onChange = [this]
         {
-            model.setGridSize (grid.getSelectedId() == 2 ? GridSize::eighth : GridSize::adaptive);
+            auto chosen = GridSize::adaptive;
+            if (grid.getSelectedId() == 2)
+                chosen = GridSize::quarter;
+            else if (grid.getSelectedId() == 3)
+                chosen = GridSize::eighth;
+            model.setGridSize (chosen);
             modelChanged();
         };
 
@@ -226,8 +233,12 @@ public:
             tempo.setText (juce::String { model.tempo(), 1 }, false);
         if (! metre.hasKeyboardFocus (true))
             metre.setText (model.timeSignature(), false);
-        grid.setSelectedId (model.gridSize() == GridSize::eighth ? 2 : 1,
-                            juce::dontSendNotification);
+        auto gridId = 1;
+        if (model.gridSize() == GridSize::quarter)
+            gridId = 2;
+        else if (model.gridSize() == GridSize::eighth)
+            gridId = 3;
+        grid.setSelectedId (gridId, juce::dontSendNotification);
         loop.setToggleState (model.isLooping(), juce::dontSendNotification);
         metronome.setToggleState (model.metronomeEnabled(), juce::dontSendNotification);
         follow.setToggleState (model.followsPlayhead(), juce::dontSendNotification);
@@ -325,8 +336,10 @@ class MainShell::BottomPanel final : public juce::Component
 public:
     BottomPanel (Appearance& lookAndScale,
                  ViewState& projectView,
+                 PianoRoll& pianoRollModel,
                  std::function<void (BottomTab)> onTabClicked)
-        : appearance (lookAndScale), view (projectView), tabClicked (std::move (onTabClicked))
+        : appearance (lookAndScale), view (projectView), tabClicked (std::move (onTabClicked)),
+          pianoRoll (std::make_unique<PianoRollCanvas> (appearance, pianoRollModel))
     {
         setComponentID (surfaceId::bottomPanel);
 
@@ -348,8 +361,10 @@ public:
         const auto content = getLocalBounds().withTrimmedTop (appearance.scaled (tabBarHeight));
         const auto mixerInFront = view.bottomTab() == BottomTab::mixer;
 
-        auto& front = mixerInFront ? *mixer : *pianoRoll;
-        auto& behind = mixerInFront ? *pianoRoll : *mixer;
+        auto& front = mixerInFront ? static_cast<juce::Component&> (*mixer)
+                                   : static_cast<juce::Component&> (*pianoRoll);
+        auto& behind = mixerInFront ? static_cast<juce::Component&> (*pianoRoll)
+                                    : static_cast<juce::Component&> (*mixer);
 
         behind.setVisible (false);
         front.setBounds (content);
@@ -414,9 +429,7 @@ private:
     ViewState& view;
     std::function<void (BottomTab)> tabClicked;
 
-    std::unique_ptr<Dock> pianoRoll {
-        std::make_unique<Dock> (appearance, surfaceId::pianoRoll, "Piano Roll")
-    };
+    std::unique_ptr<PianoRollCanvas> pianoRoll;
     std::unique_ptr<Dock> mixer { std::make_unique<Dock> (appearance, surfaceId::mixer, "Mixer") };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (BottomPanel)
@@ -436,13 +449,19 @@ MainShell::MainShell (Appearance& lookAndScale, ViewState& projectView)
         transport,
         [this] (Command command) { perform (command); },
         [this] { viewStateChanged(); });
-    arrangement = std::make_unique<ArrangementCanvas> (
-        appearance, arrangementView, [this] { perform (Command::showPianoRoll); });
+    arrangement = std::make_unique<ArrangementCanvas> (appearance,
+                                                       arrangementView,
+                                                       [this] (duet::model::ClipRef clip)
+                                                       {
+                                                           pianoRoll.openClip (clip);
+                                                           perform (Command::showPianoRoll);
+                                                       });
     browser = std::make_unique<Dock> (appearance, surfaceId::browser, "Browser");
     collaborator = std::make_unique<Dock> (appearance, surfaceId::collaborator, "Collaborator");
     bottom = std::make_unique<BottomPanel> (
         appearance,
         view,
+        pianoRoll,
         [this] (BottomTab tab)
         { perform (tab == BottomTab::mixer ? Command::showMixer : Command::showPianoRoll); });
 
@@ -546,15 +565,39 @@ void MainShell::perform (Command command)
         case Command::zoomIn:
         case Command::zoomOut:
         case Command::zoomToFit:
-        case Command::selectAll:
         case Command::cut:
         case Command::copy:
         case Command::paste:
         case Command::duplicate:
-        case Command::deleteSelection:
         case Command::rename:
-        case Command::cancel:
             arrangement->perform (command);
+            break;
+
+        case Command::selectAll:
+            if (view.bottomVisible() && view.bottomTab() == BottomTab::pianoRoll
+                && pianoRoll.isOpen())
+                pianoRoll.selectAll();
+            else
+                arrangement->perform (command);
+            break;
+
+        case Command::deleteSelection:
+            if (view.bottomVisible() && view.bottomTab() == BottomTab::pianoRoll
+                && pianoRoll.isOpen())
+                pianoRoll.deleteSelected();
+            else
+                arrangement->perform (command);
+            break;
+
+        case Command::cancel:
+            if (view.bottomVisible() && view.bottomTab() == BottomTab::pianoRoll
+                && pianoRoll.isOpen())
+            {
+                pianoRoll.cancelNoteGesture();
+                pianoRoll.clearSelection();
+            }
+            else
+                arrangement->perform (command);
             break;
 
         case Command::togglePlayback:
@@ -593,6 +636,10 @@ void MainShell::perform (Command command)
         case Command::showMixer:
             // A tab behind a closed panel is not a tab the producer can see, so
             // choosing one opens the panel it is in.
+            if (command == Command::showPianoRoll)
+                if (const auto selected = arrangementView.selectedMidiClip();
+                    selected != duet::model::noClip)
+                    pianoRoll.openClip (selected);
             view.setBottomTab (command == Command::showMixer ? BottomTab::mixer
                                                              : BottomTab::pianoRoll);
             view.setBottomVisible (true);
@@ -605,12 +652,14 @@ void MainShell::perform (Command command)
 void MainShell::setTimelineClock (TimelineClock* projectClock)
 {
     arrangementView.setClock (projectClock);
+    pianoRoll.setClock (projectClock);
     viewStateChanged();
 }
 
 void MainShell::setSession (duet::model::Session* openProject)
 {
     arrangementView.setSession (openProject);
+    pianoRoll.setSession (openProject);
     transport.setSession (openProject);
     viewStateChanged();
 }

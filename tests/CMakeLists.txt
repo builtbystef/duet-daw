@@ -27,6 +27,7 @@ add_executable(duet_tests
     MidiOpsTests.cpp
     MixerOpsTests.cpp
     PlaybackLevelTests.cpp
+    PianoRollTests.cpp
     PluginHostingTests.cpp
     PluginOpsTests.cpp
     ProjectLayoutTests.cpp

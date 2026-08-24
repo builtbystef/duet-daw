@@ -18,6 +18,8 @@ namespace
         constexpr const char* vScrollPx = "vScrollPx";
         constexpr const char* gridSize = "gridSize";
         constexpr const char* followPlayhead = "followPlayhead";
+        constexpr const char* pianoRollKeyHeightPx = "pianoRollKeyHeightPx";
+        constexpr const char* pianoRollVScrollPx = "pianoRollVScrollPx";
         constexpr const char* browserVisible = "browserVisible";
         constexpr const char* collaboratorVisible = "collaboratorVisible";
         constexpr const char* bottomVisible = "bottomVisible";
@@ -46,6 +48,14 @@ void ViewState::setHZoomPxPerBeat (double newZoom)
 void ViewState::setHScrollBeats (double newScroll) { scrollBeats = std::max (0.0, newScroll); }
 
 void ViewState::setVScrollPx (int newScroll) { scrollPx = std::max (0, newScroll); }
+
+void ViewState::setPianoRollKeyHeightPx (int newHeight)
+{
+    pianoKeyHeightPx =
+        std::clamp (newHeight, minimumPianoRollKeyHeightPx, maximumPianoRollKeyHeightPx);
+}
+
+void ViewState::setPianoRollVScrollPx (int newScroll) { pianoVScrollPx = std::max (0, newScroll); }
 
 void ViewState::setBrowserWidthPx (int newWidth)
 {
@@ -127,8 +137,15 @@ duet::persistence::DataNode ViewState::toData() const
     view.set (attribute::hZoomPxPerBeat, zoomPxPerBeat);
     view.set (attribute::hScrollBeats, scrollBeats);
     view.set (attribute::vScrollPx, scrollPx);
-    view.set (attribute::gridSize, grid == GridSize::eighth ? "eighth" : "adaptive");
+    auto gridName = std::string { "adaptive" };
+    if (grid == GridSize::quarter)
+        gridName = "quarter";
+    else if (grid == GridSize::eighth)
+        gridName = "eighth";
+    view.set (attribute::gridSize, gridName);
     view.set (attribute::followPlayhead, followsPlayhead);
+    view.set (attribute::pianoRollKeyHeightPx, pianoKeyHeightPx);
+    view.set (attribute::pianoRollVScrollPx, pianoVScrollPx);
     view.set (attribute::browserVisible, browserOpen);
     view.set (attribute::collaboratorVisible, collaboratorOpen);
     view.set (attribute::bottomVisible, bottomOpen);
@@ -156,9 +173,15 @@ void ViewState::readFrom (const duet::persistence::DataNode& stored)
     setHZoomPxPerBeat (stored.doubleValue (attribute::hZoomPxPerBeat, zoomPxPerBeat));
     setHScrollBeats (stored.doubleValue (attribute::hScrollBeats, scrollBeats));
     setVScrollPx (stored.intValue (attribute::vScrollPx, scrollPx));
-    grid = stored.stringValue (attribute::gridSize, "adaptive") == "eighth" ? GridSize::eighth
-                                                                            : GridSize::adaptive;
+    const auto storedGrid = stored.stringValue (attribute::gridSize, "adaptive");
+    grid = GridSize::adaptive;
+    if (storedGrid == "quarter")
+        grid = GridSize::quarter;
+    else if (storedGrid == "eighth")
+        grid = GridSize::eighth;
     followsPlayhead = stored.boolValue (attribute::followPlayhead, followsPlayhead);
+    setPianoRollKeyHeightPx (stored.intValue (attribute::pianoRollKeyHeightPx, pianoKeyHeightPx));
+    setPianoRollVScrollPx (stored.intValue (attribute::pianoRollVScrollPx, pianoVScrollPx));
 
     browserOpen = stored.boolValue (attribute::browserVisible, browserOpen);
     collaboratorOpen = stored.boolValue (attribute::collaboratorVisible, collaboratorOpen);

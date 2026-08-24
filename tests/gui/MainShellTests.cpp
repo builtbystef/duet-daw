@@ -1,7 +1,9 @@
 #include "GuiTestSupport.h"
 
 #include <duet/gui/Appearance.h>
+#include <duet/gui/ArrangementCanvas.h>
 #include <duet/gui/MainShell.h>
+#include <duet/gui/PianoRollCanvas.h>
 #include <duet/gui/Shortcuts.h>
 #include <duet/gui/ViewState.h>
 #include <duet/model/Session.h>
@@ -154,6 +156,55 @@ TEST_CASE ("switching the bottom tab lays the newly shown surface out, bounds or
     REQUIRE (pianoRoll.isVisible());
     REQUIRE_FALSE (mixer.isVisible());
     REQUIRE_FALSE (pianoRoll.getBounds().isEmpty());
+}
+
+TEST_CASE ("double-clicking a MIDI clip opens that clip in the Piano Roll")
+{
+    OpenShell open;
+    const auto editFile =
+        std::filesystem::temp_directory_path()
+        / ("duet-piano-roll-" + std::to_string (juce::Random::getSystemRandom().nextInt64())
+           + ".tracktionedit");
+    duet::model::Session session { editFile };
+    duet::model::ClipRef clip = duet::model::noClip;
+    session.performAction ("MIDI clip",
+                           [&] (auto& ops)
+                           {
+                               const auto track =
+                                   ops.createTrack (duet::model::TrackKind::midi, "Keys");
+                               clip = ops.insertMidiClip (track, "Empty verse", 0.0, 4.0);
+                           });
+    open.shell.setSession (&session);
+    open.shell.perform (Command::showMixer);
+
+    auto* arrangement = dynamic_cast<duet::gui::ArrangementCanvas*> (
+        open.shell.findChildWithID (duet::gui::surfaceId::arrangement));
+    REQUIRE (arrangement != nullptr);
+    const auto position = juce::Point<float> { 245.0F, 140.0F };
+    const auto now = juce::Time::getCurrentTime();
+    const juce::MouseEvent doubleClick { juce::Desktop::getInstance().getMainMouseSource(),
+                                         position,
+                                         {},
+                                         1.0F,
+                                         0.0F,
+                                         0.0F,
+                                         0.0F,
+                                         0.0F,
+                                         arrangement,
+                                         arrangement,
+                                         now,
+                                         position,
+                                         now,
+                                         2,
+                                         false };
+    arrangement->mouseDoubleClick (doubleClick);
+
+    REQUIRE (open.view.bottomVisible());
+    REQUIRE (open.view.bottomTab() == BottomTab::pianoRoll);
+    const auto* pianoRoll = dynamic_cast<const duet::gui::PianoRollCanvas*> (
+        &open.surface (duet::gui::surfaceId::pianoRoll));
+    REQUIRE (pianoRoll != nullptr);
+    REQUIRE (pianoRoll->openClipRef() == clip);
 }
 
 TEST_CASE ("selecting a bottom tab opens the panel it is in")

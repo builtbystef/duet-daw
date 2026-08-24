@@ -21,6 +21,7 @@ enum class BottomTab : std::uint8_t
 enum class GridSize : std::uint8_t
 {
     adaptive,
+    quarter,
     eighth
 };
 
@@ -82,6 +83,12 @@ public:
 
     [[nodiscard]] bool followPlayhead() const { return followsPlayhead; }
     void setFollowPlayhead (bool shouldFollow) { followsPlayhead = shouldFollow; }
+
+    [[nodiscard]] int pianoRollKeyHeightPx() const { return pianoKeyHeightPx; }
+    void setPianoRollKeyHeightPx (int newHeight);
+
+    [[nodiscard]] int pianoRollVScrollPx() const { return pianoVScrollPx; }
+    void setPianoRollVScrollPx (int newScroll);
 
     //==============================================================================
     /** Whether a dock is open. A dock that is closed keeps the size it had, so
@@ -151,6 +158,9 @@ public:
     static constexpr double defaultZoomPxPerBeat = 30.0;
     static constexpr double minimumZoomPxPerBeat = 1.0;
     static constexpr double maximumZoomPxPerBeat = 2000.0;
+    static constexpr int defaultPianoRollKeyHeightPx = 14;
+    static constexpr int minimumPianoRollKeyHeightPx = 6;
+    static constexpr int maximumPianoRollKeyHeightPx = 64;
 
 private:
     /** What one track's row holds. */
@@ -165,6 +175,8 @@ private:
     int scrollPx = 0;
     GridSize grid = GridSize::adaptive;
     bool followsPlayhead = true;
+    int pianoKeyHeightPx = defaultPianoRollKeyHeightPx;
+    int pianoVScrollPx = 800;
 
     bool browserOpen = true;
     bool collaboratorOpen = true;

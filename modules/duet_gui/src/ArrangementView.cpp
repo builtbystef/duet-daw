@@ -618,6 +618,14 @@ bool ArrangementView::isMidiClip (duet::model::ClipRef clip) const
     return info.has_value() && info->holdsMidi;
 }
 
+duet::model::ClipRef ArrangementView::selectedMidiClip() const
+{
+    for (const auto item : currentSelection.items())
+        if (item.kind == SelectionKind::clip && isMidiClip (item.ref))
+            return item.ref;
+    return duet::model::noClip;
+}
+
 //==============================================================================
 void ArrangementView::scroll (const ScrollGesture& gesture)
 {

@@ -155,7 +155,7 @@ private:
 //==============================================================================
 ArrangementCanvas::ArrangementCanvas (Appearance& lookAndScale,
                                       ArrangementView& arrangement,
-                                      std::function<void()> showPianoRoll)
+                                      std::function<void (duet::model::ClipRef)> showPianoRoll)
     : appearance (lookAndScale), view (arrangement), openPianoRoll (std::move (showPianoRoll))
 {
     setComponentID (surfaceId::arrangement);
@@ -496,7 +496,7 @@ void ArrangementCanvas::mouseDoubleClick (const juce::MouseEvent& event)
     if (const auto clip = clipAt (*row, timelineX); clip.has_value())
     {
         if (view.isMidiClip (clip->clip) && openPianoRoll)
-            openPianoRoll();
+            openPianoRoll (clip->clip);
     }
     else if (row->kind == duet::model::TrackKind::midi)
         (void) view.createMidiClip (row->track, view.geometry().xToBeats (timelineX));
