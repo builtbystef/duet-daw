@@ -6,6 +6,7 @@
 #include <juce_audio_utils/juce_audio_utils.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include <functional>
 #include <memory>
 #include <optional>
 #include <unordered_map>
@@ -29,7 +30,9 @@ class ArrangementCanvas final : public juce::Component,
                                 private juce::ChangeListener
 {
 public:
-    ArrangementCanvas (Appearance& lookAndScale, ArrangementView& arrangement);
+    ArrangementCanvas (Appearance& lookAndScale,
+                       ArrangementView& arrangement,
+                       std::function<void()> showPianoRoll = {});
 
     ~ArrangementCanvas() override;
 
@@ -42,6 +45,7 @@ public:
     void mouseDoubleClick (const juce::MouseEvent& event) override;
     void mouseDrag (const juce::MouseEvent& event) override;
     void mouseUp (const juce::MouseEvent& event) override;
+    void perform (Command command);
 
     //==============================================================================
     /** The chrome's measurements, in logical units. */
@@ -75,8 +79,20 @@ private:
     [[nodiscard]] juce::Rectangle<int> timelineArea() const;
     [[nodiscard]] juce::Rectangle<int> playheadColumn (int x) const;
     [[nodiscard]] std::optional<TrackDrawing> trackAt (int y);
+    [[nodiscard]] static std::optional<ClipDrawing> clipAt (const TrackDrawing& track, int x);
+    [[nodiscard]] ClipGestureKind gestureKindFor (const juce::MouseEvent& event,
+                                                  const TrackDrawing& track,
+                                                  const ClipDrawing& clip) const;
+    void showAddTrackMenu();
+    void mouseDownOnTimeline (const juce::MouseEvent& event, const TrackDrawing& track);
+    void mouseDownOnTrackHeader (const juce::MouseEvent& event,
+                                 const TrackDrawing& track,
+                                 int timelineY);
     void beginRename (duet::model::TrackRef track);
+    void beginClipRename (duet::model::ClipRef clip);
     void showTrackMenu (duet::model::TrackRef track);
+    void showClipMenu (duet::model::ClipRef clip);
+    void showEmptyTimelineMenu (duet::model::TrackRef track, double atBeats);
     void commitRename();
 
     Appearance& appearance;
@@ -87,11 +103,17 @@ private:
     std::unordered_map<duet::model::ClipRef, std::unique_ptr<juce::AudioThumbnail>> thumbnails;
     std::unique_ptr<juce::TextEditor> nameEditor;
     duet::model::TrackRef editingTrack = duet::model::noTrack;
+    duet::model::ClipRef editingClip = duet::model::noClip;
     duet::model::TrackRef draggedTrack = duet::model::noTrack;
     duet::model::TrackRef resizingTrack = duet::model::noTrack;
     int dragStartY = 0;
     int resizeStartHeight = 0;
+    juce::Point<int> rubberStart;
+    juce::Rectangle<int> rubberBand;
+    bool rubberBanding = false;
+    bool clipDragged = false;
     int playheadX = 0;
+    std::function<void()> openPianoRoll;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ArrangementCanvas)
 };

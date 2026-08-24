@@ -26,7 +26,16 @@ enum class Command : std::uint8_t
     */
     zoomIn,
     zoomOut,
-    zoomToFit
+    zoomToFit,
+
+    selectAll,
+    cut,
+    copy,
+    paste,
+    duplicate,
+    deleteSelection,
+    rename,
+    cancel
 };
 
 /** A key press, as the policy sees it. No JUCE type crosses this seam, so what
@@ -37,7 +46,7 @@ struct KeyStroke
     /** The character the key would type. Case is not significant: a producer
         with Caps Lock on means the same key.
     */
-    char character = 0;
+    int character = 0;
 
     bool ctrl = false;
     bool alt = false;
@@ -82,4 +91,11 @@ private:
     and zoom to fit.
 */
 [[nodiscard]] Shortcuts timelineShortcuts();
+
+/** Selection and clipboard routes of the smart tool. */
+[[nodiscard]] Shortcuts arrangementShortcuts();
+
+inline constexpr int deleteKeyCode = 0x10000;
+inline constexpr int escapeKeyCode = 0x10001;
+inline constexpr int f2KeyCode = 0x10002;
 } // namespace duet::gui

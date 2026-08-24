@@ -1,11 +1,13 @@
 #pragma once
 
+#include <duet/gui/Selection.h>
 #include <duet/gui/Shortcuts.h>
 #include <duet/gui/TimelineGeometry.h>
 
 #include <duet/model/Session.h>
 
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -33,6 +35,7 @@ struct ClipDrawing
     int x = 0;
     int width = 0;
     bool holdsMidi = false;
+    std::optional<duet::model::TrackColour> colour;
     std::filesystem::path sourceFile;
     std::vector<NoteDrawing> notes;
 };
@@ -49,6 +52,22 @@ struct TrackDrawing
     int y = 0;
     int height = 0;
     std::vector<ClipDrawing> clips;
+};
+
+struct SelectionRect
+{
+    int x = 0;
+    int y = 0;
+    int width = 0;
+    int height = 0;
+};
+
+enum class ClipGestureKind : std::uint8_t
+{
+    move,
+    trimLeft,
+    trimRight,
+    loop
 };
 
 struct ScrollGesture
@@ -134,6 +153,34 @@ public:
     void toggleRecordArm (duet::model::TrackRef track);
     void resizeTrack (duet::model::TrackRef track, int heightPx);
 
+    //==============================================================================
+    /** The shared current selection and the smart tool's clip routes. */
+    [[nodiscard]] Selection& selection() { return currentSelection; }
+    [[nodiscard]] const Selection& selection() const { return currentSelection; }
+    [[nodiscard]] std::vector<SelectedItem> allClipItems() const;
+    void rubberBand (SelectionRect rectangle, bool ctrlHeld);
+    void focusTrack (duet::model::TrackRef track) { focusedTrack = track; }
+
+    void beginClipGesture (duet::model::ClipRef clip, ClipGestureKind kind);
+    void updateClipGesture (double destinationBeats,
+                            duet::model::TrackRef destinationTrack,
+                            bool altHeld,
+                            bool ctrlHeld);
+    [[nodiscard]] bool completeClipGesture();
+    void cancelClipGesture();
+    [[nodiscard]] bool hasClipGesture() const;
+
+    void deleteSelected();
+    void copySelected();
+    void cutSelected();
+    [[nodiscard]] std::vector<duet::model::ClipRef> paste (double atBeats,
+                                                           duet::model::TrackRef destinationTrack);
+    void duplicateSelected();
+    void renameSelectedClip (std::string name);
+    void setSelectedClipColour (duet::model::TrackColour colour);
+    [[nodiscard]] duet::model::ClipRef createMidiClip (duet::model::TrackRef track, double atBeats);
+    [[nodiscard]] bool isMidiClip (duet::model::ClipRef clip) const;
+
     [[nodiscard]] TimelineGeometry& geometry() { return timeline; }
     [[nodiscard]] const TimelineGeometry& geometry() const { return timeline; }
 
@@ -181,10 +228,36 @@ public:
     static constexpr double zoomFactorPerKeyPress = 1.5;
 
 private:
+    struct Gesture
+    {
+        duet::model::ClipRef clip = duet::model::noClip;
+        ClipGestureKind kind = ClipGestureKind::move;
+        duet::model::TrackRef sourceTrack = duet::model::noTrack;
+        duet::model::TrackRef destinationTrack = duet::model::noTrack;
+        duet::model::ClipInfo original;
+        double destinationBeats = 0.0;
+        bool copy = false;
+    };
+
+    struct ClipboardClip
+    {
+        duet::model::ClipInfo info;
+        duet::model::TrackRef track = duet::model::noTrack;
+        std::vector<duet::model::NoteInfo> notes;
+    };
+
+    [[nodiscard]] double beatsPerSecond() const;
+    [[nodiscard]] std::optional<duet::model::ClipInfo> clipInfo (duet::model::ClipRef clip) const;
+    [[nodiscard]] duet::model::TrackRef trackOf (duet::model::ClipRef clip) const;
+
     ViewState& view;
     TimelineGeometry timeline { view };
     TimelineClock* clock = nullptr;
     duet::model::Session* session = nullptr;
+    Selection currentSelection;
+    std::optional<Gesture> gesture;
+    std::vector<ClipboardClip> clipboard;
+    duet::model::TrackRef focusedTrack = duet::model::noTrack;
     int heightPx = 0;
 };
 } // namespace duet::gui

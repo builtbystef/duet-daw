@@ -69,6 +69,17 @@ namespace
 
         return typing != nullptr && typing->isTextInputActive();
     }
+
+    [[nodiscard]] int policyKeyCode (int juceKeyCode)
+    {
+        if (juceKeyCode == juce::KeyPress::deleteKey)
+            return deleteKeyCode;
+        if (juceKeyCode == juce::KeyPress::escapeKey)
+            return escapeKeyCode;
+        if (juceKeyCode == juce::KeyPress::F2Key)
+            return f2KeyCode;
+        return juceKeyCode;
+    }
 } // namespace
 
 //==============================================================================
@@ -259,9 +270,11 @@ MainShell::MainShell (Appearance& lookAndScale, ViewState& projectView)
 {
     shortcuts.add (panelShortcuts());
     shortcuts.add (timelineShortcuts());
+    shortcuts.add (arrangementShortcuts());
 
     transportStrip = std::make_unique<Dock> (appearance, surfaceId::transport, juce::String());
-    arrangement = std::make_unique<ArrangementCanvas> (appearance, arrangementView);
+    arrangement = std::make_unique<ArrangementCanvas> (
+        appearance, arrangementView, [this] { perform (Command::showPianoRoll); });
     browser = std::make_unique<Dock> (appearance, surfaceId::browser, "Browser");
     collaborator = std::make_unique<Dock> (appearance, surfaceId::collaborator, "Collaborator");
     bottom = std::make_unique<BottomPanel> (
@@ -370,9 +383,15 @@ void MainShell::perform (Command command)
         case Command::zoomIn:
         case Command::zoomOut:
         case Command::zoomToFit:
-            // The timeline's own, and the surface that draws it is what knows
-            // what a zoom means.
-            arrangementView.perform (command);
+        case Command::selectAll:
+        case Command::cut:
+        case Command::copy:
+        case Command::paste:
+        case Command::duplicate:
+        case Command::deleteSelection:
+        case Command::rename:
+        case Command::cancel:
+            arrangement->perform (command);
             break;
 
         case Command::showPianoRoll:
@@ -436,8 +455,7 @@ void MainShell::dragBottomDivider (int y)
 //==============================================================================
 bool MainShell::keyPressed (const juce::KeyPress& key)
 {
-    const auto code = key.getKeyCode();
-    const KeyStroke stroke { code > 0 && code < 128 ? static_cast<char> (code) : '\0',
+    const KeyStroke stroke { policyKeyCode (key.getKeyCode()),
                              key.getModifiers().isCtrlDown(),
                              key.getModifiers().isAltDown(),
                              key.getModifiers().isShiftDown() };

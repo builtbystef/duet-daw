@@ -259,6 +259,11 @@ namespace
         info.name = clip.getName().toStdString();
         info.startSeconds = clip.getPosition().getStart().inSeconds();
         info.lengthSeconds = clip.getPosition().getLength().inSeconds();
+        info.contentOffsetSeconds = clip.getPosition().getOffset().inSeconds();
+        const juce::Identifier colourProperty { "duetClipColour" };
+        if (clip.state.hasProperty (colourProperty))
+            info.colour = static_cast<TrackColour> (
+                juce::jlimit (0, 7, static_cast<int> (clip.state[colourProperty])));
         info.looped = clip.isLooping();
         info.loopLengthBeats = info.looped ? clip.getLoopLengthBeats().inBeats() : 0.0;
         info.holdsMidi = dynamic_cast<te::MidiClip*> (&clip) != nullptr;

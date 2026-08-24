@@ -11,7 +11,9 @@ namespace
     */
     constexpr const char* trackKindProperty = "duetTrackKind";
     constexpr const char* trackColourProperty = "duetTrackColour";
+    constexpr const char* clipColourProperty = "duetClipColour";
     constexpr const char* groupKindName = "group";
+    constexpr const char* midiKindName = "midi";
 
     /** The engine names the fader's two parameters this, and Duet's are them. */
     constexpr const char* volumeParameterID = "volume";
@@ -138,8 +140,12 @@ std::string projectReferenceTo (const std::filesystem::path& projectFolder,
 
 TrackKind trackKindOf (te::AudioTrack& track)
 {
-    if (track.state[juce::Identifier { trackKindProperty }].toString() == groupKindName)
+    const auto statedKind =
+        track.state[juce::Identifier { trackKindProperty }].toString().toStdString();
+    if (statedKind == groupKindName)
         return TrackKind::group;
+    if (statedKind == midiKindName)
+        return TrackKind::midi;
 
     // The other two kinds the track itself tells: a midi track is one with an
     // instrument at the head of its chain to drive. That derivation is what
@@ -393,9 +399,10 @@ TrackRef EditOps::createTrack (TrackKind kind,
     // a track with no output at all is one nobody can hear, because the
     // playback graph wraps such a track in a node that blocks its audio. Only
     // the designation is Duet's to store.
-    if (kind == TrackKind::group)
-        track->state.setProperty (
-            juce::Identifier { trackKindProperty }, groupKindName, &session.impl->undoManager());
+    if (kind == TrackKind::group || kind == TrackKind::midi)
+        track->state.setProperty (juce::Identifier { trackKindProperty },
+                                  kind == TrackKind::group ? groupKindName : midiKindName,
+                                  &session.impl->undoManager());
 
     const auto colour = (te::getAudioTracks (edit).size() - 1) % 8;
     track->state.setProperty (juce::Identifier { trackColourProperty }, colour, nullptr);
@@ -519,14 +526,48 @@ ClipRef EditOps::insertMidiClip (TrackRef track,
 
 void EditOps::moveClip (ClipRef clip, double newStartSeconds)
 {
+    moveClip (clip, noTrack, newStartSeconds);
+}
+
+void EditOps::moveClip (ClipRef clip, TrackRef toTrack, double newStartSeconds)
+{
     if (auto* c = session.impl->clipFor (clip))
+    {
+        if (toTrack != noTrack)
+            if (auto* destination = session.impl->trackFor (toTrack))
+                c->moveTo (*destination);
+
         c->setStart (te::TimePosition::fromSeconds (newStartSeconds), false, true);
+    }
 }
 
 void EditOps::trimClip (ClipRef clip, double newLengthSeconds)
 {
     if (auto* c = session.impl->clipFor (clip))
         c->setLength (te::TimeDuration::fromSeconds (newLengthSeconds), true);
+}
+
+void EditOps::trimClip (ClipRef clip, double newStartSeconds, double newLengthSeconds)
+{
+    if (auto* c = session.impl->clipFor (clip))
+    {
+        c->setStart (te::TimePosition::fromSeconds (newStartSeconds), true, false);
+        c->setEnd (te::TimePosition::fromSeconds (newStartSeconds + newLengthSeconds), true);
+    }
+}
+
+void EditOps::renameClip (ClipRef clip, std::string_view newName)
+{
+    if (auto* c = session.impl->clipFor (clip))
+        c->setName (toJuceString (newName));
+}
+
+void EditOps::setClipColour (ClipRef clip, TrackColour colour)
+{
+    if (auto* c = session.impl->clipFor (clip))
+        c->state.setProperty (juce::Identifier { clipColourProperty },
+                              static_cast<int> (colour),
+                              &session.impl->undoManager());
 }
 
 void EditOps::deleteClip (ClipRef clip)

@@ -1,13 +1,15 @@
 ---
 id: nelbwc
 title: 'The smart tool: selection, snap, and clip editing'
-state: todo
+state: done
+assignee: agent
 priority: high
 depends_on:
     - s1jzd4
+    - q0lw4u
 parent: 535bbo
 created: 2026-08-12T03:49:43Z
-updated: 2026-08-12T03:49:43Z
+updated: 2026-08-24T14:43:45Z
 ---
 
 ## What to build
@@ -32,3 +34,21 @@ Snap is on by default against the visible adaptive grid, and holding Alt bypasse
 - [ ] Double-clicking an empty MIDI lane at 5.4 beats with grid = 1 beat creates an empty MIDI clip from beat 5.0 lasting one beat, as one Action; double-clicking a MIDI clip opens it in the piano roll and emits no Action.
 - [ ] Cut, Copy, Paste, and Duplicate work across tracks: copying a clip and pasting at the playhead on another track produces one Action, and pasting into empty space on the timeline works from that surface's context menu.
 - [ ] Every context-menu entry mirrors an Action reachable by a direct gesture too — nothing exists only in a menu.
+
+## Notes
+
+**agent** — 2026-08-24T10:58:00Z
+
+Contract ambiguity blocks implementation: the body and parent spec require the clip context menu to contain Cut, Copy, Paste, Duplicate, Delete, Rename, and colour, while the final criterion says every menu entry must also be reachable by a direct gesture. The specified direct gestures account for copy/duplicate (Ctrl+drag), Delete, move, trim, loop, and MIDI open/create, but specify no direct gesture or key for clip Rename or clip colour; Cut/Paste likewise only have conventional but unstated Ctrl+X/Ctrl+V keys. Adding F2, a colour-cycle key, a colour swatch gesture, or standard clipboard shortcuts would invent interaction policy. Options: (1) name the direct keyboard/pointer gestures for Rename, colour, Cut, and Paste; (2) amend the criterion so Rename and colour (and any other named exceptions) may be menu-only; or (3) define ‘direct gesture’ to include a specific existing route and identify it. User must decide, record the decision in an issue note, and remove needs-review.
+
+**agent** — 2026-08-24T11:04:57Z
+
+Decision (Target Producer): clip clipboard actions use Ctrl+X, Ctrl+C, and Ctrl+V; Duplicate uses Ctrl+D as well as Ctrl+drag; Delete uses Delete; Rename uses F2. Clip colour is the explicit context-menu-only exception—no obscure colour shortcut is added, and C remains the Collaborator-panel shortcut. For the final acceptance criterion, every context-menu entry mirrors a direct gesture or shortcut except clip colour; menu commands and direct routes must use the same Action path.
+
+**agent** — 2026-08-24T11:31:54Z
+
+Implementation is present and its focused tests pass, but the required full suite is blocked by q0lw4u: two existing VST3 persistence tests fail. I reproduced the known-list failure after fully stashing this issue's working tree, rebuilding untouched main, and running the test alone, so it is not caused by nelbwc. Published q0lw4u with the reproduction and acceptance criteria. Format and changed-file lint pass; the full suite otherwise passes 207 tests with 8 expected hardware skips. Per the implementation-session rule, q0lw4u must be completed before this issue can be finalized.
+
+**agent** — 2026-08-24T14:43:45Z
+
+Completed the smart-tool slice. Added the shared paintless Selection model and adaptive-grid snap function; arrangement clip selection/rubber-band, move/copy/trim/loop/cross-track/cancel gestures; multi-clip delete; MIDI clip open/create routes; clipboard paste/duplicate/cut/copy; clip rename/colour; context menus; and the decided Ctrl+X/C/V/D, Delete, F2, Ctrl+A, and Escape routes. Extended the model vocabulary only where these gestures needed cross-track move, edge trim with timeline-aligned content, rename, colour, and MIDI track identity; every completed edit remains one named Action, while cancellation and MIDI-open emit none. Clip colour is the recorded context-menu-only exception. SmartTool and shortcut tests cover both agreed seams, including worked selection/snap examples, exact undo for loop/delete, cross-track behavior, and clipboard Actions. Final checks pass: format, full lint, duet_tests and duet_app builds, and all 217 CTest entries (209 passed, 8 expected hardware skips). The sandbox required XDG_RUNTIME_DIR=/tmp for Catch2's generated listing file; this is not a repository or test failure.

@@ -10,8 +10,8 @@ namespace
     /** The key, with the case the producer happened to type it in taken out. */
     KeyStroke normalised (KeyStroke key)
     {
-        key.character =
-            static_cast<char> (std::tolower (static_cast<unsigned char> (key.character)));
+        if (key.character >= 0 && key.character <= 127)
+            key.character = std::tolower (key.character);
 
         return key;
     }
@@ -69,6 +69,20 @@ Shortcuts timelineShortcuts()
     shortcuts.add ({ '_', false, false, true }, Command::zoomOut);
     shortcuts.add ({ '0' }, Command::zoomToFit);
 
+    return shortcuts;
+}
+
+Shortcuts arrangementShortcuts()
+{
+    Shortcuts shortcuts;
+    shortcuts.add ({ 'a', true }, Command::selectAll);
+    shortcuts.add ({ 'x', true }, Command::cut);
+    shortcuts.add ({ 'c', true }, Command::copy);
+    shortcuts.add ({ 'v', true }, Command::paste);
+    shortcuts.add ({ 'd', true }, Command::duplicate);
+    shortcuts.add ({ deleteKeyCode }, Command::deleteSelection);
+    shortcuts.add ({ escapeKeyCode }, Command::cancel);
+    shortcuts.add ({ f2KeyCode }, Command::rename);
     return shortcuts;
 }
 

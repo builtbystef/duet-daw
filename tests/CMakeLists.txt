@@ -39,6 +39,7 @@ add_executable(duet_tests
     RenderingTests.cpp
     SessionTests.cpp
     ShortcutTests.cpp
+    SmartToolTests.cpp
     SuggestionTests.cpp
     TimelineGeometryTests.cpp
     TrackOpsTests.cpp

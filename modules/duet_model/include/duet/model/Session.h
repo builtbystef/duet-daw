@@ -191,6 +191,14 @@ struct ClipInfo
     double startSeconds = 0.0;
     double lengthSeconds = 0.0;
 
+    /** How far into its content the clip starts. Trimming the left edge raises
+        this by the same amount, keeping the content aligned to the timeline. */
+    double contentOffsetSeconds = 0.0;
+
+    /** A clip colour explicitly chosen by the producer, or no override when it
+        follows its track's colour. */
+    std::optional<TrackColour> colour;
+
     /** True when the clip repeats its content for its whole length. */
     bool looped = false;
 
@@ -449,7 +457,18 @@ public:
                             double lengthSeconds);
 
     void moveClip (ClipRef clip, double newStartSeconds);
+
+    /** Moves a clip in time and, when given, to another track. */
+    void moveClip (ClipRef clip, TrackRef toTrack, double newStartSeconds);
+
     void trimClip (ClipRef clip, double newLengthSeconds);
+
+    /** Trims either edge while keeping the clip's content fixed to timeline
+        time. */
+    void trimClip (ClipRef clip, double newStartSeconds, double newLengthSeconds);
+
+    void renameClip (ClipRef clip, std::string_view newName);
+    void setClipColour (ClipRef clip, TrackColour colour);
     void deleteClip (ClipRef clip);
 
     /** Makes a clip repeat one stretch of its content for its whole length, or

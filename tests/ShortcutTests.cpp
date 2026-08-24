@@ -2,6 +2,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+using duet::gui::arrangementShortcuts;
 using duet::gui::Command;
 using duet::gui::panelShortcuts;
 using duet::gui::Shortcuts;
@@ -48,6 +49,20 @@ TEST_CASE ("a key held with a modifier is not something a text field could be ty
 
     REQUIRE (shortcuts.commandFor ({ 'b', true }, true) == Command::toggleBrowser);
     REQUIRE_FALSE (shortcuts.commandFor ({ 'b' }, false).has_value());
+}
+
+TEST_CASE ("the smart tool has direct selection clipboard delete and rename routes")
+{
+    const auto shortcuts = arrangementShortcuts();
+    REQUIRE (shortcuts.commandFor ({ 'a', true }, false) == Command::selectAll);
+    REQUIRE (shortcuts.commandFor ({ 'x', true }, false) == Command::cut);
+    REQUIRE (shortcuts.commandFor ({ 'c', true }, false) == Command::copy);
+    REQUIRE (shortcuts.commandFor ({ 'v', true }, false) == Command::paste);
+    REQUIRE (shortcuts.commandFor ({ 'd', true }, false) == Command::duplicate);
+    REQUIRE (shortcuts.commandFor ({ duet::gui::deleteKeyCode }, false)
+             == Command::deleteSelection);
+    REQUIRE (shortcuts.commandFor ({ duet::gui::f2KeyCode }, false) == Command::rename);
+    REQUIRE (shortcuts.commandFor ({ duet::gui::escapeKeyCode }, false) == Command::cancel);
 }
 
 TEST_CASE ("the zoom keys are the ones spec 535bbo names")
