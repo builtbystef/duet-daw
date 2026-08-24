@@ -364,3 +364,25 @@ however long that call ran, and advanced from the second one on — 0.16 s, 0.37
 test about the playhead *moving* needs one, and skips where there is none. It
 also has to pump until the position moves rather than pump once for long enough:
 `ArrangementViewTests` does both.
+
+### An undo can leave a MIDI plugin voice sounding after its note is gone
+
+**The engine.** When an undo or redo removes a MIDI note that is already
+sounding, the playback graph can leave the plugin voice running. The project
+has neither the note nor the note-off that would have ended it, so the voice
+survives later blocks and loop wraps indefinitely.
+
+**Where.** The replacement `LoopingMidiNode` takes the old node's
+`ActiveNoteList` in `prepareToPlay`; the voice itself stays in the instrument
+plugin. `midiPanic` reaches each plugin directly and ends its MIDI voices.
+
+**Proved.** `6629zo`, on the playback path through the hosted-device seam. An
+undo removed the only note from the facade read while the output kept peaking
+around -11.5 dB; the same voice crossed a loop wrap and read -13.0 dB in a
+stretch with no note. Calling `midiPanic` made both stretches exactly silent at
+-100 dB. Seven undo presses with no block between them reproduced the same
+hanging voice before the remedy.
+
+**Duet.** After a successful undo or redo while the transport is rolling,
+`Session` calls `midiPanic (edit, false)`. This ends MIDI voices without
+resetting plugins, so effect tails are not discarded.

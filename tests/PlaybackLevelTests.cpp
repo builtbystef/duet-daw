@@ -4,6 +4,8 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <string>
+
 using duet::model::Session;
 using duet::model::TrackKind;
 using duet::model::TrackRef;
@@ -77,6 +79,152 @@ TEST_CASE ("muting a track silences it during playback")
     REQUIRE (session.playWithoutAudioDevice (playedSeconds));
     REQUIRE (session.trackPeakDb (track) <= duet::model::silentDb);
     REQUIRE (session.outputPeakDb() <= duet::model::silentDb);
+}
+
+TEST_CASE ("undoing a sounding MIDI note leaves no voice stuck behind")
+{
+    const TempProject project;
+    Session session { project.editFile() };
+    const auto track = session.tracks().front().track;
+    duet::model::ClipRef clip = duet::model::noClip;
+
+    session.performAction ("Set up the instrument",
+                           [&] (auto& ops)
+                           {
+                               ops.addPlugin (track, duet::model::BuiltinPlugin::synth, 0);
+                               clip = ops.insertMidiClip (track, "Tone", 0.0, 4.0);
+                           });
+    session.performAction ("Add the note",
+                           [clip] (auto& ops) { ops.addNote (clip, 57, 0.0, 0.4, 100); });
+
+    session.useNoAudioDevice();
+    session.startPlayback();
+    session.runWithoutAudioDevice (0.1);
+    REQUIRE (session.outputPeakDb() > audibleDb);
+
+    REQUIRE (session.undo());
+    REQUIRE (session.notes (clip).empty());
+
+    session.runWithoutAudioDevice (0.5);
+    const auto afterUndo = session.outputPeakDb();
+    INFO ("after undoing its note, the voice peaks at " << afterUndo << " dB");
+    REQUIRE (afterUndo <= duet::model::silentDb);
+
+    session.stopPlayback();
+}
+
+TEST_CASE ("fast undo presses leave no MIDI voice behind")
+{
+    const TempProject project;
+    Session session { project.editFile() };
+    const auto track = session.tracks().front().track;
+    duet::model::ClipRef clip = duet::model::noClip;
+
+    session.performAction ("Set up the instrument",
+                           [&] (auto& ops)
+                           {
+                               ops.addPlugin (track, duet::model::BuiltinPlugin::synth, 0);
+                               clip = ops.insertMidiClip (track, "Tone", 0.0, 4.0);
+                           });
+    session.performAction ("Add the note",
+                           [clip] (auto& ops) { ops.addNote (clip, 57, 0.0, 0.4, 100); });
+
+    for (int change = 0; change < 6; ++change)
+        session.performAction ("Rename the track",
+                               [track, change] (auto& ops)
+                               { ops.renameTrack (track, "Tone " + std::to_string (change)); });
+
+    session.useNoAudioDevice();
+    session.startPlayback();
+    session.runWithoutAudioDevice (0.1);
+    REQUIRE (session.outputPeakDb() > audibleDb);
+
+    for (int press = 0; press < 7; ++press)
+        REQUIRE (session.undo());
+
+    REQUIRE (session.notes (clip).empty());
+    session.runWithoutAudioDevice (0.5);
+    REQUIRE (session.outputPeakDb() <= duet::model::silentDb);
+
+    session.stopPlayback();
+}
+
+TEST_CASE ("a loop pass after an undo sounds only the notes the project contains")
+{
+    const TempProject project;
+    Session session { project.editFile() };
+    const auto track = session.tracks().front().track;
+    duet::model::ClipRef clip = duet::model::noClip;
+
+    session.performAction ("Set up the loop",
+                           [&] (auto& ops)
+                           {
+                               ops.addPlugin (track, duet::model::BuiltinPlugin::synth, 0);
+                               clip = ops.insertMidiClip (track, "Loop", 0.0, 2.0);
+                               ops.addNote (clip, 57, 0.0, 0.2, 100);
+                           });
+    session.performAction ("Add the note to remove",
+                           [clip] (auto& ops) { ops.addNote (clip, 69, 0.0, 0.4, 100); });
+    session.setLoopRangeSeconds (0.0, 1.0);
+    session.setLooping (true);
+
+    session.useNoAudioDevice();
+    session.startPlayback();
+    session.runWithoutAudioDevice (0.1);
+    REQUIRE (session.outputPeakDb() > audibleDb);
+
+    REQUIRE (session.undo());
+    REQUIRE (session.notes (clip).size() == 1);
+
+    // Finish this pass, then cross the seam. The short note that remains in
+    // the project sounds at the opening of the next pass.
+    session.runWithoutAudioDevice (0.8);
+    static_cast<void> (session.outputPeakDb());
+    session.runWithoutAudioDevice (0.3);
+    REQUIRE (session.outputPeakDb() > audibleDb);
+
+    // Past that note and its release, the pass is silent. Before the fix the
+    // removed long note stayed at about -11 dB through this whole stretch.
+    session.runWithoutAudioDevice (0.3);
+    static_cast<void> (session.outputPeakDb());
+    session.runWithoutAudioDevice (0.25);
+    REQUIRE (session.outputPeakDb() <= duet::model::silentDb);
+
+    session.stopPlayback();
+}
+
+TEST_CASE ("redoing the removal of a sounding MIDI note leaves no voice stuck behind")
+{
+    const TempProject project;
+    Session session { project.editFile() };
+    const auto track = session.tracks().front().track;
+    duet::model::ClipRef clip = duet::model::noClip;
+    duet::model::NoteRef note = duet::model::noNote;
+
+    session.performAction ("Set up the note",
+                           [&] (auto& ops)
+                           {
+                               ops.addPlugin (track, duet::model::BuiltinPlugin::synth, 0);
+                               clip = ops.insertMidiClip (track, "Tone", 0.0, 4.0);
+                               note = ops.addNote (clip, 57, 0.0, 0.4, 100);
+                           });
+    session.performAction ("Remove the note", [note] (auto& ops) { ops.removeNote (note); });
+    REQUIRE (session.undo());
+
+    session.useNoAudioDevice();
+    session.startPlayback();
+    session.runWithoutAudioDevice (0.1);
+    REQUIRE (session.outputPeakDb() > audibleDb);
+
+    REQUIRE (session.redo());
+    REQUIRE (session.notes (clip).empty());
+
+    session.runWithoutAudioDevice (0.5);
+    const auto afterRedo = session.outputPeakDb();
+    INFO ("after redoing its removal, the voice peaks at " << afterRedo << " dB");
+    REQUIRE (afterRedo <= duet::model::silentDb);
+
+    session.stopPlayback();
 }
 
 TEST_CASE ("the output says when a project has run out of headroom")

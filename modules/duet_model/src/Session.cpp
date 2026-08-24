@@ -145,6 +145,14 @@ bool Session::undo()
     // Edit::undo() does applies here — the rest of it refreshes the engine's
     // SelectionManagers, and Duet registers none.
     impl->undoManager().undo();
+
+    // An undo can remove a sounding MIDI note and the note-off that would have
+    // ended it. The replacement graph can leave the plugin voice running even
+    // though the project no longer contains its note, so end every MIDI voice
+    // before another block can play.
+    if (impl->edit->getTransport().isPlaying())
+        te::midiPanic (*impl->edit, false);
+
     impl->refreshParametersFromState();
     impl->applyLoopRange();
     impl->announceChange();
@@ -158,6 +166,12 @@ bool Session::redo()
 
     // The project's undo history directly, for the reason undo() gives.
     impl->undoManager().redo();
+
+    // Redo can remove a sounding note just as undo can, so it has the same
+    // obligation to silence a plugin voice whose note-off no longer exists.
+    if (impl->edit->getTransport().isPlaying())
+        te::midiPanic (*impl->edit, false);
+
     impl->refreshParametersFromState();
     impl->applyLoopRange();
     impl->announceChange();
