@@ -102,6 +102,16 @@ public:
     */
     bool save();
 
+    /** Copies the whole project folder to a new location, writes the current
+        session state into that copy, and opens it. The source folder is never
+        written. Null when the destination already exists or the copy cannot be
+        completed.
+
+        The returned project is the one the app continues in, so its later
+        saves and recordings go to the destination.
+    */
+    [[nodiscard]] std::unique_ptr<Project> saveAs (const std::filesystem::path& destinationFolder);
+
     /** True when the project has changed since it was last saved.
 
         Every Action raises it and a save clears it. Undoing back to the state

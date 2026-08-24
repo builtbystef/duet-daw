@@ -1,6 +1,8 @@
 #include <duet/gui/SettingsWindow.h>
 
+#include <duet/gui/AutosaveSettings.h>
 #include <duet/gui/GraphiteLookAndFeel.h>
+#include <duet/gui/ProjectsSettings.h>
 #include <duet/gui/Rendering.h>
 #include <duet/gui/Tokens.h>
 #include <duet/gui/Typography.h>
@@ -14,7 +16,7 @@ namespace duet::gui
 namespace
 {
     constexpr int windowWidth = 420;
-    constexpr int windowHeight = 250;
+    constexpr int windowHeight = 330;
     constexpr int labelWidth = 130;
     constexpr int tabBarHeight = 28;
     constexpr double scaleStep = 0.05;
@@ -28,6 +30,12 @@ namespace
           { ThemePreference::light, "Light" } }
     };
 
+    constexpr std::array<std::pair<duet::persistence::AutosaveInterval, const char*>, 4>
+        autosaveChoices { { { duet::persistence::AutosaveInterval::off, "Off" },
+                            { duet::persistence::AutosaveInterval::twoMinutes, "2 minutes" },
+                            { duet::persistence::AutosaveInterval::fiveMinutes, "5 minutes" },
+                            { duet::persistence::AutosaveInterval::tenMinutes, "10 minutes" } } };
+
     int idFor (ThemePreference preference)
     {
         for (std::size_t index = 0; index < themeChoices.size(); ++index)
@@ -37,18 +45,42 @@ namespace
         return 1;
     }
 
+    int idFor (duet::persistence::AutosaveInterval interval)
+    {
+        for (std::size_t index = 0; index < autosaveChoices.size(); ++index)
+            if (autosaveChoices.at (index).first == interval)
+                return static_cast<int> (index) + 1;
+
+        return static_cast<int> (autosaveChoices.size());
+    }
+
     /** The Interface tab. */
-    class InterfaceTab final : public juce::Component, private Appearance::Listener
+    class InterfaceTab final : public juce::Component,
+                               private Appearance::Listener,
+                               private juce::FilenameComponentListener
     {
     public:
         InterfaceTab (Appearance& lookAndScale,
                       Settings& store,
+                      const std::filesystem::path& defaultProjectsDirectory,
                       std::function<void (bool)> renderingChanged)
             : appearance (lookAndScale), settings (store),
-              reportRendering (std::move (renderingChanged))
+              reportRendering (std::move (renderingChanged)),
+              projectsDirectory (
+                  "projectsDirectory",
+                  juce::File {
+                      duet::gui::projectsDirectory (store, defaultProjectsDirectory).string() },
+                  true,
+                  true,
+                  true,
+                  {},
+                  {},
+                  "Choose a projects directory")
         {
             themeLabel.setText ("Theme", juce::dontSendNotification);
             scaleLabel.setText ("Interface scale", juce::dontSendNotification);
+            projectsLabel.setText ("Projects directory", juce::dontSendNotification);
+            autosaveLabel.setText ("Autosave", juce::dontSendNotification);
             renderingLabel.setText ("Rendering", juce::dontSendNotification);
 
             for (std::size_t index = 0; index < themeChoices.size(); ++index)
@@ -74,6 +106,22 @@ namespace
             scaleSlider.onValueChange = [this]
             { appearance.setInterfaceScale (scaleSlider.getValue()); };
 
+            projectsDirectory.addListener (this);
+
+            for (std::size_t index = 0; index < autosaveChoices.size(); ++index)
+                autosaveBox.addItem (autosaveChoices.at (index).second,
+                                     static_cast<int> (index) + 1);
+
+            autosaveBox.setSelectedId (idFor (autosaveInterval (settings)),
+                                       juce::dontSendNotification);
+            autosaveBox.onChange = [this]
+            {
+                const auto chosen = static_cast<std::size_t> (autosaveBox.getSelectedId() - 1);
+
+                if (chosen < autosaveChoices.size())
+                    setAutosaveInterval (settings, autosaveChoices.at (chosen).first);
+            };
+
             renderingButton.setButtonText ("Hardware acceleration");
             renderingButton.setToggleState (hardwareAccelerationEnabled (settings),
                                             juce::dontSendNotification);
@@ -89,16 +137,24 @@ namespace
 
             for (auto* child : std::initializer_list<juce::Component*> { &themeLabel,
                                                                          &scaleLabel,
+                                                                         &projectsLabel,
+                                                                         &autosaveLabel,
                                                                          &renderingLabel,
                                                                          &themeBox,
                                                                          &scaleSlider,
+                                                                         &projectsDirectory,
+                                                                         &autosaveBox,
                                                                          &renderingButton })
                 addAndMakeVisible (*child);
 
             appearance.addListener (this);
         }
 
-        ~InterfaceTab() override { appearance.removeListener (this); }
+        ~InterfaceTab() override
+        {
+            projectsDirectory.removeListener (this);
+            appearance.removeListener (this);
+        }
 
         InterfaceTab (const InterfaceTab&) = delete;
         InterfaceTab& operator= (const InterfaceTab&) = delete;
@@ -125,10 +181,19 @@ namespace
 
             layOutRow (themeLabel, themeBox);
             layOutRow (scaleLabel, scaleSlider);
+            layOutRow (projectsLabel, projectsDirectory);
+            layOutRow (autosaveLabel, autosaveBox);
             layOutRow (renderingLabel, renderingButton);
         }
 
     private:
+        void filenameComponentChanged (juce::FilenameComponent* component) override
+        {
+            if (component == &projectsDirectory)
+                setProjectsDirectory (settings,
+                                      component->getCurrentFile().getFullPathName().toStdString());
+        }
+
         void appearanceChanged() override
         {
             themeBox.setSelectedId (idFor (appearance.themePreference()),
@@ -147,9 +212,13 @@ namespace
         std::function<void (bool)> reportRendering;
         juce::Label themeLabel;
         juce::Label scaleLabel;
+        juce::Label projectsLabel;
+        juce::Label autosaveLabel;
         juce::Label renderingLabel;
         juce::ComboBox themeBox;
         juce::Slider scaleSlider;
+        juce::FilenameComponent projectsDirectory;
+        juce::ComboBox autosaveBox;
         juce::ToggleButton renderingButton;
     };
 
@@ -159,13 +228,16 @@ namespace
     public:
         SettingsContent (Appearance& lookAndScale,
                          Settings& store,
+                         const std::filesystem::path& defaultProjectsDirectory,
                          std::function<void (bool)> renderingChanged)
             : appearance (lookAndScale)
         {
-            tabs.addTab ("Interface",
-                         juce::Colours::transparentBlack,
-                         new InterfaceTab { appearance, store, std::move (renderingChanged) },
-                         true);
+            tabs.addTab (
+                "Interface",
+                juce::Colours::transparentBlack,
+                new InterfaceTab {
+                    appearance, store, defaultProjectsDirectory, std::move (renderingChanged) },
+                true);
 
             addAndMakeVisible (tabs);
             appearance.addListener (this);
@@ -208,6 +280,7 @@ namespace
 
 SettingsWindow::SettingsWindow (Appearance& lookAndScale,
                                 Settings& store,
+                                const std::filesystem::path& defaultProjectsDirectory,
                                 std::function<void (bool)> renderingChanged,
                                 std::function<void()> onClose)
     : DocumentWindow ("Settings",
@@ -217,8 +290,10 @@ SettingsWindow::SettingsWindow (Appearance& lookAndScale,
       closed (std::move (onClose))
 {
     setUsingNativeTitleBar (true);
-    setContentOwned (new SettingsContent { lookAndScale, store, std::move (renderingChanged) },
-                     true);
+    setContentOwned (
+        new SettingsContent {
+            lookAndScale, store, defaultProjectsDirectory, std::move (renderingChanged) },
+        true);
     setResizable (true, false);
     centreWithSize (getWidth(), getHeight());
     setVisible (true);

@@ -1,14 +1,15 @@
 ---
 id: ce17ym
 title: 'Project lifecycle: an untitled project is a real folder from the start'
-state: todo
+state: done
+assignee: agent
 priority: high
 depends_on:
     - fcsez4
     - 3vwusn
 parent: 535bbo
 created: 2026-08-12T03:48:47Z
-updated: 2026-08-12T03:48:47Z
+updated: 2026-08-24T10:45:47Z
 ---
 
 ## What to build
@@ -29,3 +30,13 @@ The Duet menu gains its project commands: New, Open, Save, Save As, and Recent. 
 - [ ] The autosave interval setting reaches the foundation's autosave: set to 2 minutes → an autosave lands in the project folder on that cadence; set to off → none lands; the default in a fresh install is 10 minutes.
 - [ ] Changing the projects directory affects only projects created afterwards; existing projects stay where they are.
 - [ ] Recent lists the recently opened projects, drops entries whose folder no longer exists, and opening one restores it with its view state.
+
+## Notes
+
+**agent** — 2026-08-24T10:10:43Z
+
+Test seams for this slice: the persistence Project facade observes Save As as a whole-folder copy; a paintless duet_app ProjectLifecycle observes launch/new/open/recent and dirty-project decisions; the existing Settings view-model seam observes project-directory and autosave choices. JUCE component coverage is limited to the host-menu composition already exposed by MainShell.
+
+**agent** — 2026-08-24T10:45:47Z
+
+Completed the project lifecycle slice. duet_app now owns an always-open project through a paintless ProjectLifecycle: launch reopens the last viable folder or creates the next on-disk Untitled N, new projects seed a synth MIDI track plus an audio track, New/Open/close share Save-Discard-Cancel policy, and Recent prunes missing folders. Save As recursively copies the self-contained folder, snapshots the live state into the copy, and continues there without writing the source. The Duet menu and window title are wired to those transitions, recovery offers remain in the open path, and Settings > Interface now exposes the projects directory and off/2/5/10-minute autosave interval. Architecture docs and seam tests were updated. Checks passed: clang-format-18 dry run, full Debug build, full lint, and all 209 CTest cases (8 existing device-dependent skips); the sandboxed test run used build-local HOME/XDG paths so Tracktion could persist its scanner settings.

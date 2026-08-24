@@ -1,5 +1,6 @@
 #include "PropertyStorageSettings.h"
 
+#include <duet/app/ProjectLifecycle.h>
 #include <duet/model/Session.h>
 #include <duet/persistence/Project.h>
 
@@ -7,6 +8,7 @@
 #include <duet/gui/AutosaveSettings.h>
 #include <duet/gui/GraphiteLookAndFeel.h>
 #include <duet/gui/MainShell.h>
+#include <duet/gui/ProjectsSettings.h>
 #include <duet/gui/Rendering.h>
 #include <duet/gui/SessionClock.h>
 #include <duet/gui/SettingsWindow.h>
@@ -17,6 +19,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <utility>
 
@@ -46,10 +49,18 @@ namespace
         newProject = duet::gui::MainShell::firstHostMenuId,
         openProject,
         saveProject,
+        saveProjectAs,
         playProject,
         stopProject,
-        openSettings
+        openSettings,
+        firstRecentProject = 200
     };
+
+    std::filesystem::path defaultProjectsDirectory()
+    {
+        return toPath (juce::File::getSpecialLocation (juce::File::userHomeDirectory)) / "Music"
+               / "Duet Projects";
+    }
 } // namespace
 
 /** What the main window holds: the interface, and the project it is open on.
@@ -71,7 +82,8 @@ public:
     ShellHost (duet::gui::Appearance& lookAndScale,
                duet::gui::Settings& store,
                std::function<void (const juce::String&)> titleChanged)
-        : appearance (lookAndScale), settings (store), reportTitle (std::move (titleChanged))
+        : appearance (lookAndScale), settings (store),
+          lifecycle (store, defaultProjectsDirectory()), reportTitle (std::move (titleChanged))
     {
         shell.setHostMenu ([this] (juce::PopupMenu& menu) { addHostEntries (menu); },
                            [this] (int itemId) { hostItemChosen (itemId); });
@@ -81,6 +93,7 @@ public:
         shell.setHardwareAccelerated (duet::gui::hardwareAccelerationEnabled (settings));
 
         addAndMakeVisible (shell);
+        launchInitialProject();
         refreshTitle();
         startTimer (titleRefreshMs);
     }
@@ -98,6 +111,18 @@ public:
     */
     void takeKeyboardFocus() { shell.grabKeyboardFocus(); }
 
+    void requestClose (std::function<void()> close)
+    {
+        askAboutUnsavedChanges (
+            [this, close = std::move (close)] (UnsavedDecision decision)
+            {
+                if (lifecycle.mayClose (decision))
+                    close();
+                else
+                    refreshTitle();
+            });
+    }
+
     void resized() override { shell.setBounds (getLocalBounds()); }
 
 private:
@@ -105,7 +130,7 @@ private:
     {
         syncAutosaveInterval();
 
-        if (project != nullptr)
+        if (auto* project = lifecycle.projectOrNull())
             project->autosaveTick();
 
         refreshTitle();
@@ -113,6 +138,8 @@ private:
 
     void syncAutosaveInterval()
     {
+        auto* project = lifecycle.projectOrNull();
+
         if (project == nullptr)
             return;
 
@@ -122,47 +149,77 @@ private:
             project->setAutosaveInterval (stored);
     }
 
-    void addHostEntries (juce::PopupMenu& menu) const
+    void addHostEntries (juce::PopupMenu& menu)
     {
-        menu.addItem (HostMenuId::newProject, "New Project...");
-        menu.addItem (HostMenuId::openProject, "Open Project...");
-        menu.addItem (HostMenuId::saveProject, "Save Project", project != nullptr);
+        const auto hasProject = lifecycle.projectOrNull() != nullptr;
+        menu.addItem (HostMenuId::newProject, "New");
+        menu.addItem (HostMenuId::openProject, "Open...");
+        menu.addItem (HostMenuId::saveProject, "Save", hasProject);
+        menu.addItem (HostMenuId::saveProjectAs, "Save As...", hasProject);
+
+        juce::PopupMenu recentMenu;
+        const auto recent = lifecycle.recentProjects();
+
+        for (std::size_t index = 0; index < recent.size(); ++index)
+            recentMenu.addItem (HostMenuId::firstRecentProject + static_cast<int> (index),
+                                juce::String { recent.at (index).filename().string() });
+
+        menu.addSubMenu ("Recent", recentMenu, ! recent.empty());
         menu.addSeparator();
-        menu.addItem (HostMenuId::playProject, "Play", project != nullptr);
-        menu.addItem (HostMenuId::stopProject, "Stop", project != nullptr);
+        menu.addItem (HostMenuId::playProject, "Play", hasProject);
+        menu.addItem (HostMenuId::stopProject, "Stop", hasProject);
         menu.addSeparator();
         menu.addItem (HostMenuId::openSettings, "Settings...");
     }
 
     void hostItemChosen (int itemId)
     {
+        if (itemId >= HostMenuId::firstRecentProject)
+        {
+            const auto recent = lifecycle.recentProjects();
+            const auto index = static_cast<std::size_t> (itemId - HostMenuId::firstRecentProject);
+
+            if (index < recent.size())
+                beginOpen (recent.at (index));
+
+            return;
+        }
+
         switch (itemId)
         {
             case HostMenuId::newProject:
-                chooseFolder (true);
+                askAboutUnsavedChanges ([this] (UnsavedDecision decision)
+                                        { replaceWithUntitled (decision); });
                 break;
 
             case HostMenuId::openProject:
-                chooseFolder (false);
+                askAboutUnsavedChanges ([this] (UnsavedDecision decision)
+                                        { chooseProjectToOpen (decision); });
                 break;
 
             case HostMenuId::saveProject:
-                if (project != nullptr)
-                    project->save();
+                lifecycle.save();
+                break;
+
+            case HostMenuId::saveProjectAs:
+                chooseSaveAsDestination();
                 break;
 
             case HostMenuId::playProject:
-                if (project != nullptr)
+                if (auto* project = lifecycle.projectOrNull())
                     project->session().startPlayback();
                 break;
 
             case HostMenuId::stopProject:
-                if (project != nullptr)
+                if (auto* project = lifecycle.projectOrNull())
                     project->session().stopPlayback();
                 break;
 
-            default:
+            case HostMenuId::openSettings:
                 openSettingsWindow();
+                break;
+
+            default:
                 break;
         }
 
@@ -180,128 +237,213 @@ private:
         settingsWindow = std::make_unique<duet::gui::SettingsWindow> (
             appearance,
             settings,
+            defaultProjectsDirectory(),
             [this] (bool accelerated) { shell.setHardwareAccelerated (accelerated); },
             [this] { settingsWindow.reset(); });
     }
 
-    void chooseFolder (bool forNewProject)
+    void launchInitialProject()
     {
-        const auto* const title = forNewProject ? "New project folder" : "Open a project folder";
-        const auto browserFlags = juce::FileBrowserComponent::canSelectDirectories
-                                  | (forNewProject ? juce::FileBrowserComponent::saveMode
-                                                   : juce::FileBrowserComponent::openMode);
+        const auto startup = lifecycle.startupProjectFolder();
 
-        chooser = std::make_unique<juce::FileChooser> (
-            title, juce::File::getSpecialLocation (juce::File::userMusicDirectory));
-
-        chooser->launchAsync (browserFlags,
-                              [this, forNewProject] (const juce::FileChooser& chosen)
-                              {
-                                  const auto folder = chosen.getResult();
-
-                                  if (folder == juce::File {})
-                                      return;
-
-                                  openFolder (toPath (folder), forNewProject);
-                              });
-    }
-
-    void openFolder (const std::filesystem::path& folder, bool forNewProject)
-    {
-        if (! forNewProject && duet::persistence::Project::recoveryAvailable (folder))
+        if (startup.has_value() && duet::persistence::Project::recoveryAvailable (*startup))
         {
-            const juce::Component::SafePointer<ShellHost> host { this };
-            const auto options =
-                juce::MessageBoxOptions {}
-                    .withIconType (juce::MessageBoxIconType::QuestionIcon)
-                    .withTitle ("Restore autosaved project?")
-                    .withMessage ("Duet found newer autosaved changes. Restore "
-                                  "them, or open the last explicitly saved project?")
-                    .withButton ("Restore")
-                    .withButton ("Open Saved");
-
-            juce::AlertWindow::showAsync (
-                options,
-                [host, folder] (int result)
+            offerRecovery (
+                [this] (duet::persistence::RecoveryChoice choice)
                 {
-                    if (host != nullptr)
-                        host->openFolder (folder,
-                                          false,
-                                          result == 1 ? duet::persistence::RecoveryChoice::restore
-                                                      : duet::persistence::RecoveryChoice::decline);
+                    lifecycle.launch (choice);
+                    attachProject();
                 });
             return;
         }
 
-        openFolder (folder, forNewProject, duet::persistence::RecoveryChoice::decline);
+        lifecycle.launch();
+        attachProject();
     }
 
-    void openFolder (const std::filesystem::path& folder,
-                     bool forNewProject,
-                     duet::persistence::RecoveryChoice recoveryChoice)
+    void askAboutUnsavedChanges (std::function<void (UnsavedDecision)> continueWith)
     {
-        // The clock reads the session, so it goes before the session does, and
-        // the shell is told before either — a surface never holds a clock past
-        // the project it belongs to.
+        auto* project = lifecycle.projectOrNull();
+
+        if (project == nullptr || ! project->hasUnsavedChanges())
+        {
+            continueWith (UnsavedDecision::discard);
+            return;
+        }
+
+        const juce::Component::SafePointer<ShellHost> host { this };
+        const auto options =
+            juce::MessageBoxOptions {}
+                .withIconType (juce::MessageBoxIconType::QuestionIcon)
+                .withTitle ("Save changes?")
+                .withMessage ("Save changes to " + juce::String { lifecycle.projectName() } + "?")
+                .withButton ("Save")
+                .withButton ("Discard")
+                .withButton ("Cancel");
+
+        juce::AlertWindow::showAsync (options,
+                                      [host, continueWith = std::move (continueWith)] (int result)
+                                      {
+                                          if (host == nullptr)
+                                              return;
+
+                                          auto decision = UnsavedDecision::cancel;
+
+                                          if (result == 1)
+                                              decision = UnsavedDecision::save;
+                                          else if (result == 2)
+                                              decision = UnsavedDecision::discard;
+
+                                          continueWith (decision);
+                                      });
+    }
+
+    void replaceWithUntitled (UnsavedDecision decision)
+    {
+        if (decision == UnsavedDecision::cancel)
+            return;
+
+        detachProject();
+        const auto changed = lifecycle.createNew (decision);
+        attachProject();
+
+        if (! changed)
+            showLifecycleError ("Could not create project");
+    }
+
+    void chooseProjectToOpen (UnsavedDecision decision)
+    {
+        if (decision == UnsavedDecision::cancel)
+            return;
+
+        chooser = std::make_unique<juce::FileChooser> (
+            "Open a project folder",
+            juce::File {
+                duet::gui::projectsDirectory (settings, defaultProjectsDirectory()).string() });
+        chooser->launchAsync (juce::FileBrowserComponent::canSelectDirectories
+                                  | juce::FileBrowserComponent::openMode,
+                              [this, decision] (const juce::FileChooser& chosen)
+                              {
+                                  if (chosen.getResult() != juce::File {})
+                                      openAfterDecision (toPath (chosen.getResult()), decision);
+                              });
+    }
+
+    void beginOpen (const std::filesystem::path& folder)
+    {
+        askAboutUnsavedChanges ([this, folder] (UnsavedDecision decision)
+                                { openAfterDecision (folder, decision); });
+    }
+
+    void openAfterDecision (const std::filesystem::path& folder, UnsavedDecision decision)
+    {
+        if (decision == UnsavedDecision::cancel)
+            return;
+
+        if (duet::persistence::Project::recoveryAvailable (folder))
+        {
+            offerRecovery ([this, folder, decision] (duet::persistence::RecoveryChoice choice)
+                           { replaceWithProject (folder, choice, decision); });
+            return;
+        }
+
+        replaceWithProject (folder, duet::persistence::RecoveryChoice::decline, decision);
+    }
+
+    void replaceWithProject (const std::filesystem::path& folder,
+                             duet::persistence::RecoveryChoice recoveryChoice,
+                             UnsavedDecision decision)
+    {
+        detachProject();
+        const auto changed = lifecycle.open (folder, recoveryChoice, decision);
+        attachProject();
+
+        if (! changed)
+            showLifecycleError ("Could not open project");
+    }
+
+    void chooseSaveAsDestination()
+    {
+        chooser = std::make_unique<juce::FileChooser> (
+            "Save project as",
+            juce::File {
+                duet::gui::projectsDirectory (settings, defaultProjectsDirectory()).string() });
+        chooser->launchAsync (
+            juce::FileBrowserComponent::canSelectDirectories | juce::FileBrowserComponent::saveMode,
+            [this] (const juce::FileChooser& chosen)
+            {
+                if (chosen.getResult() == juce::File {})
+                    return;
+
+                detachProject();
+                const auto changed = lifecycle.saveAs (toPath (chosen.getResult()));
+                attachProject();
+
+                if (! changed)
+                    showLifecycleError ("Could not save project as");
+            });
+    }
+
+    void offerRecovery (std::function<void (duet::persistence::RecoveryChoice)> continueWith)
+    {
+        const juce::Component::SafePointer<ShellHost> host { this };
+        const auto options =
+            juce::MessageBoxOptions {}
+                .withIconType (juce::MessageBoxIconType::QuestionIcon)
+                .withTitle ("Restore autosaved project?")
+                .withMessage ("Duet found newer autosaved changes. Restore them, or open the last "
+                              "explicitly saved project?")
+                .withButton ("Restore")
+                .withButton ("Open Saved");
+
+        juce::AlertWindow::showAsync (
+            options,
+            [host, continueWith = std::move (continueWith)] (int result)
+            {
+                if (host != nullptr)
+                    continueWith (result == 1 ? duet::persistence::RecoveryChoice::restore
+                                              : duet::persistence::RecoveryChoice::decline);
+            });
+    }
+
+    void detachProject()
+    {
         shell.setTimelineClock (nullptr);
         shell.setSession (nullptr);
         clock.reset();
+    }
 
-        // The old project goes first: a session holds an engine, and an engine
-        // holds the audio device.
-        project.reset();
-
-        std::string openFailure;
-
-        if (forNewProject)
-        {
-            project = duet::persistence::Project::create (folder);
-        }
-        else
-        {
-            auto opened = duet::persistence::Project::openWithResult (folder, recoveryChoice);
-            project = std::move (opened.project);
-            openFailure = std::move (opened.message);
-        }
+    void attachProject()
+    {
+        auto* project = lifecycle.projectOrNull();
 
         if (project == nullptr)
         {
-            problem =
-                forNewProject ? "Could not create a project there" : juce::String { openFailure };
-
-            if (! forNewProject && ! openFailure.empty())
-                juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon,
-                                                        "Could not open project",
-                                                        juce::String { openFailure });
-
+            problem = juce::String { lifecycle.lastError() };
             refreshTitle();
             return;
         }
 
         problem = {};
-        project->setAutosaveInterval (duet::gui::autosaveInterval (settings));
-
-        // The producer's layout for this project, and the arrangement that gets
-        // it back onto disk: the view is asked for as a save begins and never
-        // written by a gesture, so nothing about resizing a panel makes the
-        // project dirty or reaches the undo history.
         view = duet::gui::ViewState {};
         view.readFrom (project->viewState());
         project->onCaptureViewState ([this] { return view.toData(); });
 
-        // The timeline is drawn against the project's tempo and metre, and the
-        // playhead against its transport.
         clock = std::make_unique<duet::gui::SessionClock> (project->session());
         shell.setSession (&project->session());
         shell.setTimelineClock (clock.get());
+        shell.viewStateChanged();
+        refreshTitle();
+    }
 
-        if (forNewProject)
-        {
-            // The shell has no way to bring audio into a project yet, so a new
-            // one is given the phrase the walking skeleton played.
-            project->session().loadDemoContent();
-            project->save();
-        }
+    void showLifecycleError (const char* title)
+    {
+        const auto message = juce::String { lifecycle.lastError() };
+        problem = message;
+
+        if (message.isNotEmpty())
+            juce::AlertWindow::showMessageBoxAsync (
+                juce::MessageBoxIconType::WarningIcon, title, message);
 
         refreshTitle();
     }
@@ -313,18 +455,21 @@ private:
         if (problem.isNotEmpty())
             return text ("Duet — ") + problem;
 
+        const auto* project = lifecycle.projectOrNull();
+
         if (project == nullptr)
             return "Duet";
 
         // The dirty marker: the project has changes that are not on disk. An
         // asterisk because the marker has to survive whatever font the window
         // manager draws its title bar in, and a bullet does not.
-        return text ("Duet — ") + juce::String (project->folder().filename().string())
+        return text ("Duet — ") + juce::String { lifecycle.projectName() }
                + (project->hasUnsavedChanges() ? juce::String (" *") : juce::String());
     }
 
     duet::gui::Appearance& appearance;
     duet::gui::Settings& settings;
+    ProjectLifecycle lifecycle;
     std::function<void (const juce::String&)> reportTitle;
 
     /** The open project's view. One per project, and the shell lays itself out
@@ -333,7 +478,6 @@ private:
     duet::gui::ViewState view;
     duet::gui::MainShell shell { appearance, view };
 
-    std::unique_ptr<duet::persistence::Project> project;
     std::unique_ptr<duet::gui::SessionClock> clock;
     std::unique_ptr<duet::gui::SettingsWindow> settingsWindow;
     std::unique_ptr<juce::FileChooser> chooser;
@@ -396,9 +540,11 @@ public:
 
     ~MainWindow() override = default;
 
-    void closeButtonPressed() override
+    void closeButtonPressed() override { requestClose(); }
+
+    void requestClose()
     {
-        juce::JUCEApplication::getInstance()->systemRequestedQuit();
+        host->requestClose ([] { juce::JUCEApplication::quit(); });
     }
 
     void moved() override
@@ -477,7 +623,13 @@ public:
         settings.reset();
     }
 
-    void systemRequestedQuit() override { quit(); }
+    void systemRequestedQuit() override
+    {
+        if (window != nullptr)
+            window->requestClose();
+        else
+            quit();
+    }
 
 private:
     void darkModeSettingChanged() override

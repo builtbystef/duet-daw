@@ -1,8 +1,9 @@
 # Duet's own tests. Catch2 v3, headless.
 #
-# duet_tests links the two facades, the paintless half of duet_gui, the
-# Collaborator service, and the test-support library — and no engine target and
-# nothing graphical, so it also enforces two rules by construction: a public
+# duet_tests links the two facades, duet_app's paintless project lifecycle, the
+# paintless half of duet_gui, the Collaborator service, and the test-support
+# library — and no engine target and nothing graphical, so it also enforces two
+# rules by construction: a public
 # facade header that reached for an engine or JUCE header would fail to compile
 # here, and so would a view-model header that reached for a component or a paint
 # type. The interface's own JUCE-linked suite is in gui/.
@@ -30,6 +31,8 @@ add_executable(duet_tests
     PluginOpsTests.cpp
     ProjectLayoutTests.cpp
     ProjectAndTransportOpsTests.cpp
+    ProjectLifecycleTests.cpp
+    ProjectsSettingsTests.cpp
     ProjectTests.cpp
     ProjectViewTests.cpp
     RecordingTests.cpp
@@ -44,6 +47,7 @@ add_executable(duet_tests
 
 target_compile_features(duet_tests PRIVATE cxx_std_20)
 target_link_libraries(duet_tests PRIVATE
+    duet::app_core
     duet::collab
     duet::gui
     duet::model

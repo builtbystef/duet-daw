@@ -12,6 +12,7 @@ add_library(duet_gui STATIC
     src/ArrangementView.cpp
     src/AutosaveSettings.cpp
     src/Rendering.cpp
+    src/ProjectsSettings.cpp
     src/SessionClock.cpp
     src/Shortcuts.cpp
     src/TimelineGeometry.cpp

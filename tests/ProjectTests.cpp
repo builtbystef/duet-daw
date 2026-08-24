@@ -180,6 +180,47 @@ TEST_CASE ("a project comes back from disk in the state it was saved in")
     REQUIRE (reopened->session().tracks().back().clips.front().name == "loop");
 }
 
+TEST_CASE ("Save As copies the whole folder and continues in the copy")
+{
+    const TempProject temp;
+    const auto sourceFolder = freshFolderIn (temp);
+    const auto destinationFolder = temp.folder() / "Songs" / "Nocturne";
+    auto source = Project::create (sourceFolder);
+    REQUIRE (source != nullptr);
+
+    const auto recorded = temp.writeTone ("take.wav", 1.0, 440.0);
+    const auto take = source->importAudioFile (recorded);
+    REQUIRE (std::filesystem::is_regular_file (take));
+    const auto sourceFileBefore = fileContents (duet::persistence::editFile (sourceFolder));
+
+    source->session().performAction (
+        "Add bass", [] (auto& ops) { ops.createTrack (TrackKind::audio, "Bass"); });
+
+    auto copy = source->saveAs (destinationFolder);
+
+    REQUIRE (copy != nullptr);
+    REQUIRE (copy->folder() == destinationFolder);
+    REQUIRE (std::filesystem::is_regular_file (duet::persistence::editFile (destinationFolder)));
+    REQUIRE (std::filesystem::is_regular_file (duet::persistence::audioDirectory (destinationFolder)
+                                               / "take.wav"));
+    REQUIRE (fileContents (duet::persistence::editFile (sourceFolder)) == sourceFileBefore);
+    REQUIRE (copy->session().tracks().back().name == "Bass");
+
+    copy->session().performAction (
+        "Rename bass",
+        [&copy] (auto& ops)
+        { ops.renameTrack (copy->session().tracks().back().track, "Low End"); });
+    REQUIRE (copy->save());
+    copy.reset();
+
+    const auto reopenedCopy = Project::open (destinationFolder);
+    const auto reopenedSource = Project::open (sourceFolder);
+    REQUIRE (reopenedCopy != nullptr);
+    REQUIRE (reopenedSource != nullptr);
+    REQUIRE (reopenedCopy->session().tracks().back().name == "Low End");
+    REQUIRE (reopenedSource->session().tracks().size() == 1);
+}
+
 TEST_CASE ("a project has nothing to open where no project was created")
 {
     const TempProject temp;

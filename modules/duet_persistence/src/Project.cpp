@@ -374,6 +374,51 @@ bool Project::save()
     return true;
 }
 
+std::unique_ptr<Project> Project::saveAs (const std::filesystem::path& destinationFolder)
+{
+    std::error_code failure;
+
+    const auto destinationExists = std::filesystem::exists (destinationFolder, failure);
+
+    if (destinationFolder.empty() || failure
+        || (destinationExists
+            && (! std::filesystem::is_directory (destinationFolder, failure)
+                || ! std::filesystem::is_empty (destinationFolder, failure)))
+        || failure)
+        return nullptr;
+
+    // Like an explicit save, Save As chooses A rather than making an Audition
+    // durable in the copy.
+    editSession->stopAudition();
+
+    if (! destinationFolder.parent_path().empty())
+        std::filesystem::create_directories (destinationFolder.parent_path(), failure);
+
+    if (failure)
+        return nullptr;
+
+    std::filesystem::copy (
+        projectFolder, destinationFolder, std::filesystem::copy_options::recursive, failure);
+
+    if (failure
+        || ! writeSnapshot (editFile (destinationFolder), partialSaveFile (destinationFolder)))
+    {
+        std::error_code ignored;
+        std::filesystem::remove_all (destinationFolder, ignored);
+        return nullptr;
+    }
+
+    auto copy = open (destinationFolder);
+
+    if (copy == nullptr)
+    {
+        std::error_code ignored;
+        std::filesystem::remove_all (destinationFolder, ignored);
+    }
+
+    return copy;
+}
+
 void Project::setAutosaveInterval (AutosaveInterval interval,
                                    std::chrono::steady_clock::time_point now)
 {
