@@ -7,6 +7,7 @@ using duet::gui::Command;
 using duet::gui::panelShortcuts;
 using duet::gui::Shortcuts;
 using duet::gui::timelineShortcuts;
+using duet::gui::transportShortcuts;
 
 TEST_CASE ("the panel keys are the ones the interface is driven by")
 {
@@ -63,6 +64,25 @@ TEST_CASE ("the smart tool has direct selection clipboard delete and rename rout
              == Command::deleteSelection);
     REQUIRE (shortcuts.commandFor ({ duet::gui::f2KeyCode }, false) == Command::rename);
     REQUIRE (shortcuts.commandFor ({ duet::gui::escapeKeyCode }, false) == Command::cancel);
+}
+
+TEST_CASE ("the global transport keys share the text-field policy")
+{
+    const auto shortcuts = transportShortcuts();
+
+    REQUIRE (shortcuts.commandFor ({ ' ' }, false) == Command::togglePlayback);
+    REQUIRE (shortcuts.commandFor ({ 'r' }, false) == Command::toggleRecording);
+    REQUIRE (shortcuts.commandFor ({ 'l' }, false) == Command::toggleLoop);
+    REQUIRE (shortcuts.commandFor ({ 'm' }, false) == Command::toggleMetronome);
+    REQUIRE (shortcuts.commandFor ({ 'f' }, false) == Command::toggleFollowPlayhead);
+    REQUIRE (shortcuts.commandFor ({ duet::gui::homeKeyCode }, false) == Command::goToStart);
+    REQUIRE (shortcuts.commandFor ({ duet::gui::endKeyCode }, false) == Command::goToEnd);
+    REQUIRE (shortcuts.commandFor ({ 'z', true }, false) == Command::undo);
+    REQUIRE (shortcuts.commandFor ({ 'z', true, false, true }, false) == Command::redo);
+    REQUIRE (shortcuts.commandFor ({ 's', true }, false) == Command::save);
+
+    for (const auto letter : { 'r', 'l', 'm', 'f' })
+        REQUIRE_FALSE (shortcuts.commandFor ({ letter }, true).has_value());
 }
 
 TEST_CASE ("the zoom keys are the ones spec 535bbo names")

@@ -1049,6 +1049,15 @@ void Session::setLooping (bool shouldLoop) { impl->edit->getTransport().looping 
 
 bool Session::isLooping() const { return impl->edit->getTransport().looping; }
 
+void Session::setMetronomeEnabled (bool enabled) { impl->edit->clickTrackEnabled = enabled; }
+
+bool Session::metronomeEnabled() const { return impl->edit->clickTrackEnabled; }
+
+double Session::cpuLoad() const noexcept
+{
+    return static_cast<double> (impl->engine.getDeviceManager().getCpuUsage());
+}
+
 std::string Session::audioDeviceDescription() const
 {
     auto* device = impl->engine.getDeviceManager().deviceManager.getCurrentAudioDevice();

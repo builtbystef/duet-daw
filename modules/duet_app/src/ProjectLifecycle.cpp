@@ -202,8 +202,9 @@ std::unique_ptr<duet::persistence::Project> ProjectLifecycle::makeUntitled()
 
         auto& session = project->session();
         const auto originalTracks = session.tracks();
+        duet::model::TrackRef audioTrack = duet::model::noTrack;
         session.performAction ("Create Project",
-                               [&originalTracks] (auto& ops)
+                               [&originalTracks, &audioTrack] (auto& ops)
                                {
                                    for (const auto& track : originalTracks)
                                        ops.removeTrack (track.track);
@@ -211,8 +212,20 @@ std::unique_ptr<duet::persistence::Project> ProjectLifecycle::makeUntitled()
                                    ops.createTrack (duet::model::TrackKind::midi,
                                                     "Instrument 1",
                                                     duet::model::BuiltinPlugin::synth);
-                                   ops.createTrack (duet::model::TrackKind::audio, "Audio 1");
+                                   audioTrack =
+                                       ops.createTrack (duet::model::TrackKind::audio, "Audio 1");
                                });
+
+        // A new project's audio track is ready for its first take. Input
+        // selection remains available through the recording vocabulary, but
+        // the ordinary launch path chooses the machine's first audio input so
+        // that Arm then Record needs no routing dialog.
+        for (const auto& input : session.availableInputs())
+            if (input.kind == duet::model::InputKind::audio)
+            {
+                session.setTrackInput (audioTrack, input.input);
+                break;
+            }
 
         if (! project->save())
         {

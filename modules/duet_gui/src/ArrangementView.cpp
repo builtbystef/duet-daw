@@ -704,6 +704,21 @@ int ArrangementView::playheadX() const
 
 bool ArrangementView::isPlaying() const { return clock != nullptr && clock->isPlaying(); }
 
+bool ArrangementView::followPlayback()
+{
+    if (! view.followPlayhead() || ! isPlaying() || clock == nullptr)
+        return false;
+
+    const auto x = playheadX();
+    if (x >= 0 && x <= timeline.widthPx())
+        return false;
+
+    const auto leftMarginBeats =
+        static_cast<double> (timeline.widthPx()) * 0.25 / view.hZoomPxPerBeat();
+    view.setHScrollBeats (clock->playheadBeats() - leftMarginBeats);
+    return true;
+}
+
 void ArrangementView::clickRuler (int px)
 {
     if (clock != nullptr)

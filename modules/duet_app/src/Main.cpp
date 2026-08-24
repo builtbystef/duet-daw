@@ -87,6 +87,12 @@ public:
     {
         shell.setHostMenu ([this] (juce::PopupMenu& menu) { addHostEntries (menu); },
                            [this] (int itemId) { hostItemChosen (itemId); });
+        shell.setSaveAction (
+            [this]
+            {
+                lifecycle.save();
+                refreshTitle();
+            });
 
         // The software renderer is the default, and this is the producer's own
         // answer from the last launch (spec 535bbo).
@@ -448,7 +454,15 @@ private:
         refreshTitle();
     }
 
-    void refreshTitle() { reportTitle (titleText()); }
+    void refreshTitle()
+    {
+        if (const auto* project = lifecycle.projectOrNull())
+            shell.setProjectStatus (lifecycle.projectName(), project->hasUnsavedChanges());
+        else
+            shell.setProjectStatus ({}, false);
+
+        reportTitle (titleText());
+    }
 
     [[nodiscard]] juce::String titleText() const
     {

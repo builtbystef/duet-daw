@@ -1073,6 +1073,15 @@ public:
     void setLooping (bool shouldLoop);
     [[nodiscard]] bool isLooping() const;
 
+    /** Whether the engine's click track sounds with playback. Like the other
+        transport controls, this never enters the producer's undo history. */
+    void setMetronomeEnabled (bool enabled);
+    [[nodiscard]] bool metronomeEnabled() const;
+
+    /** The audio device's published process load, as a proportion. Reading it
+        takes no lock and does no work on the audio callback. */
+    [[nodiscard]] double cpuLoad() const noexcept;
+
     /** The current audio device, named with its sample rate, block size and
         output latency — empty when no device could be opened.
     */

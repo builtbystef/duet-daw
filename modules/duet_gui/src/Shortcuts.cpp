@@ -86,6 +86,22 @@ Shortcuts arrangementShortcuts()
     return shortcuts;
 }
 
+Shortcuts transportShortcuts()
+{
+    Shortcuts shortcuts;
+    shortcuts.add ({ ' ' }, Command::togglePlayback);
+    shortcuts.add ({ 'r' }, Command::toggleRecording);
+    shortcuts.add ({ 'l' }, Command::toggleLoop);
+    shortcuts.add ({ 'm' }, Command::toggleMetronome);
+    shortcuts.add ({ 'f' }, Command::toggleFollowPlayhead);
+    shortcuts.add ({ homeKeyCode }, Command::goToStart);
+    shortcuts.add ({ endKeyCode }, Command::goToEnd);
+    shortcuts.add ({ 'z', true }, Command::undo);
+    shortcuts.add ({ 'z', true, false, true }, Command::redo);
+    shortcuts.add ({ 's', true }, Command::save);
+    return shortcuts;
+}
+
 Shortcuts panelShortcuts()
 {
     Shortcuts shortcuts;

@@ -29,6 +29,19 @@ TEST_CASE ("a beat is where the zoom and the scroll say it is")
     REQUIRE_THAT (geometry.xToBeats (0), WithinAbs (8.0, 1e-9));
 }
 
+TEST_CASE ("an explicit eighth-note grid overrides adaptive spacing")
+{
+    ViewState view;
+    const TimelineGeometry geometry { view };
+    view.setHZoomPxPerBeat (30.0);
+    view.setGridSize (duet::gui::GridSize::eighth);
+
+    REQUIRE_THAT (geometry.gridFor().subdivisionBeats, WithinAbs (0.5, 1e-9));
+
+    view.setGridSize (duet::gui::GridSize::adaptive);
+    REQUIRE_THAT (geometry.gridFor().subdivisionBeats, WithinAbs (1.0, 1e-9));
+}
+
 TEST_CASE ("the grid is the finest subdivision the zoom has room for")
 {
     ViewState view;

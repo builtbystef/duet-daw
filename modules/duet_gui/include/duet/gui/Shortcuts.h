@@ -35,7 +35,18 @@ enum class Command : std::uint8_t
     duplicate,
     deleteSelection,
     rename,
-    cancel
+    cancel,
+
+    togglePlayback,
+    toggleRecording,
+    toggleLoop,
+    toggleMetronome,
+    toggleFollowPlayhead,
+    goToStart,
+    goToEnd,
+    undo,
+    redo,
+    save
 };
 
 /** A key press, as the policy sees it. No JUCE type crosses this seam, so what
@@ -95,7 +106,12 @@ private:
 /** Selection and clipboard routes of the smart tool. */
 [[nodiscard]] Shortcuts arrangementShortcuts();
 
+/** Global transport, history and save routes. */
+[[nodiscard]] Shortcuts transportShortcuts();
+
 inline constexpr int deleteKeyCode = 0x10000;
 inline constexpr int escapeKeyCode = 0x10001;
 inline constexpr int f2KeyCode = 0x10002;
+inline constexpr int homeKeyCode = 0x10003;
+inline constexpr int endKeyCode = 0x10004;
 } // namespace duet::gui

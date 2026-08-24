@@ -16,6 +16,8 @@ namespace
         constexpr const char* hZoomPxPerBeat = "hZoomPxPerBeat";
         constexpr const char* hScrollBeats = "hScrollBeats";
         constexpr const char* vScrollPx = "vScrollPx";
+        constexpr const char* gridSize = "gridSize";
+        constexpr const char* followPlayhead = "followPlayhead";
         constexpr const char* browserVisible = "browserVisible";
         constexpr const char* collaboratorVisible = "collaboratorVisible";
         constexpr const char* bottomVisible = "bottomVisible";
@@ -125,6 +127,8 @@ duet::persistence::DataNode ViewState::toData() const
     view.set (attribute::hZoomPxPerBeat, zoomPxPerBeat);
     view.set (attribute::hScrollBeats, scrollBeats);
     view.set (attribute::vScrollPx, scrollPx);
+    view.set (attribute::gridSize, grid == GridSize::eighth ? "eighth" : "adaptive");
+    view.set (attribute::followPlayhead, followsPlayhead);
     view.set (attribute::browserVisible, browserOpen);
     view.set (attribute::collaboratorVisible, collaboratorOpen);
     view.set (attribute::bottomVisible, bottomOpen);
@@ -152,6 +156,9 @@ void ViewState::readFrom (const duet::persistence::DataNode& stored)
     setHZoomPxPerBeat (stored.doubleValue (attribute::hZoomPxPerBeat, zoomPxPerBeat));
     setHScrollBeats (stored.doubleValue (attribute::hScrollBeats, scrollBeats));
     setVScrollPx (stored.intValue (attribute::vScrollPx, scrollPx));
+    grid = stored.stringValue (attribute::gridSize, "adaptive") == "eighth" ? GridSize::eighth
+                                                                            : GridSize::adaptive;
+    followsPlayhead = stored.boolValue (attribute::followPlayhead, followsPlayhead);
 
     browserOpen = stored.boolValue (attribute::browserVisible, browserOpen);
     collaboratorOpen = stored.boolValue (attribute::collaboratorVisible, collaboratorOpen);

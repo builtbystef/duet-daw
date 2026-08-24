@@ -18,6 +18,7 @@ add_library(duet_gui STATIC
     src/Shortcuts.cpp
     src/Snap.cpp
     src/TimelineGeometry.cpp
+    src/TransportBar.cpp
     src/Tokens.cpp
     src/ViewState.cpp
     src/WindowGeometry.cpp)

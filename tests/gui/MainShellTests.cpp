@@ -4,11 +4,14 @@
 #include <duet/gui/MainShell.h>
 #include <duet/gui/Shortcuts.h>
 #include <duet/gui/ViewState.h>
+#include <duet/model/Session.h>
 
 #include <catch2/catch_test_macros.hpp>
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include <filesystem>
+#include <string>
 #include <vector>
 
 using duet::gui::Appearance;
@@ -189,6 +192,24 @@ TEST_CASE ("the panel keys drive the shell")
     // A key the shell has nothing registered for is left for whatever else
     // wants it.
     REQUIRE_FALSE (open.shell.keyPressed (juce::KeyPress { 'q' }));
+}
+
+TEST_CASE ("global transport keys reach the open session without entering undo")
+{
+    OpenShell open;
+    const auto editFile =
+        std::filesystem::temp_directory_path()
+        / ("duet-gui-" + std::to_string (juce::Random::getSystemRandom().nextInt64())
+           + ".tracktionedit");
+    duet::model::Session session { editFile };
+    open.shell.setSession (&session);
+    const auto undoBefore = session.undoNames();
+
+    REQUIRE (open.shell.keyPressed (juce::KeyPress { 'l' }));
+    REQUIRE (session.isLooping());
+    REQUIRE (open.shell.keyPressed (juce::KeyPress { 'm' }));
+    REQUIRE (session.metronomeEnabled());
+    REQUIRE (session.undoNames() == undoBefore);
 }
 
 TEST_CASE ("the Duet menu carries the panel toggles, and shows which are open")

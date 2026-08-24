@@ -134,6 +134,17 @@ TEST_CASE ("snap follows the currently held Alt modifier")
     REQUIRE (duet::gui::snapBeats (3.30, grid, false) == 3.0);
 }
 
+TEST_CASE ("the transport's eighth-note grid makes a 3.30 beat drag land at 3.5")
+{
+    SmartArrangement open;
+    open.view.setGridSize (duet::gui::GridSize::eighth);
+
+    open.arrangement.beginClipGesture (open.clips[0], ClipGestureKind::move);
+    open.arrangement.updateClipGesture (3.30, open.firstTrack, false, false);
+    REQUIRE (open.arrangement.completeClipGesture());
+    REQUIRE (open.clip (open.clips[0]).startSeconds == 1.75);
+}
+
 TEST_CASE ("move copy cross-track drop and Escape cross the Action seam correctly")
 {
     SmartArrangement open;

@@ -113,6 +113,8 @@ TEST_CASE ("a view comes back from the VIEW tree exactly as it went in")
     view.setHZoomPxPerBeat (48.5);
     view.setHScrollBeats (12.25);
     view.setVScrollPx (140);
+    view.setGridSize (duet::gui::GridSize::eighth);
+    view.setFollowPlayhead (false);
     view.setBrowserWidthPx (260);
     view.setCollaboratorVisible (false);
     view.setBottomHeightPx (320);
@@ -131,6 +133,8 @@ TEST_CASE ("a view comes back from the VIEW tree exactly as it went in")
     REQUIRE_THAT (reopened.hZoomPxPerBeat(), WithinAbs (48.5, 1e-9));
     REQUIRE_THAT (reopened.hScrollBeats(), WithinAbs (12.25, 1e-9));
     REQUIRE (reopened.vScrollPx() == 140);
+    REQUIRE (reopened.gridSize() == duet::gui::GridSize::eighth);
+    REQUIRE_FALSE (reopened.followPlayhead());
     REQUIRE (reopened.browserVisible());
     REQUIRE (reopened.browserWidthPx() == 260);
     REQUIRE_FALSE (reopened.collaboratorVisible());

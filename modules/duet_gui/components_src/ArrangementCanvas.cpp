@@ -814,6 +814,8 @@ void ArrangementCanvas::showTrackMenu (duet::model::TrackRef track)
 void ArrangementCanvas::timerCallback()
 {
     // What the engine has published, and no lock to read it behind.
+    if (view.followPlayback())
+        repaint();
     movePlayheadTo (view.playheadX());
 }
 

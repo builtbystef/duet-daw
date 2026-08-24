@@ -3,12 +3,14 @@
 #include <duet/gui/Appearance.h>
 #include <duet/gui/ArrangementView.h>
 #include <duet/gui/Shortcuts.h>
+#include <duet/gui/TransportBar.h>
 #include <duet/gui/ViewState.h>
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include <functional>
 #include <memory>
+#include <string>
 
 namespace duet::gui
 {
@@ -23,6 +25,8 @@ class TimelineClock;
 namespace surfaceId
 {
     inline constexpr const char* transport = "transport";
+    inline constexpr const char* projectName = "projectName";
+    inline constexpr const char* tempo = "tempo";
     inline constexpr const char* arrangement = "arrangement";
     inline constexpr const char* arrangementRuler = "arrangementRuler";
     inline constexpr const char* browser = "browser";
@@ -80,6 +84,11 @@ public:
     void setTimelineClock (TimelineClock* projectClock);
     void setSession (duet::model::Session* openProject);
 
+    /** Project lifecycle facts and Save remain host-owned; the bar presents and
+        invokes them through this narrow seam. */
+    void setProjectStatus (std::string name, bool dirty);
+    void setSaveAction (std::function<void()> save);
+
     //==============================================================================
     /** What a divider drag means: where the producer has put the boundary, in
         pixels from the shell's own left edge or top edge. The divider bars are
@@ -130,6 +139,7 @@ public:
 
 private:
     class Dock;
+    class TransportStrip;
     class BottomPanel;
     class Divider;
 
@@ -149,9 +159,10 @@ private:
         timeline will read.
     */
     ArrangementView arrangementView { view };
+    TransportBar transport { view };
 
     juce::TextButton duetButton { "Duet" };
-    std::unique_ptr<Dock> transportStrip;
+    std::unique_ptr<TransportStrip> transportStrip;
     std::unique_ptr<ArrangementCanvas> arrangement;
     std::unique_ptr<Dock> browser;
     std::unique_ptr<Dock> collaborator;
@@ -161,6 +172,7 @@ private:
     std::unique_ptr<Divider> bottomDivider;
     std::unique_ptr<AcceleratedSurface> hardwareContext;
 
+    std::function<void()> saveAction;
     std::function<void (juce::PopupMenu&)> buildHostMenu;
     std::function<void (int)> hostMenuItemChosen;
     bool accelerated = false;

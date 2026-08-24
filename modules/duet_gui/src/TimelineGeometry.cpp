@@ -113,7 +113,9 @@ void TimelineGeometry::setWidthPx (int newWidth) { canvasWidth = std::max (0, ne
 
 GridSpec TimelineGeometry::gridFor() const
 {
-    return { subdivisionFor (minimumGridSpacingPx, false), barBeats };
+    const auto subdivision =
+        view.gridSize() == GridSize::eighth ? 0.5 : subdivisionFor (minimumGridSpacingPx, false);
+    return { subdivision, barBeats };
 }
 
 double TimelineGeometry::subdivisionFor (double minimumSpacingPx, bool neverFinerThanABeat) const

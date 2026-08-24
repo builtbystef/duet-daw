@@ -208,6 +208,10 @@ public:
     */
     [[nodiscard]] bool isPlaying() const;
 
+    /** Scrolls a rolling transport back into view when follow is enabled.
+        Returns true when the view moved. */
+    bool followPlayback();
+
     /** A click on the ruler: the playhead lands where it was clicked. Never an
         Action — moving the playhead is not a change to the project — and never
         left of the start of the project.

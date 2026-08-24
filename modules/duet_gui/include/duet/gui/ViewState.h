@@ -17,6 +17,13 @@ enum class BottomTab : std::uint8_t
     mixer
 };
 
+/** The timeline snap spacing selected in the transport. */
+enum class GridSize : std::uint8_t
+{
+    adaptive,
+    eighth
+};
+
 /** Where the interface is, for one project.
 
     Zoom, scroll, which docks are open and how wide, which bottom tab is in
@@ -69,6 +76,12 @@ public:
 
     [[nodiscard]] int vScrollPx() const { return scrollPx; }
     void setVScrollPx (int newScroll);
+
+    [[nodiscard]] GridSize gridSize() const { return grid; }
+    void setGridSize (GridSize newGrid) { grid = newGrid; }
+
+    [[nodiscard]] bool followPlayhead() const { return followsPlayhead; }
+    void setFollowPlayhead (bool shouldFollow) { followsPlayhead = shouldFollow; }
 
     //==============================================================================
     /** Whether a dock is open. A dock that is closed keeps the size it had, so
@@ -150,6 +163,8 @@ private:
     double zoomPxPerBeat = defaultZoomPxPerBeat;
     double scrollBeats = 0.0;
     int scrollPx = 0;
+    GridSize grid = GridSize::adaptive;
+    bool followsPlayhead = true;
 
     bool browserOpen = true;
     bool collaboratorOpen = true;

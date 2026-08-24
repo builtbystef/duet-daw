@@ -78,6 +78,10 @@ namespace
             return escapeKeyCode;
         if (juceKeyCode == juce::KeyPress::F2Key)
             return f2KeyCode;
+        if (juceKeyCode == juce::KeyPress::homeKey)
+            return homeKeyCode;
+        if (juceKeyCode == juce::KeyPress::endKey)
+            return endKeyCode;
         return juceKeyCode;
     }
 } // namespace
@@ -122,6 +126,160 @@ private:
     juce::String title;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (Dock)
+};
+
+//==============================================================================
+/** The live transport strip. Fixed child bounds keep changing digits from
+    changing the layout; Inter supplies tabular numerals for both time labels. */
+class MainShell::TransportStrip final : public juce::Component, private juce::Timer
+{
+public:
+    TransportStrip (Appearance& lookAndScale,
+                    TransportBar& transportModel,
+                    std::function<void (Command)> run,
+                    std::function<void()> changed)
+        : appearance (lookAndScale), model (transportModel), performCommand (std::move (run)),
+          modelChanged (std::move (changed))
+    {
+        setComponentID (surfaceId::transport);
+
+        for (auto* child : std::initializer_list<juce::Component*> { &musical,
+                                                                     &wall,
+                                                                     &tempo,
+                                                                     &metre,
+                                                                     &grid,
+                                                                     &loop,
+                                                                     &metronome,
+                                                                     &follow,
+                                                                     &cpu,
+                                                                     &undo,
+                                                                     &redo,
+                                                                     &project })
+            addAndMakeVisible (*child);
+
+        musical.setJustificationType (juce::Justification::centred);
+        wall.setJustificationType (juce::Justification::centred);
+        cpu.setJustificationType (juce::Justification::centred);
+        project.setComponentID (surfaceId::projectName);
+        project.setJustification (juce::Justification::centredRight);
+        tempo.setComponentID (surfaceId::tempo);
+        tempo.setInputRestrictions (6, "0123456789.");
+        metre.setInputRestrictions (5, "0123456789/");
+
+        grid.addItem ("Adaptive", 1);
+        grid.addItem ("1/8", 2);
+        grid.onChange = [this]
+        {
+            model.setGridSize (grid.getSelectedId() == 2 ? GridSize::eighth : GridSize::adaptive);
+            modelChanged();
+        };
+
+        tempo.onReturnKey = [this] { commitTempo(); };
+        tempo.onFocusLost = [this] { commitTempo(); };
+        metre.onReturnKey = [this] { commitMetre(); };
+        metre.onFocusLost = [this] { commitMetre(); };
+        loop.onClick = [this] { performCommand (Command::toggleLoop); };
+        metronome.onClick = [this] { performCommand (Command::toggleMetronome); };
+        follow.onClick = [this] { performCommand (Command::toggleFollowPlayhead); };
+        undo.onClick = [this] { performCommand (Command::undo); };
+        redo.onClick = [this] { performCommand (Command::redo); };
+
+        startTimerHz (30);
+        refresh();
+    }
+
+    ~TransportStrip() override = default;
+
+    void resized() override
+    {
+        auto area = getLocalBounds().reduced (appearance.scaled (metrics::rowGap));
+        area.removeFromLeft (appearance.scaled (menuButtonWidth + metrics::rowGap));
+        const auto take = [&area, this] (int width)
+        { return area.removeFromLeft (appearance.scaled (width)); };
+
+        musical.setBounds (take (92));
+        wall.setBounds (take (112));
+        tempo.setBounds (take (54).reduced (2));
+        metre.setBounds (take (48).reduced (2));
+        grid.setBounds (take (88).reduced (2));
+        loop.setBounds (take (42));
+        metronome.setBounds (take (42));
+        follow.setBounds (take (42));
+        cpu.setBounds (take (58));
+        undo.setBounds (take (34));
+        redo.setBounds (take (34));
+        project.setBounds (area.reduced (2));
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        g.fillAll (toJuce (appearance.colour (ColourToken::surfaceRaised)));
+        g.setColour (toJuce (appearance.colour (ColourToken::borderDefault)));
+        g.fillRect (getLocalBounds().removeFromBottom (1));
+    }
+
+    void refresh()
+    {
+        musical.setText (model.musicalPosition(), juce::dontSendNotification);
+        wall.setText (model.wallTime(), juce::dontSendNotification);
+        if (! tempo.hasKeyboardFocus (true))
+            tempo.setText (juce::String { model.tempo(), 1 }, false);
+        if (! metre.hasKeyboardFocus (true))
+            metre.setText (model.timeSignature(), false);
+        grid.setSelectedId (model.gridSize() == GridSize::eighth ? 2 : 1,
+                            juce::dontSendNotification);
+        loop.setToggleState (model.isLooping(), juce::dontSendNotification);
+        metronome.setToggleState (model.metronomeEnabled(), juce::dontSendNotification);
+        follow.setToggleState (model.followsPlayhead(), juce::dontSendNotification);
+        model.sampleCpuLoad();
+        cpu.setText (juce::String { model.cpuPercent() } + "%", juce::dontSendNotification);
+        cpu.setColour (juce::Label::textColourId,
+                       toJuce (appearance.colour (model.cpuHealth() == CpuHealth::overloaded
+                                                      ? ColourToken::semanticDanger
+                                                      : ColourToken::textSecondary)));
+        undo.setEnabled (model.canUndo());
+        redo.setEnabled (model.canRedo());
+        undo.setTooltip (model.undoLabel());
+        redo.setTooltip (model.redoLabel());
+        if (! project.hasKeyboardFocus (true))
+            project.setText (model.projectLabel(), false);
+    }
+
+private:
+    void timerCallback() override { refresh(); }
+    void commitTempo()
+    {
+        model.setTempo (tempo.getText().getDoubleValue());
+        modelChanged();
+    }
+    void commitMetre()
+    {
+        const auto parts = juce::StringArray::fromTokens (metre.getText(), "/", {});
+        if (parts.size() == 2)
+        {
+            model.setTimeSignature (parts[0].getIntValue(), parts[1].getIntValue());
+            modelChanged();
+        }
+    }
+
+    Appearance& appearance;
+    TransportBar& model;
+    std::function<void (Command)> performCommand;
+    std::function<void()> modelChanged;
+    juce::Label musical;
+    juce::Label wall;
+    juce::TextEditor tempo;
+    juce::TextEditor metre;
+    juce::ComboBox grid;
+    juce::ToggleButton loop { "L" };
+    juce::ToggleButton metronome { "M" };
+    juce::ToggleButton follow { "F" };
+    juce::Label cpu;
+    juce::TextButton undo { "Undo" };
+    juce::TextButton redo { "Redo" };
+    juce::TextEditor project;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (TransportStrip)
 };
 
 //==============================================================================
@@ -271,8 +429,13 @@ MainShell::MainShell (Appearance& lookAndScale, ViewState& projectView)
     shortcuts.add (panelShortcuts());
     shortcuts.add (timelineShortcuts());
     shortcuts.add (arrangementShortcuts());
+    shortcuts.add (transportShortcuts());
 
-    transportStrip = std::make_unique<Dock> (appearance, surfaceId::transport, juce::String());
+    transportStrip = std::make_unique<TransportStrip> (
+        appearance,
+        transport,
+        [this] (Command command) { perform (command); },
+        [this] { viewStateChanged(); });
     arrangement = std::make_unique<ArrangementCanvas> (
         appearance, arrangementView, [this] { perform (Command::showPianoRoll); });
     browser = std::make_unique<Dock> (appearance, surfaceId::browser, "Browser");
@@ -394,6 +557,38 @@ void MainShell::perform (Command command)
             arrangement->perform (command);
             break;
 
+        case Command::togglePlayback:
+            transport.togglePlayback();
+            break;
+        case Command::toggleRecording:
+            transport.toggleRecording();
+            break;
+        case Command::toggleLoop:
+            transport.toggleLoop();
+            break;
+        case Command::toggleMetronome:
+            transport.toggleMetronome();
+            break;
+        case Command::toggleFollowPlayhead:
+            transport.toggleFollowPlayhead();
+            break;
+        case Command::goToStart:
+            transport.goToStart();
+            break;
+        case Command::goToEnd:
+            transport.goToEnd();
+            break;
+        case Command::undo:
+            static_cast<void> (transport.undo());
+            break;
+        case Command::redo:
+            static_cast<void> (transport.redo());
+            break;
+        case Command::save:
+            if (saveAction)
+                saveAction();
+            break;
+
         case Command::showPianoRoll:
         case Command::showMixer:
             // A tab behind a closed panel is not a tab the producer can see, so
@@ -416,8 +611,16 @@ void MainShell::setTimelineClock (TimelineClock* projectClock)
 void MainShell::setSession (duet::model::Session* openProject)
 {
     arrangementView.setSession (openProject);
+    transport.setSession (openProject);
     viewStateChanged();
 }
+
+void MainShell::setProjectStatus (std::string name, bool dirty)
+{
+    transport.setProjectStatus (std::move (name), dirty);
+}
+
+void MainShell::setSaveAction (std::function<void()> save) { saveAction = std::move (save); }
 
 void MainShell::viewStateChanged()
 {

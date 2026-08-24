@@ -1,6 +1,7 @@
 #include <duet/gui/ArrangementView.h>
 
 #include <duet/gui/SessionClock.h>
+#include <duet/gui/TimelineClock.h>
 #include <duet/gui/TimelineGeometry.h>
 #include <duet/gui/ViewState.h>
 
@@ -39,6 +40,19 @@ struct OpenArrangement
     ArrangementView arrangement { view };
 };
 
+class Clock final : public duet::gui::TimelineClock
+{
+public:
+    [[nodiscard]] double beatsPerBar() const override { return 4.0; }
+    [[nodiscard]] double playheadBeats() const override { return position; }
+    void setPlayheadBeats (double beats) override { position = beats; }
+    [[nodiscard]] bool isPlaying() const override { return playing; }
+    [[nodiscard]] double contentLengthBeats() const override { return 64.0; }
+
+    double position = 0.0;
+    bool playing = false;
+};
+
 /** One notch of a wheel, the way a mouse reports it: away from the producer. */
 [[nodiscard]] ScrollGesture notches (double count)
 {
@@ -48,6 +62,24 @@ struct OpenArrangement
     return gesture;
 }
 } // namespace
+
+TEST_CASE ("follow playhead scrolls a rolling transport into view only while enabled")
+{
+    OpenArrangement open;
+    Clock clock;
+    open.arrangement.setClock (&clock);
+    clock.position = 30.0;
+    clock.playing = true;
+
+    REQUIRE (open.arrangement.followPlayback());
+    REQUIRE (open.arrangement.playheadX() > 0);
+    REQUIRE (open.arrangement.playheadX() < open.arrangement.geometry().widthPx());
+
+    open.view.setHScrollBeats (0.0);
+    open.view.setFollowPlayhead (false);
+    REQUIRE_FALSE (open.arrangement.followPlayback());
+    REQUIRE (open.view.hScrollBeats() == 0.0);
+}
 
 TEST_CASE ("scrolling with no modifier moves the arrangement up and down")
 {

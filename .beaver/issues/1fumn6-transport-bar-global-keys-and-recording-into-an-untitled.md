@@ -1,7 +1,8 @@
 ---
 id: 1fumn6
 title: Transport bar, global keys, and recording into an untitled project
-state: todo
+state: done
+assignee: agent
 priority: high
 depends_on:
     - ce17ym
@@ -10,7 +11,7 @@ depends_on:
     - nfjr5x
 parent: 535bbo
 created: 2026-08-12T03:50:00Z
-updated: 2026-08-17T04:09:59Z
+updated: 2026-08-24T17:12:57Z
 ---
 
 ## What to build
@@ -39,3 +40,7 @@ With record wired, story 10 closes end to end: a producer who has just launched 
 **claude** — 2026-08-17T04:09:59Z
 
 Scope split (2026-08-17): the recording vocabulary and engine wiring (record-arm, input selection, monitoring, take-as-one-Action, latency compensation) now live in foundation slice nfjr5x, which this issue depends on. This slice wires the transport-bar UI and the record-into-untitled-project flow on top of those ops; it builds none of them.
+
+**agent** — 2026-08-24T17:12:57Z
+
+Completed the transport bar and global key slice. Added fixed-width musical/wall-time readouts; editable tempo and metre Actions; persisted Adaptive/1/8 grid selection; loop, metronome, follow-playhead, playback, recording, start/end, undo/redo and Save routes through the shell key policy; Action-named history tooltips; lock-free engine CPU-load presentation with a one-second overload threshold; and project name/dirty status. Follow-playhead now scrolls only while enabled and rolling. New untitled projects select the first available audio input for their seeded audio track, and the record-bar test verifies a take lands in that project's audio folder. Grid and follow state are stored in VIEW. Checks passed: format, full build, full lint, and all 229 tests (8 hardware-dependent skips).
