@@ -1,10 +1,8 @@
 {
   "$schema": "https://raw.githubusercontent.com/gotgenes/pi-packages/main/packages/pi-permission-system/schemas/permissions.schema.json",
-
   "yoloMode": false,
   "permissionReviewLog": true,
   "piInfrastructureReadPaths": [],
-
   "permission": {
     "*": "allow",
     "path": {
@@ -21,6 +19,7 @@
       "~/.claude/*": "allow",
       "~/.pi/*": "allow",
       "~/Main/*": "deny",
+      "~/dotfiles/*": "deny",
       "~/.ssh/*": "deny",
       "~/.gnupg/*": "deny",
       "~/.aws/*": "deny",
@@ -52,6 +51,6 @@
       "docker*": "deny",
       "podman*": "deny"
     },
-    "external_directory": "deny"
+    "external_directory": "allow"
   }
 }

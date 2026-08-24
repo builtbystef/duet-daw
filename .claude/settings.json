@@ -10,6 +10,7 @@
     "filesystem": {
       "denyRead": [
         "~/Main",
+        "~/dotfiles",
         "~/.ssh",
         "~/.gnupg",
         "~/.aws",
@@ -25,9 +26,14 @@
         "~/.pi/agent/auth.json",
         "~/.netrc",
         "~/.npmrc",
-        "~/.pgpass"
+        "~/.pgpass",
+        "/run/docker.sock",
+        "/run/user/1000/podman/podman.sock",
+        "/run/user/1000/keyring",
+        "/run/user/1000/gnupg"
       ],
       "allowWrite": [
+        "/tmp",
         "~/.cache",
         "~/.npm",
         "~/.local/share/pnpm",
@@ -46,6 +52,7 @@
     "deny": [
       "Read(~/Main/**)",
       "Edit(~/Main/**)",
+      "Read(~/dotfiles/**)",
       "Read(~/.ssh/**)",
       "Read(~/.gnupg/**)",
       "Read(~/.aws/**)",
