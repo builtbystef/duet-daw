@@ -547,6 +547,16 @@ void Session::Impl::useHostedAudioDevice() const
     audioInterface.initialise (parameters);
     audioInterface.prepareToPlay (parameters.sampleRate, parameters.blockSize);
     deviceManager.dispatchPendingUpdates();
+
+    // Initialising the hosted device applies its MIDI list synchronously, but
+    // settling the defaults schedules one more apply on the device manager's
+    // timer. That apply frees every playback graph: a headless take can push
+    // its blocks before the message loop delivers it, then be ended by the
+    // delivery. Hosted MIDI cannot change underneath us, so cancel that pending
+    // scan. As suppressDeviceRebuild does, restore the production setting in
+    // PropertyStorage without restarting this session's timer.
+    deviceManager.setMidiDeviceScanIntervalSeconds (0);
+    engine.getPropertyStorage().setProperty (te::SettingID::midiScanIntervalSeconds, 4);
 }
 
 void Session::Impl::pushBlocks (double seconds, const InputSignal& playedIn) const

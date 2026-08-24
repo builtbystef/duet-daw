@@ -231,6 +231,28 @@ are pushed in. The engine's own headless test player
 hosted device and hand it blocks. That is how playback meters and recording
 run in CI (ADR 0006).
 
+### A hosted-device switch leaves one MIDI apply pending
+
+**The engine.** Initialising `HostedAudioDeviceInterface` applies its MIDI
+list synchronously, but settling the default devices schedules another MIDI
+apply on the `DeviceManager` timer. That apply reloads the playback context's
+devices and frees its graph. Blocks can be pushed through a recording before
+the message loop delivers the apply, so delivering it afterwards ends the take.
+Hosted MIDI itself cannot change when `Parameters::useMidiDevices` is false.
+
+**Where.** `HostedAudioDeviceInterface::initialise`;
+`DeviceManager::applyNewMidiDeviceList`; `checkDefaultDevicesAreValid`.
+
+**Proved.** `wdt64u`. The headless undo-during-take case pushed blocks, then
+pumped the message loop to read the playhead; recording changed from true to
+false when the pending MIDI apply landed. Cancelling that scan left recording
+true through the playhead advance and undo.
+
+**Duet.** `Session::useNoAudioDevice` cancels MIDI scanning for that session
+after the hosted list has been applied, while restoring the production scan
+interval in `PropertyStorage` for later engines. A headless take therefore runs
+until `stopRecording` rather than until the next message-loop pump.
+
 ### The engine builds two different graphs
 
 **The engine.** `createNodeForEdit(EditPlaybackContext&, ...)` is playback.
