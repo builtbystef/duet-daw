@@ -1,5 +1,6 @@
 #include "PropertyStorageSettings.h"
 
+#include <duet/model/Session.h>
 #include <duet/persistence/Project.h>
 
 #include <duet/gui/Appearance.h>
@@ -445,8 +446,11 @@ public:
     const juce::String getApplicationVersion() override { return JUCE_APPLICATION_VERSION_STRING; }
     bool moreThanOneInstanceAllowed() override { return false; }
 
-    void initialise (const juce::String& /*commandLine*/) override
+    void initialise (const juce::String& commandLine) override
     {
+        if (duet::model::Session::startPluginScanChild (commandLine.toStdString()))
+            return;
+
         auto& desktop = juce::Desktop::getInstance();
 
         settings = std::make_unique<PropertyStorageSettings>();

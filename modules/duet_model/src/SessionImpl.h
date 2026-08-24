@@ -22,6 +22,13 @@ namespace duet::model
 {
 namespace te = tracktion;
 
+/** Duet's external-plugin facts retained on the plugin's project node. */
+inline constexpr const char* externalPluginIdentifierProperty = "duetExternalPluginIdentifier";
+inline constexpr const char* externalParametersNode = "DUET_EXTERNAL_PARAMETERS";
+inline constexpr const char* externalParameterNode = "DUET_EXTERNAL_PARAMETER";
+inline constexpr const char* externalParameterIdProperty = "parameterId";
+inline constexpr const char* externalParameterValueProperty = "value";
+
 inline juce::File toJuceFile (const std::filesystem::path& path)
 {
     return juce::File { juce::String { path.string() } };
@@ -179,19 +186,17 @@ private:
     te::LevelMeasurer::Client client;
 };
 
-/** What Duet tells the engine about itself.
-
-    Only one thing so far, and it is recording's: left to itself the engine
-    writes a take into the directory its filename pattern names, which is not
-    the project folder, and a project is meant to travel with its recordings
-    (ADR 0005). This is where a take goes instead.
+/** What Duet tells the engine about itself: scans run in a child process, and
+    recordings land in the project folder rather than the engine's default.
 */
-struct RecordingBehaviour final : te::EngineBehaviour
+struct DuetBehaviour final : te::EngineBehaviour
 {
-    explicit RecordingBehaviour (const std::filesystem::path& directory)
+    explicit DuetBehaviour (const std::filesystem::path& directory)
         : recordingDirectory (&directory)
     {
     }
+
+    bool canScanPluginsOutOfProcess() override { return true; }
 
     juce::File getFileForNewAudioRecording (te::Track& track,
                                             const juce::String& fileExtension) override;
@@ -212,6 +217,9 @@ struct Session::Impl
     explicit Impl (std::filesystem::path file)
         : editFile (std::move (file)), projectFolder (editFile.parent_path())
     {
+        // The behaviour makes the engine's child-process scanner available;
+        // Duet always uses it. Hosting remains in-process.
+        engine.getPluginManager().setUsesSeparateProcessForScanning (true);
     }
 
     juce::ScopedJuceInitialiser_GUI juceInitialiser;
@@ -226,9 +234,7 @@ struct Session::Impl
     */
     std::filesystem::path recordingDirectory { projectFolder };
 
-    te::Engine engine { "Duet",
-                        nullptr,
-                        std::make_unique<RecordingBehaviour> (recordingDirectory) };
+    te::Engine engine { "Duet", nullptr, std::make_unique<DuetBehaviour> (recordingDirectory) };
     std::unique_ptr<te::Edit> edit;
     std::function<void()> projectChanged;
 
@@ -568,4 +574,12 @@ std::optional<BuiltinPlugin> builtinOf (te::Plugin& plugin);
     only ever puts an existing property back to an earlier value.
 */
 void stateParametersExplicitly (te::Plugin& plugin);
+
+/** Writes an external parameter's explicit value through an Action's undo
+    manager. The engine keeps external values in the instance until a flush, so
+    Duet states them as they are changed instead.
+*/
+void stateExternalParameter (te::ExternalPlugin& plugin,
+                             te::AutomatableParameter& parameter,
+                             juce::UndoManager& undoManager);
 } // namespace duet::model

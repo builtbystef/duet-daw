@@ -211,8 +211,60 @@ te::AutomatableParameter* Session::Impl::parameterFor (const AutomationTarget& t
     return nullptr;
 }
 
+namespace
+{
+    juce::ValueTree externalParameterState (te::ExternalPlugin& plugin,
+                                            std::string_view parameterId,
+                                            bool create)
+    {
+        const juce::Identifier parametersType { externalParametersNode };
+        const juce::Identifier parameterType { externalParameterNode };
+        const juce::Identifier idProperty { externalParameterIdProperty };
+        auto parameters = plugin.state.getChildWithName (parametersType);
+
+        if (! parameters.isValid() && create)
+        {
+            parameters = juce::ValueTree { parametersType };
+            plugin.state.appendChild (parameters, nullptr);
+        }
+
+        for (const auto& parameter : parameters)
+            if (parameter.hasType (parameterType)
+                && parameter[idProperty].toString() == toJuceString (parameterId))
+                return parameter;
+
+        if (! create)
+            return {};
+
+        juce::ValueTree parameter { parameterType };
+        parameter.setProperty (idProperty, toJuceString (parameterId), nullptr);
+        parameters.appendChild (parameter, nullptr);
+        return parameter;
+    }
+} // namespace
+
 void stateParametersExplicitly (te::Plugin& plugin)
 {
+    if (auto* external = dynamic_cast<te::ExternalPlugin*> (&plugin))
+    {
+        for (auto* parameter : external->getAutomatableParameters())
+        {
+            auto state = externalParameterState (*external, parameter->paramID.toStdString(), true);
+
+            if (! state.hasProperty (externalParameterValueProperty))
+                state.setProperty (
+                    externalParameterValueProperty, parameter->getCurrentExplicitValue(), nullptr);
+
+            // ExternalPlugin adds its own dry/wet parameters around the VST3's.
+            // They are CachedValues like a built-in's parameters, so stating
+            // them here prevents the refresh after an undo from creating their
+            // default-valued properties and spoiling digest exactness.
+            parameter->setParameter (parameter->getCurrentExplicitValue(), juce::sendNotification);
+        }
+
+        return;
+    }
+
     // Notifying is the point: the engine writes the value out through the
     // parameter's stored value only on the notifying path, and writes it with no
     // undo manager, which is what this has to be — the state gains no meaning it
@@ -225,11 +277,60 @@ void stateParametersExplicitly (te::Plugin& plugin)
         parameter->setParameter (parameter->getCurrentExplicitValue(), juce::sendNotification);
 }
 
+void stateExternalParameter (te::ExternalPlugin& plugin,
+                             te::AutomatableParameter& parameter,
+                             juce::UndoManager& undoManager)
+{
+    if (auto state = externalParameterState (plugin, parameter.paramID.toStdString(), false);
+        state.isValid())
+    {
+        state.setProperty (
+            externalParameterValueProperty, parameter.getCurrentExplicitValue(), &undoManager);
+        return;
+    }
+
+    // Some VST3s publish parameters after the ExternalPlugin first builds its
+    // list. The first write of one of those has no pre-stated child to change,
+    // so make the whole child undoable; an undo must remove the identity as well
+    // as its value to return the state digest exactly.
+    const juce::Identifier parametersType { externalParametersNode };
+    juce::ValueTree state { juce::Identifier { externalParameterNode } };
+    state.setProperty (externalParameterIdProperty, parameter.paramID, nullptr);
+    state.setProperty (
+        externalParameterValueProperty, parameter.getCurrentExplicitValue(), nullptr);
+
+    if (auto parameters = plugin.state.getChildWithName (parametersType); parameters.isValid())
+    {
+        parameters.appendChild (state, &undoManager);
+        return;
+    }
+
+    juce::ValueTree parameters { parametersType };
+    parameters.appendChild (state, nullptr);
+    plugin.state.appendChild (parameters, &undoManager);
+}
+
 void Session::Impl::refreshParametersFromState() const
 {
     for (auto* plugin : te::getAllPlugins (*edit, true))
-        for (auto* parameter : plugin->getAutomatableParameters())
-            parameter->updateFromAttachedValue();
+    {
+        if (plugin == nullptr)
+            continue;
+
+        if (auto* external = dynamic_cast<te::ExternalPlugin*> (plugin))
+            for (auto* parameter : external->getAutomatableParameters())
+            {
+                const auto state =
+                    externalParameterState (*external, parameter->paramID.toStdString(), false);
+
+                if (state.isValid())
+                    parameter->setParameter (state[externalParameterValueProperty],
+                                             juce::sendNotification);
+            }
+        else
+            for (auto* parameter : plugin->getAutomatableParameters())
+                parameter->updateFromAttachedValue();
+    }
 }
 
 NoteRef Session::Impl::refForNote (ClipRef clip, const juce::ValueTree& noteState) const
@@ -649,6 +750,37 @@ PluginRef EditOps::addPlugin (TrackRef track, BuiltinPlugin plugin, int position
     return toRef<PluginRef> (created->itemID);
 }
 
+PluginRef EditOps::addPlugin (TrackRef track, std::string_view knownPluginIdentifier, int position)
+{
+    auto* audioTrack = session.impl->trackFor (track);
+
+    if (audioTrack == nullptr)
+        return noPlugin;
+
+    auto& manager = session.impl->engine.getPluginManager();
+    const auto description =
+        manager.knownPluginList.getTypeForIdentifierString (toJuceString (knownPluginIdentifier));
+
+    if (description == nullptr || description->pluginFormatName != "VST3")
+        return noPlugin;
+
+    auto created = session.impl->edit->getPluginCache().createNewPlugin (
+        te::ExternalPlugin::xmlTypeName, *description);
+
+    if (created == nullptr)
+        return noPlugin;
+
+    // The engine persists the VST3's own identity. Duet retains the known-list
+    // identity too, so the same identifier the vocabulary inserted reads back.
+    created->state.setProperty (juce::Identifier { externalPluginIdentifierProperty },
+                                toJuceString (knownPluginIdentifier),
+                                nullptr);
+    audioTrack->pluginList.insertPlugin (
+        created, rawPositionFor (audioTrack->pluginList, position), nullptr);
+    stateParametersExplicitly (*created);
+    return toRef<PluginRef> (created->itemID);
+}
+
 void EditOps::removePlugin (PluginRef plugin)
 {
     if (auto* p = session.impl->pluginFor (plugin))
@@ -678,7 +810,12 @@ void EditOps::setPluginParameter (PluginRef plugin, std::string_view parameterId
 {
     if (auto* p = session.impl->pluginFor (plugin))
         if (auto parameter = p->getAutomatableParameterByID (toJuceString (parameterId)))
+        {
             parameter->setParameter (static_cast<float> (value), juce::sendNotification);
+
+            if (auto* external = dynamic_cast<te::ExternalPlugin*> (p))
+                stateExternalParameter (*external, *parameter, session.impl->undoManager());
+        }
 }
 
 void EditOps::setPluginSidechainSource (PluginRef plugin, TrackRef source)

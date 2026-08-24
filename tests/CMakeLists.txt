@@ -8,8 +8,10 @@
 # type. The interface's own JUCE-linked suite is in gui/.
 add_subdirectory(support)
 add_subdirectory(sidecar_double)
+add_subdirectory(vst3_fixtures)
 
 add_executable(duet_tests
+    TestMain.cpp
     AppearanceTests.cpp
     ArrangementTrackTests.cpp
     ArrangementViewTests.cpp
@@ -24,6 +26,7 @@ add_executable(duet_tests
     MidiOpsTests.cpp
     MixerOpsTests.cpp
     PlaybackLevelTests.cpp
+    PluginHostingTests.cpp
     PluginOpsTests.cpp
     ProjectLayoutTests.cpp
     ProjectAndTransportOpsTests.cpp
@@ -45,14 +48,20 @@ target_link_libraries(duet_tests PRIVATE
     duet::model
     duet::persistence
     duet::test_support
-    Catch2::Catch2WithMain)
+    Catch2::Catch2)
 
 # The suite spawns the test-double sidecar, so it needs it built and needs to
-# know where it landed. A generator expression is the only honest answer to the
-# second: the path carries the configuration's name.
-add_dependencies(duet_tests duet_sidecar_double)
+# know where it landed. It scans the two VST3 fixtures from their bundles for
+# the same reason. Generator expressions are the only honest paths: each one
+# carries the configuration's name.
+add_dependencies(duet_tests
+    duet_sidecar_double
+    duet_good_vst3_fixture_VST3
+    duet_crashing_vst3_fixture_VST3)
 target_compile_definitions(duet_tests PRIVATE
-    DUET_SIDECAR_DOUBLE="$<TARGET_FILE:duet_sidecar_double>")
+    DUET_SIDECAR_DOUBLE="$<TARGET_FILE:duet_sidecar_double>"
+    DUET_GOOD_VST3_FIXTURE="$<GENEX_EVAL:$<TARGET_PROPERTY:duet_good_vst3_fixture_VST3,JUCE_PLUGIN_ARTEFACT_FILE>>"
+    DUET_CRASHING_VST3_FIXTURE="$<GENEX_EVAL:$<TARGET_PROPERTY:duet_crashing_vst3_fixture_VST3,JUCE_PLUGIN_ARTEFACT_FILE>>")
 
 list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
 include(Catch)

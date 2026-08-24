@@ -70,8 +70,8 @@ namespace
 } // namespace
 
 //==============================================================================
-juce::File RecordingBehaviour::getFileForNewAudioRecording (te::Track& track,
-                                                            const juce::String& fileExtension)
+juce::File DuetBehaviour::getFileForNewAudioRecording (te::Track& track,
+                                                       const juce::String& fileExtension)
 {
     const auto directory = toJuceFile (*recordingDirectory);
 

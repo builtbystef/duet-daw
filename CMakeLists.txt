@@ -99,6 +99,7 @@ add_library(duet_engine_config INTERFACE)
 target_compile_definitions(duet_engine_config INTERFACE
     JUCE_JACK=1                                   # the Linux path is JACK via PipeWire
     TRACKTION_ENABLE_TIMESTRETCH_SIGNALSMITH=1    # without a stretch backend, time-stretch is off entirely
+    JUCE_PLUGINHOST_VST3=1                        # milestone one hosts VST3 through ExternalPlugin
     JUCE_PLUGINHOST_LADSPA=0
 )
 target_link_libraries(duet_engine_config INTERFACE

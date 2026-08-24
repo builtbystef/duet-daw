@@ -214,17 +214,24 @@ struct PluginInfo
     PluginRef plugin = noPlugin;
     std::string name;
 
-    /** Which built-in this is, or nothing for a plugin Duet does not ship —
-        the external plugins to come.
-    */
+    /** Which built-in this is, or nothing for a scanned external plugin. */
     std::optional<BuiltinPlugin> builtin;
+
+    /** The app-global identifier of a scanned external plugin. Empty for a
+        built-in.
+    */
+    std::string externalIdentifier;
+
+    /** True when the project names an external plugin that is not available. */
+    bool missing = false;
 
     /** The track this plugin listens to for its sidechain, if it has one. */
     TrackRef sidechainSource = noTrack;
 };
 
-/** One of a plugin's parameters. The value is in the parameter's own units,
-    which for a built-in are the real ones the producer sees.
+/** One of a plugin's parameters. A built-in's value is in the real units the
+    producer sees; a scanned VST3's is the plugin's normalised 0..1 value, with
+    its own display string beside it.
 */
 struct PluginParameterInfo
 {
@@ -233,6 +240,9 @@ struct PluginParameterInfo
     double value = 0.0;
     double minValue = 0.0;
     double maxValue = 0.0;
+
+    /** The plugin's own display string for this value. */
+    std::string displayValue;
 };
 
 /** A track's send into a bus. */
@@ -320,6 +330,33 @@ struct AutomationPoint
 {
     double timeSeconds = 0.0;
     double value = 0.0;
+};
+
+/** A VST3 the app knows how to insert. The identifier is app-global and
+    stable across a restart; the project itself persists the plugin's own VST3
+    identity and state.
+*/
+struct KnownPluginInfo
+{
+    std::string identifier;
+    std::string name;
+    std::string manufacturer;
+    std::filesystem::path file;
+    bool isInstrument = false;
+    bool isAvailable = false;
+};
+
+/** The result of scanning one directory for VST3 plugins.
+
+    A crashing plugin is a completed scan with that file in badFiles: the child
+    scanner died, not the app. failedFiles are modules that opened without a
+    crash but described no plugin.
+*/
+struct PluginScanResult
+{
+    bool completed = false;
+    std::vector<std::filesystem::path> failedFiles;
+    std::vector<std::filesystem::path> badFiles;
 };
 
 /** How many beats are in a bar, and what a beat is. */
@@ -468,10 +505,16 @@ public:
     // keep their places around the producer's, wherever a position lands.
 
     PluginRef addPlugin (TrackRef track, BuiltinPlugin plugin, int position);
+
+    /** Adds a scanned VST3 by the identifier knownVst3Plugins returned. */
+    PluginRef addPlugin (TrackRef track, std::string_view knownPluginIdentifier, int position);
+
     void removePlugin (PluginRef plugin);
     void reorderPlugin (PluginRef plugin, int newPosition);
 
-    /** Sets a plugin parameter by value, in the parameter's own units. */
+    /** Sets a plugin parameter by value: a built-in in its real units, or a
+        scanned VST3 in its normalised 0..1 range.
+    */
     void setPluginParameter (PluginRef plugin, std::string_view parameterId, double value);
 
     /** Points a plugin's sidechain at another track. noTrack clears it. */
@@ -531,6 +574,15 @@ public:
         Null when there is nothing readable at that path.
     */
     [[nodiscard]] static std::unique_ptr<Session> openExisting (std::filesystem::path editFile);
+
+    /** Starts the engine's plugin-scan worker when a process was launched with
+        its private scan command line. False for an ordinary app or test run.
+
+        The application calls this before making a window. A test executable
+        that can be launched as the scanner calls it before handing its command
+        line to the test runner.
+    */
+    static bool startPluginScanChild (std::string_view commandLine);
 
     ~Session();
 
@@ -627,6 +679,27 @@ public:
         False when nothing could be written.
     */
     bool renderToFile (const std::filesystem::path& destination);
+
+    //==============================================================================
+    // External plugins.
+
+    /** Whether this build can host VST3 plugins. */
+    [[nodiscard]] bool canHostVst3() const;
+
+    /** Whether plugin metadata is scanned in a child process. Hosting itself is
+        in-process.
+    */
+    [[nodiscard]] bool scansPluginsOutOfProcess() const;
+
+    /** Scans one directory recursively for VST3 plugins. Known good results and
+        bad files are retained in the app-global plugin list.
+    */
+    [[nodiscard]] PluginScanResult scanVst3Plugins (const std::filesystem::path& directory);
+
+    /** Every VST3 retained by scanning, including one whose file has since gone
+        missing.
+    */
+    [[nodiscard]] std::vector<KnownPluginInfo> knownVst3Plugins() const;
 
     //==============================================================================
     // The meters: what playback is putting out.

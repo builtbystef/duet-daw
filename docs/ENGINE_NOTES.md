@@ -386,3 +386,37 @@ hanging voice before the remedy.
 **Duet.** After a successful undo or redo while the transport is rolling,
 `Session` calls `midiPanic (edit, false)`. This ends MIDI voices without
 resetting plugins, so effect tails are not discarded.
+
+### External parameters are not project state until a flush
+
+**The engine.** An `ExternalAutomatableParameter` writes the hosted instance and
+marks itself changed, but is not attached to a `CachedValue`; its explicit value
+reaches the plugin node only when `ExternalPlugin::flushPluginStateToValueTree`
+writes the changed-parameter blob. A direct parameter change therefore creates
+no undoable state of its own.
+
+**Where.** `ExternalAutomatableParameter::parameterChanged`;
+`AutomatableParameter::setParameterValue`; `ExternalPlugin::buildParameterList`
+and `flushPluginStateToValueTree`.
+
+**Proved.** `aty85a`. A VST3 parameter changed and read back from the instance,
+but opened no named undo transaction until Duet stated the value separately.
+
+**Duet.** Each external plugin carries a `DUET_EXTERNAL_PARAMETERS` child. It is
+stated when the plugin is inserted, changed through the Action's UndoManager,
+and applied to the hosted instance after undo, redo, and project open.
+
+### A VST3's opaque state belongs on the save snapshot
+
+**The engine.** `ExternalPlugin::flushPluginStateToValueTree` asks the hosted
+instance for its opaque state and writes it through the Edit's UndoManager, so
+using that flush to prepare a save would mutate project state and undo history.
+
+**Where.** `ExternalPlugin::flushPluginStateToValueTree`.
+
+**Proved.** `aty85a`, by source reading and the purpose-built VST3 fixture's
+save/reload test.
+
+**Duet.** The persistence snapshot asks the instance for its state while
+processing is suspended and writes the base64 blob only onto the copied plugin
+node. The live Edit and its redo stack are untouched.

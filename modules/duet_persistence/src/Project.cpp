@@ -142,17 +142,31 @@ namespace
         return {};
     }
 
-    /** Writes every plugin's diverged parameters onto a copy of the state.
+    /** Writes every plugin's snapshot-only state onto a copy of the project.
 
-        The same blob the engine writes when it flushes, in the same property,
-        on the same node — but onto the copy, and with no undo manager. That is
-        the whole difference between this save and the engine's, and it is why
-        the redo stack is still there when the save returns.
+        Diverged parameters use the same blob the engine writes when it flushes,
+        in the same property, on the same node. An external plugin's opaque VST3
+        state is captured beside it. Both writes go to the copy with no undo
+        manager: the live project and its redo stack are untouched.
     */
-    void applyParameterBlobs (te::Edit& edit, const juce::ValueTree& snapshot)
+    void applyPluginSnapshots (te::Edit& edit, const juce::ValueTree& snapshot)
     {
         for (auto* plugin : te::getAllPlugins (edit, true))
         {
+            auto node = pluginNodeFor (snapshot, plugin->itemID);
+
+            if (auto* external = dynamic_cast<te::ExternalPlugin*> (plugin))
+                if (auto* instance = external->getAudioPluginInstance())
+                {
+                    juce::MemoryBlock state;
+                    instance->suspendProcessing (true);
+                    instance->getStateInformation (state);
+                    instance->suspendProcessing (false);
+
+                    if (state.getSize() > 0 && node.isValid())
+                        node.setProperty (te::IDs::state, state.toBase64Encoding(), nullptr);
+                }
+
             juce::MemoryOutputStream blob;
 
             // Exactly the engine's own test for "automation has taken this
@@ -174,7 +188,7 @@ namespace
             if (blob.getDataSize() == 0)
                 continue;
 
-            if (auto node = pluginNodeFor (snapshot, plugin->itemID); node.isValid())
+            if (node.isValid())
                 node.setProperty (te::IDs::parameters, blob.getMemoryBlock(), nullptr);
         }
     }
@@ -406,7 +420,7 @@ bool Project::writeSnapshot (const std::filesystem::path& destination,
     writeViewState();
 
     const auto snapshot = edit.state.createCopy();
-    applyParameterBlobs (edit, snapshot);
+    applyPluginSnapshots (edit, snapshot);
 
     const auto xml = snapshot.createXml();
 

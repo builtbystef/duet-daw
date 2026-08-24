@@ -73,6 +73,22 @@ std::unique_ptr<Session> Session::openExisting (std::filesystem::path editFile)
     return session->impl->edit != nullptr ? std::move (session) : nullptr;
 }
 
+bool Session::startPluginScanChild (std::string_view commandLine)
+{
+    // Do not initialise JUCE for an ordinary process. The scan UID is private to
+    // Tracktion's coordinator and is the cheap answer to whether this process
+    // was launched as its worker.
+    if (commandLine.find ("PluginScan") == std::string_view::npos)
+        return false;
+
+    // A JUCEApplication already owns this initialisation. The headless Catch
+    // executable does not, and it is also a valid scan worker, so keep one alive
+    // for the worker process's whole lifetime.
+    static const auto scanChildJuce = std::make_unique<juce::ScopedJuceInitialiser_GUI>();
+
+    return te::PluginManager::startChildProcessPluginScan (toJuceString (commandLine));
+}
+
 void Session::startUndoHistory()
 {
     // JUCE's UndoManager drops the oldest transactions once the stored units
@@ -92,6 +108,11 @@ void Session::startUndoHistory()
     // nothing to undo.
     for (auto* plugin : te::getAllPlugins (*impl->edit, true))
         stateParametersExplicitly (*plugin);
+
+    // External parameters are stored by Duet because the engine otherwise
+    // states them only during a flush. On open, those stored explicit values
+    // are the ones the VST3 instance must start at.
+    impl->refreshParametersFromState();
 
     // Opening a project is not an Action; the history starts clean.
     impl->undoManager().clearUndoHistory();
@@ -214,6 +235,20 @@ namespace
         info.name = plugin.getName().toStdString();
         info.builtin = builtinOf (plugin);
         info.sidechainSource = toRef<TrackRef> (plugin.getSidechainSourceID());
+
+        if (auto* external = dynamic_cast<te::ExternalPlugin*> (&plugin))
+        {
+            info.externalIdentifier =
+                plugin.state[juce::Identifier { externalPluginIdentifierProperty }]
+                    .toString()
+                    .toStdString();
+
+            if (info.externalIdentifier.empty())
+                info.externalIdentifier = external->desc.createIdentifierString().toStdString();
+
+            info.missing = external->isMissing();
+        }
+
         return info;
     }
 
@@ -337,11 +372,13 @@ std::vector<PluginParameterInfo> Session::pluginParameters (PluginRef plugin) co
         return out;
 
     for (auto* parameter : p->getAutomatableParameters())
-        out.push_back ({ parameter->paramID.toStdString(),
-                         parameter->getParameterName().toStdString(),
-                         parameter->getCurrentExplicitValue(),
-                         parameter->getValueRange().getStart(),
-                         parameter->getValueRange().getEnd() });
+        out.push_back (
+            { parameter->paramID.toStdString(),
+              parameter->getParameterName().toStdString(),
+              parameter->getCurrentExplicitValue(),
+              parameter->getValueRange().getStart(),
+              parameter->getValueRange().getEnd(),
+              parameter->valueToString (parameter->getCurrentExplicitValue()).toStdString() });
 
     return out;
 }
@@ -532,6 +569,112 @@ bool Session::renderToFile (const std::filesystem::path& destination)
     // Rendered on this thread: a headless test has no message loop to wait on,
     // and the engine's threaded path reports progress through a UI it has none of.
     return te::Renderer::renderToFile (*impl->edit, file, false);
+}
+
+//==============================================================================
+bool Session::canHostVst3() const
+{
+    auto& formats = impl->engine.getPluginManager().pluginFormatManager;
+
+    for (int index = 0; index < formats.getNumFormats(); ++index)
+        if (formats.getFormat (index)->getName() == "VST3")
+            return true;
+
+    return false;
+}
+
+bool Session::scansPluginsOutOfProcess() const
+{
+    return impl->engine.getPluginManager().usesSeparateProcessForScanning();
+}
+
+PluginScanResult Session::scanVst3Plugins (const std::filesystem::path& directory)
+{
+    PluginScanResult result;
+
+    if (! std::filesystem::is_directory (directory))
+        return result;
+
+    auto& manager = impl->engine.getPluginManager();
+    juce::AudioPluginFormat* vst3 = nullptr;
+
+    for (int index = 0; index < manager.pluginFormatManager.getNumFormats(); ++index)
+        if (auto* format = manager.pluginFormatManager.getFormat (index);
+            format->getName() == "VST3")
+        {
+            vst3 = format;
+            break;
+        }
+
+    if (vst3 == nullptr)
+        return result;
+
+    {
+        const auto deadMansPedal =
+            impl->engine.getPropertyStorage().getAppPrefsFolder().getChildFile (
+                "PluginScanDeadMansPedal.txt");
+        juce::PluginDirectoryScanner scanner { manager.knownPluginList,
+                                               *vst3,
+                                               juce::FileSearchPath {
+                                                   toJuceFile (directory).getFullPathName() },
+                                               true,
+                                               deadMansPedal };
+        juce::String scanning;
+
+        while (scanner.scanNextFile (true, scanning))
+        {
+        }
+
+        for (const auto& failed : scanner.getFailedFiles())
+            result.failedFiles.push_back (toPath (juce::File { failed }));
+    }
+
+    const auto normalDirectory = directory.lexically_normal();
+
+    for (const auto& bad : manager.knownPluginList.getBlacklistedFiles())
+    {
+        const auto path = toPath (juce::File { bad }).lexically_normal();
+        const auto relative = path.lexically_relative (normalDirectory);
+
+        if (! relative.empty() && *relative.begin() != "..")
+            result.badFiles.push_back (path);
+    }
+
+    // The manager normally persists this through its asynchronous change
+    // listener. A scan is synchronous, so put the completed list on disk before
+    // returning: a restart immediately after Scan must not scan known-good
+    // plugins again.
+    if (const auto xml = manager.knownPluginList.createXml())
+    {
+#if JUCE_64BIT
+        constexpr auto knownPluginsSetting = te::SettingID::knownPluginList64;
+#else
+        constexpr auto knownPluginsSetting = te::SettingID::knownPluginList;
+#endif
+
+        auto& storage = impl->engine.getPropertyStorage();
+        storage.setXmlProperty (knownPluginsSetting, *xml);
+        storage.getPropertiesFile().saveIfNeeded();
+    }
+
+    result.completed = true;
+    return result;
+}
+
+std::vector<KnownPluginInfo> Session::knownVst3Plugins() const
+{
+    std::vector<KnownPluginInfo> known;
+
+    for (const auto& description : impl->engine.getPluginManager().knownPluginList.getTypes())
+        if (description.pluginFormatName == "VST3")
+            known.push_back ({ description.createIdentifierString().toStdString(),
+                               description.name.toStdString(),
+                               description.manufacturerName.toStdString(),
+                               toPath (juce::File { description.fileOrIdentifier }),
+                               description.isInstrument,
+                               juce::File { description.fileOrIdentifier }.exists() });
+
+    return known;
 }
 
 //==============================================================================
