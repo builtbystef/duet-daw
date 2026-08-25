@@ -34,7 +34,12 @@
       "~/.pgpass": "deny",
       "~/.claude/settings.json": "deny",
       "~/.claude/settings.local.json": "deny",
-      "~/.pi/agent/settings.json": "deny"
+      "~/.pi/agent/settings.json": "deny",
+      "/run/docker.sock": "deny",
+      "/run/podman/podman.sock": "deny",
+      "/run/user/1000/podman/podman.sock": "deny",
+      "/run/user/1000/keyring": "deny",
+      "/run/user/1000/gnupg": "deny"
     },
     "bash": {
       "*": "allow",
