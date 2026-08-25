@@ -6,9 +6,10 @@ priority: medium
 depends_on:
     - n6c30z
     - 6zog6s
+    - sh2dkg
 parent: 535bbo
 created: 2026-08-12T03:52:00Z
-updated: 2026-08-12T03:52:00Z
+updated: 2026-08-25T16:50:27Z
 ---
 
 ## What to build

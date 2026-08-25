@@ -421,6 +421,63 @@ save/reload test.
 processing is suspended and writes the base64 blob only onto the copied plugin
 node. The live Edit and its redo stack are untouched.
 
+### `toBitSet` answers with every track whatever it is asked about
+
+**The engine.** `toBitSet (const juce::Array<Track*>&)` looks up the edit of the
+first track it is given and then iterates `getAllTracks (edit)` rather than the
+array it was passed, setting a bit for each. The argument decides only which
+edit is read. Every caller therefore renders the whole edit.
+
+**Where.** `toBitSet` in `tracktion_EditUtilities.cpp`; the bitset it returns is
+`Renderer::Parameters::tracksToDo`.
+
+**Proved.** `6zog6s`, by source reading and then by the per-track render: a
+bitset built by hand for one track of a two-track edit renders that track's tone
+and nothing of the other's, and the same render through `toBitSet` holds both.
+
+**Duet.** `Session::renderTrackToFile` sets the bit itself, at the track's index
+in `getAllTracks`. `renderToFile` sets the whole range, which is the only thing
+`toBitSet` was ever right for.
+
+### A render's setup and teardown are the message thread's, its blocks are not
+
+**The engine.** `Edit::ScopedRenderStatus` asserts the message thread and frees
+the playback context; `Renderer::RenderTask`'s constructor and its first
+`runJob` both reach back to the message thread through `callBlocking` to build
+the graph and the render context. The block loop in between is ordinary worker
+work, and `callBlocking` short-circuits when it is already on the message
+thread.
+
+**Where.** `Edit::ScopedRenderStatus`; `render_utils::createRenderTask`;
+`Renderer::RenderTask::renderAudio`.
+
+**Proved.** `6zog6s`, with `tests/scratch`. A render driven entirely from a
+worker thread asserted at `tracktion_Edit.cpp:796` on every call; marshalling
+the guards through `callBlocking` left it silent, and the same probe with the
+message loop stopped never returned.
+
+**Duet.** `renderTracksToFile` puts the guards up and takes them down inside
+`callBlockingCatching`, so an offline render can be called from a worker thread
+— which is where the thread model puts one — as long as the message loop is
+running. The test harness runs every render that way (`duet::testing::Render`).
+
+### Every rendered file carries the wall clock in its header
+
+**The engine.** The render's writer adds broadcast-wave metadata built from
+`juce::Time::getCurrentTime()`, so the origination date and time of the render
+land in the file's `bext` chunk.
+
+**Where.** `AudioFileUtils::addBWAVStartToMetadata`;
+`juce::WavAudioFormat::createBWAVMetadata`.
+
+**Proved.** `6zog6s`. Two renders of one edit a second apart differed in exactly
+one byte, at offset 441 — inside the `bext` chunk — and in none of the 706 000
+that follow; two renders inside the same second were identical throughout.
+
+**Duet.** The determinism canary compares the samples and not the files
+(`Render::isBitIdenticalTo`). ADR 0006's "byte-identical output" is the audio;
+the header is a timestamp and says nothing about the render.
+
 ### Null ValueTree writes can provoke undo-tracked engine bookkeeping
 
 **The engine.** A complete project-state change written directly to the Edit's

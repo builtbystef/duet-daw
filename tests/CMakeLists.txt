@@ -29,6 +29,7 @@ add_executable(duet_tests
     MidiOpsTests.cpp
     MixerOpsTests.cpp
     MixerViewTests.cpp
+    OfflineRenderTests.cpp
     PlaybackLevelTests.cpp
     PianoRollTests.cpp
     PluginHostingTests.cpp
@@ -73,6 +74,9 @@ add_dependencies(duet_tests
 # The reserved-accent guard reads Duet's own sources: the rule it checks is
 # about the whole tree rather than about any one object's behaviour.
 target_compile_definitions(duet_tests PRIVATE DUET_MODULES_DIR="${CMAKE_SOURCE_DIR}/modules")
+# The golden-file guard reads the test tree for the same reason: the rule it
+# checks is about the whole suite rather than about any one render.
+target_compile_definitions(duet_tests PRIVATE DUET_TESTS_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 
 target_compile_definitions(duet_tests PRIVATE
     DUET_SIDECAR_DOUBLE="$<TARGET_FILE:duet_sidecar_double>"

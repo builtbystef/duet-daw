@@ -1,9 +1,11 @@
 # duet_test_support — helpers the suites share: a temporary project folder, the
-# message-loop pump, the headless play retry, and audio-file measurement.
+# message-loop pump, the headless play retry, and the audio-correctness harness
+# — offline renders and the feature measurements ADR 0006 asserts them on.
 #
-# It links the engine PRIVATE, exactly as the facades do, so its public header
-# stays engine-free and the suites that use it do too.
+# It links the engine PRIVATE, exactly as the facades do, so its public headers
+# stay engine-free and the suites that use them do too.
 add_library(duet_test_support STATIC
+    src/RenderHarness.cpp
     src/TestSupport.cpp)
 add_library(duet::test_support ALIAS duet_test_support)
 

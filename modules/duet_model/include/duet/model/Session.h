@@ -877,8 +877,31 @@ public:
 
     /** Renders the whole project to an audio file, offline and synchronously.
         False when nothing could be written.
+
+        The render has one shape whatever machine it runs on — 44100 Hz, 512
+        samples to a block, 32 bits deep, no dithering — because ADR 0006
+        asserts a render's measured features and a feature needs a known shape
+        to be measured against. The block size is also how early the engine may
+        place a note: it starts one at the beginning of the block that contains
+        it.
+
+        Offline renders belong on a worker thread, and this may be called from
+        one as long as the message loop is running, because the engine builds
+        the render graph on the message thread and waits for it. The destination
+        is written afresh: the engine answers a repeated render from its
+        audio-file cache, keyed on the destination, so a render that must be a
+        render asks for a file of its own.
     */
     bool renderToFile (const std::filesystem::path& destination);
+
+    /** Renders one track of the project to an audio file, the same way, and
+        without the master chain: what a track puts out on its own, whatever
+        else the project holds. False for a track that is not there.
+
+        This is what measured analysis of a track is made of, so it isolates:
+        no other track reaches the file, and neither does another track's solo.
+    */
+    bool renderTrackToFile (TrackRef track, const std::filesystem::path& destination);
 
     //==============================================================================
     // External plugins.

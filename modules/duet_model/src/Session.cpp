@@ -46,6 +46,142 @@ namespace
         stereo input is what an ordinary interface offers a producer.
     */
     constexpr int measuringChannels = 2;
+
+    /** The shape every offline render has, whatever machine it runs on.
+
+        ADR 0006 asserts a render's measured features, and a feature is only
+        measurable against a known shape: the rate the samples are in, the block
+        the engine cuts the timeline into — which is also how early a note may
+        start — and a bit depth deep enough that nothing is rounded on the way
+        out. Dithering is the noise a shallower depth would need, and it is off
+        because it is noise and because it would make a render differ from
+        itself.
+    */
+    constexpr double renderSampleRate = 44100.0;
+    constexpr int renderBlockSize = 512;
+    constexpr int renderBitDepth = 32;
+
+    constexpr bool withMasterPlugins = true;
+    constexpr bool withoutMasterPlugins = false;
+
+    /** What the engine's own render puts up around one, and takes down after.
+
+        A render frees the playback context and puts it back, ignores whatever
+        is soloed elsewhere so that the tracks asked for are the tracks rendered,
+        leaves clip slots out of it, and starts from plugins that are not
+        half-way through a playback.
+
+        Both ends are the message thread's work — the engine asserts as much,
+        and freeing a playback context from anywhere else is why — so both ends
+        are asked of it, and the caller may be a worker thread. Down again
+        whatever happens on the way out: a guard left standing leaves the edit
+        believing it is still rendering, and it never plays again.
+    */
+    class RenderGuards
+    {
+    public:
+        RenderGuards (te::Edit& e, te::Track::Array& tracks) : edit (e)
+        {
+            te::callBlockingCatching ([&] { guards = std::make_unique<Guards> (edit, tracks); });
+        }
+
+        ~RenderGuards()
+        {
+            te::callBlockingCatching (
+                [this]
+                {
+                    te::Renderer::turnOffAllPlugins (edit);
+                    guards.reset();
+                });
+        }
+
+        RenderGuards (const RenderGuards&) = delete;
+        RenderGuards (RenderGuards&&) = delete;
+        RenderGuards& operator= (const RenderGuards&) = delete;
+        RenderGuards& operator= (RenderGuards&&) = delete;
+
+        [[nodiscard]] bool areUp() const { return guards != nullptr; }
+
+    private:
+        struct Guards
+        {
+            Guards (te::Edit& edit, te::Track::Array& tracks)
+                : renderStatus { edit, true }, soloIsolator { edit, tracks },
+                  slotDisabler { edit, tracks }
+            {
+                te::TransportControl::stopAllTransports (edit.engine, false, true);
+                te::Renderer::turnOffAllPlugins (edit);
+            }
+
+            te::Edit::ScopedRenderStatus renderStatus;
+            te::FreezePointPlugin::ScopedTrackSoloIsolator soloIsolator;
+            te::Renderer::ScopedClipSlotDisabler slotDisabler;
+        };
+
+        te::Edit& edit;
+        std::unique_ptr<Guards> guards;
+    };
+
+    /** Renders a set of the edit's tracks to one file, on whichever thread asks.
+
+        The engine's own `Renderer::renderToFile` takes the rate and the block
+        size from the audio device, which a headless machine does not have, and
+        drives the render through a progress window that has no UI to appear in.
+        This is that function with the shape stated instead and the task driven
+        here, and the guards it puts up kept: a render that ignores solo, leaves
+        clip slots alone, and starts from plugins that are not mid-playback.
+
+        The caller may be a worker thread — offline renders belong on one — as
+        long as the message loop is running, because the guards and the render
+        graph are the message thread's and this waits for it to make them. The
+        blocks in between are the worker's, and they are what a render costs.
+    */
+    bool renderTracksToFile (te::Edit& edit,
+                             const juce::File& file,
+                             const juce::BigInteger& tracksToRender,
+                             bool useMasterPlugins)
+    {
+        if (tracksToRender.isZero())
+            return false;
+
+        // A render the engine has made before is answered from its audio-file
+        // cache, keyed on the destination. Removing the file is what makes this
+        // render this edit rather than the last one.
+        file.deleteFile();
+
+        te::Track::Array tracks;
+        const auto allTracks = te::getAllTracks (edit);
+
+        for (int index = 0; index < allTracks.size(); ++index)
+            if (tracksToRender[index])
+                tracks.add (allTracks[index]);
+
+        const RenderGuards guards { edit, tracks };
+
+        if (! guards.areUp())
+            return false;
+
+        te::Renderer::Parameters parameters { edit };
+        parameters.destFile = file;
+        parameters.audioFormat = edit.engine.getAudioFileFormatManager().getWavFormat();
+        parameters.bitDepth = renderBitDepth;
+        parameters.sampleRateForAudio = renderSampleRate;
+        parameters.blockSizeForAudio = renderBlockSize;
+        parameters.time = { te::TimePosition(), edit.getLength() };
+        parameters.tracksToDo = tracksToRender;
+        parameters.usePlugins = true;
+        parameters.useMasterPlugins = useMasterPlugins;
+        parameters.canRenderInMono = false;
+        parameters.ditheringEnabled = false;
+
+        te::Renderer::RenderTask task { "Duet offline render", parameters, nullptr, nullptr };
+
+        while (task.runJob() == juce::ThreadPoolJob::jobNeedsRunningAgain)
+        {
+        }
+
+        return file.existsAsFile();
+    }
 } // namespace
 
 //==============================================================================
@@ -626,12 +762,35 @@ std::uint64_t Session::revision() const noexcept { return impl->revision; }
 
 bool Session::renderToFile (const std::filesystem::path& destination)
 {
-    const auto file = toJuceFile (destination);
-    file.deleteFile();
+    juce::BigInteger everyTrack;
+    everyTrack.setRange (0, te::getAllTracks (*impl->edit).size(), true);
 
-    // Rendered on this thread: a headless test has no message loop to wait on,
-    // and the engine's threaded path reports progress through a UI it has none of.
-    return te::Renderer::renderToFile (*impl->edit, file, false);
+    return renderTracksToFile (
+        *impl->edit, toJuceFile (destination), everyTrack, withMasterPlugins);
+}
+
+bool Session::renderTrackToFile (TrackRef track, const std::filesystem::path& destination)
+{
+    auto* audioTrack = impl->trackFor (track);
+
+    if (audioTrack == nullptr)
+        return false;
+
+    const auto index = te::getAllTracks (*impl->edit).indexOf (audioTrack);
+
+    if (index < 0)
+        return false;
+
+    // The bit is set by hand: the engine's own toBitSet answers with every track
+    // whatever it is asked about, which is why the whole-edit render above is
+    // the only thing it was ever used for.
+    juce::BigInteger thisTrack;
+    thisTrack.setBit (index);
+
+    // Without the master chain: a track rendered on its own is what that track
+    // puts out, and the master is what the whole project goes through after it.
+    return renderTracksToFile (
+        *impl->edit, toJuceFile (destination), thisTrack, withoutMasterPlugins);
 }
 
 //==============================================================================
