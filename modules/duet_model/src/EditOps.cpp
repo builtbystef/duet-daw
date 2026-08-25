@@ -958,12 +958,18 @@ void EditOps::setAutomationPoints (const AutomationTarget& target,
         // A time the curve already has a point at takes the new value rather
         // than gaining a second point on top of the first.
         if (existing >= 0)
+        {
             curve.setPointValue (existing, value, &session.impl->undoManager());
+            curve.setCurveValue (
+                existing, static_cast<float> (point.curvature), &session.impl->undoManager());
+        }
         else
+        {
             curve.addPoint (te::EditPosition { te::TimePosition::fromSeconds (point.timeSeconds) },
                             value,
-                            0.0F,
+                            static_cast<float> (point.curvature),
                             &session.impl->undoManager());
+        }
     }
 }
 

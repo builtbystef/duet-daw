@@ -7,6 +7,8 @@
 #include <cstdint>
 #include <map>
 #include <span>
+#include <string>
+#include <vector>
 
 namespace duet::gui
 {
@@ -23,6 +25,28 @@ enum class GridSize : std::uint8_t
     adaptive,
     quarter,
     eighth
+};
+
+/** How tall an automation lane is drawn, and how far a resize of one goes. A
+    lane is shorter than a track row: several of them hang under one track and
+    a curve is read at a glance rather than worked in.
+*/
+inline constexpr int defaultLaneHeightPx = 64;
+inline constexpr int minimumLaneHeightPx = 28;
+inline constexpr int maximumLaneHeightPx = 320;
+
+/** One automation lane under a track: the curve it draws, and how tall it is
+    drawn.
+
+    Which curves a track's lanes show is the producer's view of their work and
+    not the work itself — the points are the project's, the lanes looking at
+    them are the view's — so a lane lives here, beside the row it hangs under,
+    and goes when that row goes.
+*/
+struct LaneView
+{
+    duet::model::AutomationTarget target;
+    int heightPx = defaultLaneHeightPx;
 };
 
 /** Where the interface is, for one project.
@@ -52,10 +76,12 @@ public:
     ViewState() = default;
 
     //==============================================================================
-    /** The name one track's row has under the VIEW tree. The tree itself is
-        named by the project format, at `duet::persistence::viewTreeName`.
+    /** The name one track's row has under the VIEW tree, and the name one of
+        its automation lanes has under that. The tree itself is named by the
+        project format, at `duet::persistence::viewTreeName`.
     */
     static constexpr const char* trackTreeType = "TRACKVIEW";
+    static constexpr const char* laneTreeType = "LANE";
 
     /** This view, as the project stores it. */
     [[nodiscard]] duet::persistence::DataNode toData() const;
@@ -138,6 +164,12 @@ public:
     [[nodiscard]] bool lanesExpanded (duet::model::TrackRef track) const;
     void setLanesExpanded (duet::model::TrackRef track, bool shouldBeExpanded);
 
+    /** The automation lanes under one track, in the order they are drawn. A
+        track nobody has opened the automation area of has none.
+    */
+    [[nodiscard]] std::vector<LaneView> lanes (duet::model::TrackRef track) const;
+    void setLanes (duet::model::TrackRef track, std::vector<LaneView> newLanes);
+
     //==============================================================================
     static constexpr int defaultBrowserWidthPx = 340;
     static constexpr int minimumBrowserWidthPx = 220;
@@ -168,6 +200,7 @@ private:
     {
         int heightPx = defaultTrackHeightPx;
         bool lanesExpanded = false;
+        std::vector<LaneView> lanes;
     };
 
     double zoomPxPerBeat = defaultZoomPxPerBeat;

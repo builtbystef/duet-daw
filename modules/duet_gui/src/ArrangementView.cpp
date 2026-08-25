@@ -40,6 +40,7 @@ void ArrangementView::setClock (TimelineClock* projectClock)
 void ArrangementView::setSession (duet::model::Session* openProject)
 {
     session = openProject;
+    lanes.setSession (openProject);
     refresh();
 }
 
@@ -101,6 +102,8 @@ std::vector<TrackDrawing> ArrangementView::tracks()
         drawing.recordArmed = track.recordArmed;
         drawing.y = y;
         drawing.height = view.trackHeightPx (track.track);
+        drawing.automationY = drawing.y + drawing.height;
+        drawing.automationHeight = lanes.heightPx (track.track);
 
         for (const auto& clip : track.clips)
         {
@@ -135,7 +138,7 @@ std::vector<TrackDrawing> ArrangementView::tracks()
             drawing.clips.push_back (std::move (clipDrawing));
         }
 
-        y += drawing.height;
+        y += drawing.height + drawing.automationHeight;
         drawings.push_back (std::move (drawing));
     }
 
@@ -150,7 +153,7 @@ int ArrangementView::contentHeightPx() const
     auto contentHeight = addTrackRowHeightPx;
 
     for (const auto& track : session->tracks())
-        contentHeight += view.trackHeightPx (track.track);
+        contentHeight += view.trackHeightPx (track.track) + lanes.heightPx (track.track);
 
     return contentHeight;
 }
@@ -708,6 +711,7 @@ void ArrangementView::perform (Command command)
             break;
         case Command::cancel:
             cancelClipGesture();
+            lanes.cancelPointGesture();
             currentSelection.clear();
             break;
 

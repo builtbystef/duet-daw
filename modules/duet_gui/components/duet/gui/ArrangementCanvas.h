@@ -54,6 +54,12 @@ public:
     static constexpr int trackHeaderWidth = 188;
     static constexpr int headerControlWidth = 24;
 
+    /** The triangle at the left of a track header that opens its automation
+        area, and how wide a point is drawn in a lane.
+    */
+    static constexpr int disclosureWidth = 18;
+    static constexpr int automationPointSize = 7;
+
     /** How tall a bar tick, a beat tick and a fine tick are drawn in the ruler,
         as a fraction of its height.
     */
@@ -67,6 +73,17 @@ public:
 private:
     class Ruler;
 
+    /** Where a pointer landed in a track's automation area: which lane, and how
+        far down that area it was, which is the coordinate the lanes count in.
+    */
+    struct LaneHit
+    {
+        TrackDrawing track;
+        AutomationLaneDrawing lane;
+        int xInTimeline = 0;
+        int yInArea = 0;
+    };
+
     void timerCallback() override;
     void changeListenerCallback (juce::ChangeBroadcaster* source) override;
 
@@ -79,6 +96,11 @@ private:
     [[nodiscard]] juce::Rectangle<int> timelineArea() const;
     [[nodiscard]] juce::Rectangle<int> playheadColumn (int x) const;
     [[nodiscard]] std::optional<TrackDrawing> trackAt (int y);
+    [[nodiscard]] std::optional<LaneHit> laneAt (int x, int y);
+    void paintTrackHeader (juce::Graphics& g, const TrackDrawing& track, juce::Rectangle<int> row);
+    void paintAutomation (juce::Graphics& g, const TrackDrawing& track, int timelineTop);
+    void mouseDownOnLane (const juce::MouseEvent& event, const LaneHit& hit);
+    void showLaneMenu (duet::model::TrackRef track, int laneIndex);
     [[nodiscard]] static std::optional<ClipDrawing> clipAt (const TrackDrawing& track, int x);
     [[nodiscard]] ClipGestureKind gestureKindFor (const juce::MouseEvent& event,
                                                   const TrackDrawing& track,
@@ -106,6 +128,14 @@ private:
     duet::model::ClipRef editingClip = duet::model::noClip;
     duet::model::TrackRef draggedTrack = duet::model::noTrack;
     duet::model::TrackRef resizingTrack = duet::model::noTrack;
+    bool pointDragged = false;
+
+    /** Where the automation area of the track being dragged in starts, in this
+        component's coordinates: a drag that wanders out of its lane is still a
+        drag in that lane, and the height it reads has to be measured from the
+        same place throughout.
+    */
+    int pointGestureAreaTop = 0;
     int dragStartY = 0;
     int resizeStartHeight = 0;
     juce::Point<int> rubberStart;

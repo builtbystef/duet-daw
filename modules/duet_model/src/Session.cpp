@@ -586,10 +586,24 @@ std::vector<AutomationPoint> Session::automationPoints (const AutomationTarget& 
         out.push_back ({ te::toTime (curve.getPointPosition (point), tempoSequence).inSeconds(),
                          target.kind == AutomationTarget::Kind::trackVolume
                              ? te::volumeFaderPositionToDB (value)
-                             : value });
+                             : value,
+                         curve.getPointCurve (point) });
     }
 
     return out;
+}
+
+double Session::automationValueAt (const AutomationTarget& target, double timeSeconds) const
+{
+    auto* parameter = impl->parameterFor (target);
+
+    if (parameter == nullptr)
+        return 0.0;
+
+    const auto value = te::getValueAt (*parameter, te::TimePosition::fromSeconds (timeSeconds));
+
+    return target.kind == AutomationTarget::Kind::trackVolume ? te::volumeFaderPositionToDB (value)
+                                                              : value;
 }
 
 double Session::tempoBpm() const { return impl->edit->tempoSequence.getBpmAt (te::TimePosition()); }

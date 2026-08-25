@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cmath>
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace duet::gui
 {
@@ -30,7 +32,42 @@ namespace
         constexpr const char* trackRef = "trackRef";
         constexpr const char* heightPx = "heightPx";
         constexpr const char* lanesExpanded = "lanesExpanded";
+        constexpr const char* target = "target";
+        constexpr const char* plugin = "plugin";
+        constexpr const char* parameterId = "parameterId";
     } // namespace attribute
+
+    /** What a lane's target is called in the file: what it drives, and not the
+        number the enumeration happens to give it.
+    */
+    constexpr const char* trackVolumeTargetName = "trackVolume";
+    constexpr const char* trackPanTargetName = "trackPan";
+    constexpr const char* pluginParameterTargetName = "pluginParameter";
+
+    [[nodiscard]] const char* nameOf (duet::model::AutomationTarget::Kind kind)
+    {
+        switch (kind)
+        {
+            case duet::model::AutomationTarget::Kind::trackPan:
+                return trackPanTargetName;
+            case duet::model::AutomationTarget::Kind::pluginParameter:
+                return pluginParameterTargetName;
+            case duet::model::AutomationTarget::Kind::trackVolume:
+            default:
+                return trackVolumeTargetName;
+        }
+    }
+
+    [[nodiscard]] duet::model::AutomationTarget::Kind kindNamed (const std::string& name)
+    {
+        if (name == trackPanTargetName)
+            return duet::model::AutomationTarget::Kind::trackPan;
+
+        if (name == pluginParameterTargetName)
+            return duet::model::AutomationTarget::Kind::pluginParameter;
+
+        return duet::model::AutomationTarget::Kind::trackVolume;
+    }
 
     /** The tab, written the way spec 535bbo writes it, so that the file says
         which surface the producer left in front rather than which number it is.
@@ -129,6 +166,24 @@ void ViewState::setLanesExpanded (duet::model::TrackRef track, bool shouldBeExpa
     trackRows[track].lanesExpanded = shouldBeExpanded;
 }
 
+std::vector<LaneView> ViewState::lanes (duet::model::TrackRef track) const
+{
+    const auto row = trackRows.find (track);
+
+    return row == trackRows.end() ? std::vector<LaneView> {} : row->second.lanes;
+}
+
+void ViewState::setLanes (duet::model::TrackRef track, std::vector<LaneView> newLanes)
+{
+    if (track == duet::model::noTrack)
+        return;
+
+    for (auto& lane : newLanes)
+        lane.heightPx = std::clamp (lane.heightPx, minimumLaneHeightPx, maximumLaneHeightPx);
+
+    trackRows[track].lanes = std::move (newLanes);
+}
+
 //==============================================================================
 duet::persistence::DataNode ViewState::toData() const
 {
@@ -161,6 +216,18 @@ duet::persistence::DataNode ViewState::toData() const
         trackView.set (attribute::trackRef, static_cast<std::uint64_t> (track));
         trackView.set (attribute::heightPx, row.heightPx);
         trackView.set (attribute::lanesExpanded, row.lanesExpanded);
+
+        for (const auto& lane : row.lanes)
+        {
+            duet::persistence::DataNode laneView { laneTreeType };
+
+            laneView.set (attribute::target, std::string { nameOf (lane.target.kind) });
+            laneView.set (attribute::plugin, static_cast<std::uint64_t> (lane.target.plugin));
+            laneView.set (attribute::parameterId, lane.target.parameterId);
+            laneView.set (attribute::heightPx, lane.heightPx);
+
+            trackView.add (std::move (laneView));
+        }
 
         view.add (std::move (trackView));
     }
@@ -211,6 +278,27 @@ void ViewState::readFrom (const duet::persistence::DataNode& stored)
 
         setTrackHeightPx (track, trackView.intValue (attribute::heightPx, defaultTrackHeightPx));
         setLanesExpanded (track, trackView.boolValue (attribute::lanesExpanded, false));
+
+        std::vector<LaneView> storedLanes;
+
+        for (const auto& laneView : trackView.children())
+        {
+            if (laneView.type() != laneTreeType)
+                continue;
+
+            LaneView lane;
+
+            lane.target.kind = kindNamed (laneView.stringValue (attribute::target, ""));
+            lane.target.track = track;
+            lane.target.plugin = static_cast<duet::model::PluginRef> (
+                laneView.uint64Value (attribute::plugin, duet::model::noPlugin));
+            lane.target.parameterId = laneView.stringValue (attribute::parameterId, "");
+            lane.heightPx = laneView.intValue (attribute::heightPx, defaultLaneHeightPx);
+
+            storedLanes.push_back (std::move (lane));
+        }
+
+        setLanes (track, std::move (storedLanes));
     }
 }
 } // namespace duet::gui

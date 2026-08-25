@@ -358,6 +358,15 @@ struct AutomationPoint
 {
     double timeSeconds = 0.0;
     double value = 0.0;
+
+    /** How the segment leaving this point bends on its way to the next, from
+        −1 to +1, and zero for the straight line milestone one draws.
+
+        Every point states this rather than leaving it to be assumed, so that
+        the curved segments of a later milestone are a value that changes and
+        not a shape the stored points never had.
+    */
+    double curvature = 0.0;
 };
 
 /** A VST3 the app knows how to insert. The identifier is app-global and
@@ -830,6 +839,13 @@ public:
     */
     [[nodiscard]] std::vector<AutomationPoint>
         automationPoints (const AutomationTarget& target) const;
+
+    /** What a curve is driving its target to at a time, in the units its points
+        are written in. A curve with no points reads back the value the producer
+        set by hand, which is what the target plays where no curve takes it over.
+    */
+    [[nodiscard]] double automationValueAt (const AutomationTarget& target,
+                                            double timeSeconds) const;
 
     /** The edit's tempo, in beats per minute. */
     [[nodiscard]] double tempoBpm() const;

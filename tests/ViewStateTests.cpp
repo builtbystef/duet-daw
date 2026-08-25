@@ -173,3 +173,49 @@ TEST_CASE ("a VIEW tree written by hand cannot hand the interface a size it cann
     REQUIRE (view.browserWidthPx() == ViewState::minimumBrowserWidthPx);
     REQUIRE (view.hZoomPxPerBeat() >= ViewState::minimumZoomPxPerBeat);
 }
+
+TEST_CASE ("a track's automation lanes belong to its row")
+{
+    ViewState view;
+
+    REQUIRE (view.lanes (bass).empty());
+
+    duet::gui::LaneView volume;
+    volume.target = duet::model::AutomationTarget::trackVolumeOf (bass);
+
+    duet::gui::LaneView cutoff;
+    cutoff.target = duet::model::AutomationTarget::parameterOf (9, "cutoff");
+    cutoff.heightPx = 96;
+
+    view.setLanes (bass, { volume, cutoff });
+
+    REQUIRE (view.lanes (bass).size() == 2);
+    REQUIRE (view.lanes (keys).empty());
+
+    SECTION ("the lanes go when the track does")
+    {
+        view.removeTrack (bass);
+
+        REQUIRE (view.lanes (bass).empty());
+        REQUIRE_FALSE (view.lanesExpanded (bass));
+    }
+
+    SECTION ("the lanes come back from the VIEW tree exactly as they went in")
+    {
+        view.setLanesExpanded (bass, true);
+
+        ViewState reopened;
+        reopened.readFrom (view.toData());
+
+        const auto restored = reopened.lanes (bass);
+
+        REQUIRE (reopened.lanesExpanded (bass));
+        REQUIRE (restored.size() == 2);
+        REQUIRE (restored[0].target.kind == duet::model::AutomationTarget::Kind::trackVolume);
+        REQUIRE (restored[0].target.track == bass);
+        REQUIRE (restored[1].target.kind == duet::model::AutomationTarget::Kind::pluginParameter);
+        REQUIRE (restored[1].target.plugin == 9);
+        REQUIRE (restored[1].target.parameterId == "cutoff");
+        REQUIRE (restored[1].heightPx == 96);
+    }
+}

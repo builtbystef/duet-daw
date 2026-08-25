@@ -10,6 +10,7 @@
 add_library(duet_gui STATIC
     src/Appearance.cpp
     src/ArrangementView.cpp
+    src/AutomationLanes.cpp
     src/CollaboratorPanel.cpp
     src/AutosaveSettings.cpp
     src/Mixer.cpp

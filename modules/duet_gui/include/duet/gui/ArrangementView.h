@@ -1,5 +1,6 @@
 #pragma once
 
+#include <duet/gui/AutomationLanes.h>
 #include <duet/gui/Selection.h>
 #include <duet/gui/Shortcuts.h>
 #include <duet/gui/TimelineGeometry.h>
@@ -52,6 +53,15 @@ struct TrackDrawing
     bool recordArmed = false;
     int y = 0;
     int height = 0;
+
+    /** The track's automation area: where it starts, in the same coordinates as
+        `y`, and how tall it is. Zero-tall for a track whose area is closed. The
+        lanes in it are the automation view-model's, and their own coordinates
+        count from `automationY`.
+    */
+    int automationY = 0;
+    int automationHeight = 0;
+
     std::vector<ClipDrawing> clips;
 };
 
@@ -190,6 +200,12 @@ public:
     [[nodiscard]] bool isMidiClip (duet::model::ClipRef clip) const;
     [[nodiscard]] duet::model::ClipRef selectedMidiClip() const;
 
+    /** The automation lanes under the tracks. They share this surface's
+        geometry, so a curve and the clips above it are drawn on one grid.
+    */
+    [[nodiscard]] AutomationLanes& automation() { return lanes; }
+    [[nodiscard]] const AutomationLanes& automation() const { return lanes; }
+
     [[nodiscard]] TimelineGeometry& geometry() { return timeline; }
     [[nodiscard]] const TimelineGeometry& geometry() const { return timeline; }
 
@@ -265,6 +281,7 @@ private:
 
     ViewState& view;
     TimelineGeometry timeline { view };
+    AutomationLanes lanes { view, timeline };
     TimelineClock* clock = nullptr;
     duet::model::Session* session = nullptr;
     Selection currentSelection;

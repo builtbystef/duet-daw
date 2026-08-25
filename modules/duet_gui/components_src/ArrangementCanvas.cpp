@@ -179,6 +179,77 @@ ArrangementCanvas::ArrangementCanvas (Appearance& lookAndScale,
 ArrangementCanvas::~ArrangementCanvas() = default;
 
 //==============================================================================
+void ArrangementCanvas::paintTrackHeader (juce::Graphics& g,
+                                          const TrackDrawing& track,
+                                          juce::Rectangle<int> row)
+{
+    const auto headerWidth = appearance.scaled (trackHeaderWidth);
+    const auto header = row.withWidth (headerWidth);
+    g.setColour (toJuce (appearance.colour (ColourToken::surfaceRaised)));
+    g.fillRect (header);
+    g.setColour (
+        toJuce (appearance.colour (trackColourToken (static_cast<std::size_t> (track.colour)))));
+    g.fillRect (header.withWidth (appearance.scaled (4)));
+
+    // The triangle that opens the track's automation area: pointing right
+    // while it is closed, and down while it is open.
+    const auto disclosure = header.withX (header.getX() + appearance.scaled (6))
+                                .withWidth (appearance.scaled (disclosureWidth))
+                                .withHeight (appearance.scaled (disclosureWidth))
+                                .withY (row.getY() + appearance.scaled (6));
+    const auto arrow = disclosure.reduced (appearance.scaled (5)).toFloat();
+    juce::Path triangle;
+
+    if (track.automationHeight > 0)
+    {
+        triangle.addTriangle (arrow.getX(),
+                              arrow.getY(),
+                              arrow.getRight(),
+                              arrow.getY(),
+                              arrow.getCentreX(),
+                              arrow.getBottom());
+    }
+    else
+    {
+        triangle.addTriangle (arrow.getX(),
+                              arrow.getY(),
+                              arrow.getX(),
+                              arrow.getBottom(),
+                              arrow.getRight(),
+                              arrow.getCentreY());
+    }
+
+    g.setColour (toJuce (appearance.colour (track.automationHeight > 0 ? ColourToken::textSecondary
+                                                                       : ColourToken::textMuted)));
+    g.fillPath (triangle);
+
+    g.setColour (toJuce (appearance.colour (ColourToken::textPrimary)));
+    g.setFont (interFont (appearance.scaled (typography::body), true));
+    g.drawText (track.name,
+                header.reduced (appearance.scaled (12), 0)
+                    .withTrimmedLeft (appearance.scaled (disclosureWidth))
+                    .withTrimmedRight (appearance.scaled (headerControlWidth * 4)),
+                juce::Justification::centredLeft);
+
+    const auto controlWidth = appearance.scaled (headerControlWidth);
+    const auto paintControl = [&] (int fromRight, const juce::String& text, bool active)
+    {
+        const auto control =
+            header.withX (header.getRight() - controlWidth * fromRight).withWidth (controlWidth);
+        g.setColour (toJuce (
+            appearance.colour (active ? ColourToken::accentStrong : ColourToken::textMuted)));
+        g.drawText (text, control, juce::Justification::centred);
+    };
+    paintControl (4, panLabel (track.pan), false);
+    paintControl (3, "M", track.muted);
+    paintControl (2, "S", track.soloed);
+    paintControl (1, "R", track.recordArmed);
+
+    g.setColour (toJuce (appearance.colour (ColourToken::borderDefault)));
+    g.fillRect (row.withY (row.getBottom() - 1).withHeight (1));
+    g.fillRect (header.withX (header.getRight() - 1).withWidth (1));
+}
+
 void ArrangementCanvas::paint (juce::Graphics& g)
 {
     const auto timeline = timelineArea();
@@ -205,33 +276,7 @@ void ArrangementCanvas::paint (juce::Graphics& g)
         if (! row.intersects (timeline))
             continue;
 
-        const auto header = row.withWidth (headerWidth);
-        g.setColour (toJuce (appearance.colour (ColourToken::surfaceRaised)));
-        g.fillRect (header);
-        g.setColour (toJuce (
-            appearance.colour (trackColourToken (static_cast<std::size_t> (track.colour)))));
-        g.fillRect (header.withWidth (appearance.scaled (4)));
-
-        g.setColour (toJuce (appearance.colour (ColourToken::textPrimary)));
-        g.setFont (interFont (appearance.scaled (typography::body), true));
-        g.drawText (track.name,
-                    header.reduced (appearance.scaled (12), 0)
-                        .withTrimmedRight (appearance.scaled (headerControlWidth * 4)),
-                    juce::Justification::centredLeft);
-
-        const auto controlWidth = appearance.scaled (headerControlWidth);
-        const auto paintControl = [&] (int fromRight, const juce::String& text, bool active)
-        {
-            const auto control = header.withX (header.getRight() - controlWidth * fromRight)
-                                     .withWidth (controlWidth);
-            g.setColour (toJuce (
-                appearance.colour (active ? ColourToken::accentStrong : ColourToken::textMuted)));
-            g.drawText (text, control, juce::Justification::centred);
-        };
-        paintControl (4, panLabel (track.pan), false);
-        paintControl (3, "M", track.muted);
-        paintControl (2, "S", track.soloed);
-        paintControl (1, "R", track.recordArmed);
+        paintTrackHeader (g, track, row);
 
         for (const auto& clip : track.clips)
         {
@@ -296,9 +341,7 @@ void ArrangementCanvas::paint (juce::Graphics& g)
                         juce::Justification::topLeft);
         }
 
-        g.setColour (toJuce (appearance.colour (ColourToken::borderDefault)));
-        g.fillRect (row.withY (row.getBottom() - 1).withHeight (1));
-        g.fillRect (header.withX (header.getRight() - 1).withWidth (1));
+        paintAutomation (g, track, timelineTop);
     }
 
     const juce::Rectangle<int> addRow {
@@ -321,6 +364,75 @@ void ArrangementCanvas::paint (juce::Graphics& g)
 
     g.setColour (toJuce (appearance.colour (ColourToken::borderDefault)));
     g.drawRect (getLocalBounds(), 1);
+}
+
+void ArrangementCanvas::paintAutomation (juce::Graphics& g,
+                                         const TrackDrawing& track,
+                                         int timelineTop)
+{
+    if (track.automationHeight <= 0)
+        return;
+
+    const auto headerWidth = appearance.scaled (trackHeaderWidth);
+    const auto areaTop = timelineTop + track.automationY;
+    const auto pointSize = appearance.scaled (automationPointSize);
+
+    for (const auto& lane : view.automation().lanes (track.track))
+    {
+        const juce::Rectangle<int> laneRow { 0, areaTop + lane.y, getWidth(), lane.height };
+
+        if (! laneRow.intersects (timelineArea()))
+            continue;
+
+        const auto laneHeader = laneRow.withWidth (headerWidth);
+
+        g.setColour (toJuce (appearance.colour (ColourToken::surfaceDefault)));
+        g.fillRect (laneRow.withTrimmedLeft (headerWidth));
+        g.setColour (toJuce (appearance.colour (ColourToken::surfaceRaised)));
+        g.fillRect (laneHeader);
+
+        // The lane's picker, which is its name: clicking it offers the curves
+        // this track has to draw.
+        g.setColour (toJuce (appearance.colour (ColourToken::textSecondary)));
+        g.setFont (interFont (appearance.scaled (typography::eyebrow), false));
+        g.drawText (
+            lane.targetName,
+            laneHeader.reduced (appearance.scaled (12 + disclosureWidth), appearance.scaled (2)),
+            juce::Justification::centredLeft);
+
+        g.setColour (toJuce (appearance.colour (ColourToken::accentDefault)));
+
+        // The curve: straight segments between the points, and a flat run out
+        // to either edge, which is what the engine plays there.
+        std::optional<juce::Point<float>> previous;
+
+        for (const auto& point : lane.points)
+        {
+            const juce::Point<float> here { static_cast<float> (headerWidth + point.x),
+                                            static_cast<float> (areaTop + point.y) };
+
+            if (previous.has_value())
+                g.drawLine ({ *previous, here }, 1.5F);
+            else
+                g.drawLine (static_cast<float> (headerWidth), here.y, here.x, here.y, 1.5F);
+
+            previous = here;
+        }
+
+        if (previous.has_value())
+            g.drawLine (
+                previous->x, previous->y, static_cast<float> (getWidth()), previous->y, 1.5F);
+
+        for (const auto& point : lane.points)
+            g.fillRect (juce::Rectangle<int> { headerWidth + point.x - pointSize / 2,
+                                               areaTop + point.y - pointSize / 2,
+                                               pointSize,
+                                               pointSize });
+
+        g.setColour (toJuce (appearance.colour (ColourToken::borderSubtle)));
+        g.fillRect (laneRow.withY (laneRow.getBottom() - 1).withHeight (1));
+        g.fillRect (laneHeader.withX (laneHeader.getRight() - 1).withWidth (1));
+    }
 }
 
 void ArrangementCanvas::resized()
@@ -357,6 +469,14 @@ void ArrangementCanvas::mouseWheelMove (const juce::MouseEvent& event,
 void ArrangementCanvas::mouseDown (const juce::MouseEvent& event)
 {
     const auto timelineY = event.y - timelineArea().getY();
+
+    if (const auto lane = laneAt (event.x, timelineY); lane.has_value())
+    {
+        mouseDownOnLane (event, *lane);
+        repaint();
+        return;
+    }
+
     const auto row = trackAt (timelineY);
 
     if (! row.has_value())
@@ -465,7 +585,9 @@ void ArrangementCanvas::mouseDownOnTrackHeader (const juce::MouseEvent& event,
 
     const auto headerWidth = appearance.scaled (trackHeaderWidth);
     const auto controlWidth = appearance.scaled (headerControlWidth);
-    if (event.x >= headerWidth - controlWidth)
+    if (event.x < appearance.scaled (6 + disclosureWidth))
+        view.automation().toggleExpanded (track.track);
+    else if (event.x >= headerWidth - controlWidth)
         view.toggleRecordArm (track.track);
     else if (event.x >= headerWidth - controlWidth * 2)
         view.toggleSolo (track.track);
@@ -490,12 +612,30 @@ void ArrangementCanvas::mouseDownOnTrackHeader (const juce::MouseEvent& event,
 
 void ArrangementCanvas::mouseDoubleClick (const juce::MouseEvent& event)
 {
-    const auto row = trackAt (event.y - timelineArea().getY());
+    const auto timelineY = event.y - timelineArea().getY();
+
+    if (const auto lane = laneAt (event.x, timelineY); lane.has_value())
+    {
+        if (event.x >= appearance.scaled (trackHeaderWidth))
+        {
+            view.automation().addPoint (lane->track.track,
+                                        lane->lane.index,
+                                        view.geometry().xToBeats (lane->xInTimeline),
+                                        lane->yInArea,
+                                        event.mods.isAltDown());
+            repaint();
+        }
+
+        return;
+    }
+
+    const auto row = trackAt (timelineY);
     if (! row.has_value())
         return;
 
     const auto headerWidth = appearance.scaled (trackHeaderWidth);
-    if (event.x < appearance.scaled (trackHeaderWidth - headerControlWidth * 4))
+    if (event.x >= appearance.scaled (6 + disclosureWidth)
+        && event.x < appearance.scaled (trackHeaderWidth - headerControlWidth * 4))
     {
         beginRename (row->track);
         return;
@@ -518,6 +658,17 @@ void ArrangementCanvas::mouseDoubleClick (const juce::MouseEvent& event)
 
 void ArrangementCanvas::mouseDrag (const juce::MouseEvent& event)
 {
+    if (view.automation().hasPointGesture())
+    {
+        pointDragged = event.getDistanceFromDragStart() > appearance.scaled (2);
+        view.automation().updatePointGesture (
+            view.geometry().xToBeats (event.x - appearance.scaled (trackHeaderWidth)),
+            event.y - pointGestureAreaTop,
+            event.mods.isAltDown());
+        repaint();
+        return;
+    }
+
     if (resizingTrack != duet::model::noTrack)
         view.resizeTrack (resizingTrack,
                           resizeStartHeight + event.y - timelineArea().getY() - dragStartY);
@@ -545,6 +696,19 @@ void ArrangementCanvas::mouseDrag (const juce::MouseEvent& event)
 
 void ArrangementCanvas::mouseUp (const juce::MouseEvent& event)
 {
+    if (view.automation().hasPointGesture())
+    {
+        // A press that never moved is not a drag, and emits no Action.
+        if (pointDragged)
+            (void) view.automation().completePointGesture();
+        else
+            view.automation().cancelPointGesture();
+
+        pointDragged = false;
+        repaint();
+        return;
+    }
+
     if (draggedTrack != duet::model::noTrack
         && std::abs (event.y - timelineArea().getY() - dragStartY) > appearance.scaled (4))
     {
@@ -601,6 +765,89 @@ std::optional<TrackDrawing> ArrangementCanvas::trackAt (int y)
                       [y] (const auto& row) { return y >= row.y && y < row.y + row.height; });
 
     return found == rows.end() ? std::nullopt : std::optional { *found };
+}
+
+std::optional<ArrangementCanvas::LaneHit> ArrangementCanvas::laneAt (int x, int y)
+{
+    for (const auto& row : view.tracks())
+    {
+        if (row.automationHeight <= 0 || y < row.automationY
+            || y >= row.automationY + row.automationHeight)
+            continue;
+
+        const auto yInArea = y - row.automationY;
+
+        for (const auto& lane : view.automation().lanes (row.track))
+            if (yInArea >= lane.y && yInArea < lane.y + lane.height)
+                return LaneHit { row, lane, x - appearance.scaled (trackHeaderWidth), yInArea };
+    }
+
+    return std::nullopt;
+}
+
+void ArrangementCanvas::showLaneMenu (duet::model::TrackRef track, int laneIndex)
+{
+    const auto targets = view.automation().targetsFor (track);
+
+    juce::PopupMenu menu;
+    auto item = 1;
+
+    for (const auto& target : targets)
+        menu.addItem (item++, target.name);
+
+    menu.addSeparator();
+    menu.addItem (item++, "Add Lane");
+    menu.addItem (item, "Remove Lane");
+
+    const auto addLaneItem = static_cast<int> (targets.size()) + 1;
+
+    menu.showMenuAsync (
+        {},
+        [safe = juce::Component::SafePointer { this }, track, laneIndex, targets, addLaneItem] (
+            int result)
+        {
+            if (safe == nullptr || result == 0)
+                return;
+
+            if (result == addLaneItem)
+                (void) safe->view.automation().addLane (track);
+            else if (result > addLaneItem)
+                safe->view.automation().removeLane (track, laneIndex);
+            else
+                safe->view.automation().setLaneTarget (
+                    track, laneIndex, targets[static_cast<std::size_t> (result - 1)].target);
+
+            safe->repaint();
+        });
+}
+
+void ArrangementCanvas::mouseDownOnLane (const juce::MouseEvent& event, const LaneHit& hit)
+{
+    view.focusTrack (hit.track.track);
+
+    if (event.x < appearance.scaled (trackHeaderWidth))
+    {
+        if (! event.mods.isPopupMenu())
+            showLaneMenu (hit.track.track, hit.lane.index);
+        return;
+    }
+
+    if (event.mods.isPopupMenu())
+    {
+        // A point comes off where there is one; empty lane space is not a
+        // point, and right-clicking it changes nothing.
+        if (view.automation().removePoint (
+                hit.track.track, hit.lane.index, hit.xInTimeline, hit.yInArea))
+            repaint();
+        return;
+    }
+
+    if (const auto point = pointIndexAt (hit.lane, hit.xInTimeline, hit.yInArea); point.has_value())
+    {
+        view.automation().beginPointGesture (hit.track.track, hit.lane.index, *point);
+        pointGestureAreaTop = timelineArea().getY() + hit.track.automationY;
+        pointDragged = false;
+    }
 }
 
 std::optional<ClipDrawing> ArrangementCanvas::clipAt (const TrackDrawing& track, int x)
