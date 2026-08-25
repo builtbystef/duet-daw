@@ -38,6 +38,19 @@ private:
 };
 
 /** A component of a surface's name, wherever it is in the tree under this one. */
+[[nodiscard]] inline juce::Component* surfaceOf (juce::Component& root, const char* surfaceId)
+{
+    if (root.getComponentID() == surfaceId)
+        return &root;
+
+    for (auto* child : root.getChildren())
+        if (auto* found = surfaceOf (*child, surfaceId); found != nullptr)
+            return found;
+
+    return nullptr;
+}
+
+/** The same, of a surface a test only reads. */
 [[nodiscard]] inline const juce::Component* surfaceOf (const juce::Component& root,
                                                        const char* surfaceId)
 {

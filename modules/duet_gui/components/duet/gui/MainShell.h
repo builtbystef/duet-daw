@@ -2,6 +2,7 @@
 
 #include <duet/gui/Appearance.h>
 #include <duet/gui/ArrangementView.h>
+#include <duet/gui/CollaboratorPanel.h>
 #include <duet/gui/Mixer.h>
 #include <duet/gui/PianoRoll.h>
 #include <duet/gui/Shortcuts.h>
@@ -18,6 +19,7 @@ namespace duet::gui
 {
 class AcceleratedSurface;
 class ArrangementCanvas;
+class CollaboratorPanelCanvas;
 class PianoRollCanvas;
 class TimelineClock;
 
@@ -86,6 +88,13 @@ public:
     */
     void setTimelineClock (TimelineClock* projectClock);
     void setSession (duet::model::Session* openProject);
+
+    /** What the Collaborator panel's context chip records: the one current
+        selection, in the engine-free shape the panel reads. Clips first, because
+        a clip selection is what the producer made deliberately; the track they
+        are working on otherwise.
+    */
+    [[nodiscard]] SelectionContext currentSelectionContext() const;
 
     /** The component-only bridge used to open a hosted plugin editor. */
     void setPluginEditorAction (std::function<void (duet::model::PluginRef)> openEditor);
@@ -169,17 +178,24 @@ private:
     Mixer mixer;
     TransportBar transport { view };
 
+    /** The Collaborator panel's own state, and — until spec js437t's service
+        exists — the development-only source that answers it.
+    */
+    CollaboratorPanel collaboratorPanel;
+    ScriptedCollaborator scriptedCollaborator;
+
     juce::TextButton duetButton { "Duet" };
     std::unique_ptr<TransportStrip> transportStrip;
     std::unique_ptr<ArrangementCanvas> arrangement;
     std::unique_ptr<Dock> browser;
-    std::unique_ptr<Dock> collaborator;
+    std::unique_ptr<CollaboratorPanelCanvas> collaborator;
     std::unique_ptr<BottomPanel> bottom;
     std::unique_ptr<Divider> browserDivider;
     std::unique_ptr<Divider> collaboratorDivider;
     std::unique_ptr<Divider> bottomDivider;
     std::unique_ptr<AcceleratedSurface> hardwareContext;
 
+    duet::model::Session* session = nullptr;
     std::function<void()> saveAction;
     std::function<void (duet::model::PluginRef)> pluginEditorAction;
     std::function<void (juce::PopupMenu&)> buildHostMenu;

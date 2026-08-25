@@ -2,6 +2,7 @@
 
 #include <duet/gui/AcceleratedSurface.h>
 #include <duet/gui/ArrangementCanvas.h>
+#include <duet/gui/CollaboratorPanelCanvas.h>
 #include <duet/gui/GraphiteLookAndFeel.h>
 #include <duet/gui/MixerCanvas.h>
 #include <duet/gui/PianoRollCanvas.h>
@@ -465,7 +466,10 @@ MainShell::MainShell (Appearance& lookAndScale, ViewState& projectView)
                                                            perform (Command::showPianoRoll);
                                                        });
     browser = std::make_unique<Dock> (appearance, surfaceId::browser, "Browser");
-    collaborator = std::make_unique<Dock> (appearance, surfaceId::collaborator, "Collaborator");
+    collaboratorPanel.setSource (&scriptedCollaborator);
+    collaborator = std::make_unique<CollaboratorPanelCanvas> (appearance, collaboratorPanel);
+    collaborator->setComponentID (surfaceId::collaborator);
+    collaborator->setSelectionContextSource ([this] { return currentSelectionContext(); });
     bottom = std::make_unique<BottomPanel> (
         appearance,
         view,
@@ -673,11 +677,27 @@ void MainShell::setTimelineClock (TimelineClock* projectClock)
 
 void MainShell::setSession (duet::model::Session* openProject)
 {
+    session = openProject;
     arrangementView.setSession (openProject);
     pianoRoll.setSession (openProject);
     mixer.setSession (openProject);
     transport.setSession (openProject);
     viewStateChanged();
+}
+
+SelectionContext MainShell::currentSelectionContext() const
+{
+    const auto& selected = arrangementView.selection();
+
+    if (! selected.empty() && selected.focusedKind() == SelectionKind::clip)
+        return clipsSelected (static_cast<int> (selected.items().size()));
+
+    if (session != nullptr)
+        if (const auto track = session->track (arrangementView.focusedTrack());
+            track.track != duet::model::noTrack)
+            return trackSelected (track.name);
+
+    return noSelection();
 }
 
 void MainShell::setPluginEditorAction (std::function<void (duet::model::PluginRef)> openEditor)

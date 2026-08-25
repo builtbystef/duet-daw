@@ -10,6 +10,7 @@
 add_library(duet_gui STATIC
     src/Appearance.cpp
     src/ArrangementView.cpp
+    src/CollaboratorPanel.cpp
     src/AutosaveSettings.cpp
     src/Mixer.cpp
     src/PianoRoll.cpp
@@ -56,6 +57,7 @@ set_target_properties(duet_gui_fonts PROPERTIES
 add_library(duet_gui_components STATIC
     components_src/AcceleratedSurface.cpp
     components_src/ArrangementCanvas.cpp
+    components_src/CollaboratorPanelCanvas.cpp
     components_src/GraphiteLookAndFeel.cpp
     components_src/InterTypeface.cpp
     components_src/MainShell.cpp

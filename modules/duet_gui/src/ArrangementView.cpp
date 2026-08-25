@@ -698,7 +698,7 @@ void ArrangementView::perform (Command command)
             copySelected();
             break;
         case Command::paste:
-            (void) paste (clock != nullptr ? clock->playheadBeats() : 0.0, focusedTrack);
+            (void) paste (clock != nullptr ? clock->playheadBeats() : 0.0, focusedTrackRef);
             break;
         case Command::duplicate:
             duplicateSelected();

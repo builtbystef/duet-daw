@@ -6,6 +6,10 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -206,4 +210,42 @@ TEST_CASE ("track colours past the eighth wrap round the set")
     REQUIRE (trackColourToken (0) == ColourToken::trackOrange);
     REQUIRE (trackColourToken (trackColourCount) == trackColourToken (0));
     REQUIRE (trackColourToken (trackColourCount + 3) == trackColourToken (3));
+}
+
+TEST_CASE ("the Collaborator's hue and badge are reserved to the Collaborator's own surfaces")
+{
+    // The teal token and the four-pointed badge mean one thing in this
+    // interface, and a rule about the whole tree is what keeps them meaning it.
+    // Its own header declares the reservation; the Collaborator panel and the
+    // Suggestion surfaces are what may draw it.
+    const auto isAllowed = [] (const std::filesystem::path& file)
+    {
+        const auto name = file.filename().string();
+
+        return name.starts_with ("Tokens.") || name.find ("Collaborator") != std::string::npos
+               || name.find ("Suggestion") != std::string::npos;
+    };
+
+    std::vector<std::string> offenders;
+
+    for (const auto& entry : std::filesystem::recursive_directory_iterator { DUET_MODULES_DIR })
+    {
+        const auto& file = entry.path();
+
+        if (! entry.is_regular_file() || (file.extension() != ".h" && file.extension() != ".cpp"))
+            continue;
+
+        std::ifstream source { file };
+        const std::string text { std::istreambuf_iterator<char> { source },
+                                 std::istreambuf_iterator<char> {} };
+
+        const auto usesTheHue = text.find ("ColourToken::collaborator") != std::string::npos;
+        const auto usesTheBadge = text.find ("✦") != std::string::npos
+                                  || text.find ("CollaboratorBadge") != std::string::npos;
+
+        if ((usesTheHue || usesTheBadge) && ! isAllowed (file))
+            offenders.push_back (file.filename().string());
+    }
+
+    REQUIRE (offenders.empty());
 }

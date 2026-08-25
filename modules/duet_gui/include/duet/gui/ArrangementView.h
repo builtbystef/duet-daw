@@ -161,7 +161,13 @@ public:
     [[nodiscard]] const Selection& selection() const { return currentSelection; }
     [[nodiscard]] std::vector<SelectedItem> allClipItems() const;
     void rubberBand (SelectionRect rectangle, bool ctrlHeld);
-    void focusTrack (duet::model::TrackRef track) { focusedTrack = track; }
+    void focusTrack (duet::model::TrackRef track) { focusedTrackRef = track; }
+
+    /** The track the producer is working on: the one they last put the pointer
+        on, and what a paste with no track under it lands on. It is also what
+        the Collaborator panel names when no clip is selected.
+    */
+    [[nodiscard]] duet::model::TrackRef focusedTrack() const { return focusedTrackRef; }
 
     void beginClipGesture (duet::model::ClipRef clip, ClipGestureKind kind);
     void updateClipGesture (double destinationBeats,
@@ -264,7 +270,7 @@ private:
     Selection currentSelection;
     std::optional<Gesture> gesture;
     std::vector<ClipboardClip> clipboard;
-    duet::model::TrackRef focusedTrack = duet::model::noTrack;
+    duet::model::TrackRef focusedTrackRef = duet::model::noTrack;
     int heightPx = 0;
 };
 } // namespace duet::gui

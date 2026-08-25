@@ -19,6 +19,7 @@ add_executable(duet_tests
     AutomationOpsTests.cpp
     AutosaveTests.cpp
     ClipOpsTests.cpp
+    CollaboratorPanelTests.cpp
     CollaboratorServiceTests.cpp
     DemoWalkthroughTests.cpp
     DeviceRebuildTests.cpp
@@ -69,6 +70,10 @@ add_dependencies(duet_tests
     duet_sidecar_double
     duet_good_vst3_fixture_VST3
     duet_crashing_vst3_fixture_VST3)
+# The reserved-accent guard reads Duet's own sources: the rule it checks is
+# about the whole tree rather than about any one object's behaviour.
+target_compile_definitions(duet_tests PRIVATE DUET_MODULES_DIR="${CMAKE_SOURCE_DIR}/modules")
+
 target_compile_definitions(duet_tests PRIVATE
     DUET_SIDECAR_DOUBLE="$<TARGET_FILE:duet_sidecar_double>"
     DUET_GOOD_VST3_FIXTURE="$<GENEX_EVAL:$<TARGET_PROPERTY:duet_good_vst3_fixture_VST3,JUCE_PLUGIN_ARTEFACT_FILE>>"
