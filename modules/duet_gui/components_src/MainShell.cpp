@@ -3,6 +3,7 @@
 #include <duet/gui/AcceleratedSurface.h>
 #include <duet/gui/ArrangementCanvas.h>
 #include <duet/gui/GraphiteLookAndFeel.h>
+#include <duet/gui/MixerCanvas.h>
 #include <duet/gui/PianoRollCanvas.h>
 #include <duet/gui/Tokens.h>
 #include <duet/gui/Typography.h>
@@ -337,9 +338,16 @@ public:
     BottomPanel (Appearance& lookAndScale,
                  ViewState& projectView,
                  PianoRoll& pianoRollModel,
+                 Mixer& mixerModel,
+                 std::function<void (duet::model::PluginRef)> openPluginEditor,
+                 std::function<void()> mixerChanged,
                  std::function<void (BottomTab)> onTabClicked)
         : appearance (lookAndScale), view (projectView), tabClicked (std::move (onTabClicked)),
-          pianoRoll (std::make_unique<PianoRollCanvas> (appearance, pianoRollModel))
+          pianoRoll (std::make_unique<PianoRollCanvas> (appearance, pianoRollModel)),
+          mixer (std::make_unique<MixerCanvas> (appearance,
+                                                mixerModel,
+                                                std::move (openPluginEditor),
+                                                std::move (mixerChanged)))
     {
         setComponentID (surfaceId::bottomPanel);
 
@@ -430,7 +438,7 @@ private:
     std::function<void (BottomTab)> tabClicked;
 
     std::unique_ptr<PianoRollCanvas> pianoRoll;
-    std::unique_ptr<Dock> mixer { std::make_unique<Dock> (appearance, surfaceId::mixer, "Mixer") };
+    std::unique_ptr<MixerCanvas> mixer;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (BottomPanel)
 };
@@ -462,6 +470,13 @@ MainShell::MainShell (Appearance& lookAndScale, ViewState& projectView)
         appearance,
         view,
         pianoRoll,
+        mixer,
+        [this] (duet::model::PluginRef plugin)
+        {
+            if (pluginEditorAction)
+                pluginEditorAction (plugin);
+        },
+        [this] { viewStateChanged(); },
         [this] (BottomTab tab)
         { perform (tab == BottomTab::mixer ? Command::showMixer : Command::showPianoRoll); });
 
@@ -660,8 +675,14 @@ void MainShell::setSession (duet::model::Session* openProject)
 {
     arrangementView.setSession (openProject);
     pianoRoll.setSession (openProject);
+    mixer.setSession (openProject);
     transport.setSession (openProject);
     viewStateChanged();
+}
+
+void MainShell::setPluginEditorAction (std::function<void (duet::model::PluginRef)> openEditor)
+{
+    pluginEditorAction = std::move (openEditor);
 }
 
 void MainShell::setProjectStatus (std::string name, bool dirty)

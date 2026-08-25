@@ -28,6 +28,8 @@ inline constexpr const char* externalParametersNode = "DUET_EXTERNAL_PARAMETERS"
 inline constexpr const char* externalParameterNode = "DUET_EXTERNAL_PARAMETER";
 inline constexpr const char* externalParameterIdProperty = "parameterId";
 inline constexpr const char* externalParameterValueProperty = "value";
+inline constexpr const char* masterMutedProperty = "duetMasterMuted";
+inline constexpr const char* masterVolumeDbProperty = "duetMasterVolumeDb";
 
 inline juce::File toJuceFile (const std::filesystem::path& path)
 {
@@ -267,6 +269,7 @@ struct Session::Impl
                         std::make_unique<DuetBehaviour> (recordingDirectory) };
     std::unique_ptr<te::Edit> edit;
     std::function<void()> projectChanged;
+    mutable std::uint64_t revision = 0;
 
     /** The canonical project state before the live Audition, and which pending
         data produced it. The transport is kept outside both states.
@@ -343,6 +346,7 @@ struct Session::Impl
 
     void announceChange() const
     {
+        ++revision;
         if (projectChanged)
             projectChanged();
     }
@@ -369,6 +373,9 @@ struct Session::Impl
 
     te::VolumeAndPanPlugin* faderFor (TrackRef ref) const
     {
+        if (ref == masterChannel)
+            return edit->getMasterVolumePlugin().get();
+
         if (auto* track = trackFor (ref))
             return track->getVolumePlugin();
 

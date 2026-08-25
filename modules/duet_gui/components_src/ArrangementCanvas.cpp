@@ -38,6 +38,15 @@ namespace
         }
     }
 
+    [[nodiscard]] juce::String panLabel (double pan)
+    {
+        if (pan < -0.25)
+            return "L";
+        if (pan > 0.25)
+            return "R";
+        return "C";
+    }
+
     /** How tall a tick of that weight is drawn in the ruler. */
     [[nodiscard]] float tickHeightFor (GridWeight weight)
     {
@@ -207,11 +216,11 @@ void ArrangementCanvas::paint (juce::Graphics& g)
         g.setFont (interFont (appearance.scaled (typography::body), true));
         g.drawText (track.name,
                     header.reduced (appearance.scaled (12), 0)
-                        .withTrimmedRight (appearance.scaled (headerControlWidth * 3)),
+                        .withTrimmedRight (appearance.scaled (headerControlWidth * 4)),
                     juce::Justification::centredLeft);
 
         const auto controlWidth = appearance.scaled (headerControlWidth);
-        const auto paintControl = [&] (int fromRight, const char* text, bool active)
+        const auto paintControl = [&] (int fromRight, const juce::String& text, bool active)
         {
             const auto control = header.withX (header.getRight() - controlWidth * fromRight)
                                      .withWidth (controlWidth);
@@ -219,6 +228,7 @@ void ArrangementCanvas::paint (juce::Graphics& g)
                 appearance.colour (active ? ColourToken::accentStrong : ColourToken::textMuted)));
             g.drawText (text, control, juce::Justification::centred);
         };
+        paintControl (4, panLabel (track.pan), false);
         paintControl (3, "M", track.muted);
         paintControl (2, "S", track.soloed);
         paintControl (1, "R", track.recordArmed);
@@ -461,6 +471,8 @@ void ArrangementCanvas::mouseDownOnTrackHeader (const juce::MouseEvent& event,
         view.toggleSolo (track.track);
     else if (event.x >= headerWidth - controlWidth * 3)
         view.toggleMute (track.track);
+    else if (event.x >= headerWidth - controlWidth * 4)
+        view.cyclePan (track.track);
     else if (std::abs (timelineY - (track.y + track.height)) <= appearance.scaled (5))
     {
         resizingTrack = track.track;
@@ -483,7 +495,7 @@ void ArrangementCanvas::mouseDoubleClick (const juce::MouseEvent& event)
         return;
 
     const auto headerWidth = appearance.scaled (trackHeaderWidth);
-    if (event.x < appearance.scaled (trackHeaderWidth - headerControlWidth * 3))
+    if (event.x < appearance.scaled (trackHeaderWidth - headerControlWidth * 4))
     {
         beginRename (row->track);
         return;
@@ -629,7 +641,7 @@ void ArrangementCanvas::beginRename (duet::model::TrackRef track)
     nameEditor->setBounds (
         appearance.scaled (8),
         timelineArea().getY() + found->y + appearance.scaled (6),
-        appearance.scaled (trackHeaderWidth - headerControlWidth * 3 - 16),
+        appearance.scaled (trackHeaderWidth - headerControlWidth * 4 - 16),
         std::min (appearance.scaled (28), found->height - appearance.scaled (12)));
     nameEditor->onReturnKey = [this] { commitRename(); };
     nameEditor->onFocusLost = [this] { commitRename(); };

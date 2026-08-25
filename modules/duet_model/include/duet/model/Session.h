@@ -55,6 +55,11 @@ using InputRef = std::uint64_t;
 /** No track: what an operation returns when it could not make one. */
 inline constexpr TrackRef noTrack = 0;
 
+/** The stable opaque identity of the specialised Master mixer channel. It is
+    deliberately not returned by tracks(): Master is not an arrangement track.
+*/
+inline constexpr TrackRef masterChannel = UINT64_MAX;
+
 /** No clip: what an operation returns when it could not make one. */
 inline constexpr ClipRef noClip = 0;
 
@@ -74,6 +79,7 @@ inline constexpr double silentDb = -100.0;
 
 class Session;
 class Suggestion;
+struct PluginEditorAccess;
 
 /** What a track is for.
 
@@ -237,6 +243,9 @@ struct PluginInfo
 
     /** The track this plugin listens to for its sidechain, if it has one. */
     TrackRef sidechainSource = noTrack;
+
+    /** True when the plugin remains in the chain but does not process audio. */
+    bool bypassed = false;
 };
 
 /** One of a plugin's parameters. A built-in's value is in the real units the
@@ -263,6 +272,15 @@ struct SendInfo
 };
 
 /** What a track looks like from outside the model. */
+struct MasterInfo
+{
+    TrackRef channel = masterChannel;
+    double volumeDb = 0.0;
+    double pan = 0.0;
+    bool muted = false;
+    std::vector<PluginInfo> plugins;
+};
+
 struct TrackInfo
 {
     TrackRef track = noTrack;
@@ -506,6 +524,7 @@ public:
     /** Sets a track's pan: −1 hard left, 0 centre, +1 hard right. */
     void setTrackPan (TrackRef track, double pan);
 
+    /** masterChannel addresses the specialised Master for volume, pan and mute. */
     void setTrackMute (TrackRef track, bool muted);
     void setTrackSolo (TrackRef track, bool soloed);
     void setTrackColour (TrackRef track, TrackColour colour);
@@ -532,6 +551,10 @@ public:
 
     void removePlugin (PluginRef plugin);
     void reorderPlugin (PluginRef plugin, int newPosition);
+    void setPluginBypassed (PluginRef plugin, bool bypassed);
+
+    /** Restores a hosted plugin's opaque state. Invalid data is ignored. */
+    void setPluginOpaqueState (PluginRef plugin, std::string_view opaqueState);
 
     /** Sets a plugin parameter by value: a built-in in its real units, or a
         scanned VST3 in its normalised 0..1 range.
@@ -785,6 +808,9 @@ public:
     */
     [[nodiscard]] TrackInfo track (TrackRef ref) const;
 
+    /** The specialised Master mixer channel. It is not an arrangement track. */
+    [[nodiscard]] MasterInfo master() const;
+
     /** How many audio tracks the edit holds. */
     [[nodiscard]] int audioTrackCount() const;
 
@@ -793,6 +819,11 @@ public:
 
     /** A plugin's parameters, in the order the plugin declares them. */
     [[nodiscard]] std::vector<PluginParameterInfo> pluginParameters (PluginRef plugin) const;
+
+    /** A hosted plugin's current opaque state. Empty for an unavailable or
+        engine-built plugin.
+    */
+    [[nodiscard]] std::string pluginOpaqueState (PluginRef plugin) const;
 
     /** The points on an automation curve, in time order. Empty for a curve that
         does not exist, which is the same thing as one with no points on it.
@@ -819,6 +850,13 @@ public:
     */
     [[nodiscard]] double liveTrackVolumeDb (TrackRef track) const;
 
+    /** Applies an audible mixer preview with no Action, dirty state or undo.
+        A gesture restores the original through this seam before committing its
+        final value as one Action.
+    */
+    void previewVolumeDb (TrackRef channel, double db);
+    void previewPan (TrackRef channel, double pan);
+
     /** Calls back after every change this session makes to the project — an
         Action, an undo, or a redo — so that the persistence facade can know the
         project has changes that are not on disk. One callback at a time.
@@ -833,6 +871,9 @@ public:
         states are the same.
     */
     [[nodiscard]] std::string stateDigest() const;
+
+    /** A message-thread revision advanced by each Action, undo, and redo. */
+    [[nodiscard]] std::uint64_t revision() const noexcept;
 
     /** Renders the whole project to an audio file, offline and synchronously.
         False when nothing could be written.
@@ -1090,9 +1131,10 @@ public:
 private:
     friend class EditOps;
 
-    // The one way through the engine seam, for the one module that needs it.
-    // Its header is not on this module's public include path.
+    // The narrow crossings through the engine seam. Their headers are not on
+    // this module's public include path.
     friend struct EngineAccess;
+    friend struct PluginEditorAccess;
 
     /** Tells the two constructors apart: one starts a project, one reads one. */
     struct FromFile

@@ -6,15 +6,15 @@ namespace duet::model
 {
 class Session;
 
-/** The way through the engine seam, for the one module that has to cross it.
+/** The narrow ways through the engine seam.
 
-    Everything that edits a project goes through the vocabulary, and the
-    vocabulary names no engine type. Persistence is different: what it writes is
-    the project's whole state, and the engine's state tree is that state, so it
-    reaches the Edit itself.
+    Persistence reaches the Edit to snapshot the whole project. The component
+    half of duet_gui reaches a hosted AudioProcessor to place its native editor
+    in Duet's plugin window (ADR 0008). Paintless GUI code and every edit still
+    use the engine-free vocabulary.
 
-    This header is not on duet_model's public include path — only a target that
-    links duet_model_engine_access sees it, and duet_persistence is the only one.
+    This header is not on duet_model's public include path — only an explicitly
+    linked engine-access target sees it.
 */
 struct EngineAccess
 {

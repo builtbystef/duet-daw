@@ -2,6 +2,7 @@
 
 #include <duet/gui/Appearance.h>
 #include <duet/gui/ArrangementView.h>
+#include <duet/gui/Mixer.h>
 #include <duet/gui/PianoRoll.h>
 #include <duet/gui/Shortcuts.h>
 #include <duet/gui/TransportBar.h>
@@ -86,6 +87,9 @@ public:
     void setTimelineClock (TimelineClock* projectClock);
     void setSession (duet::model::Session* openProject);
 
+    /** The component-only bridge used to open a hosted plugin editor. */
+    void setPluginEditorAction (std::function<void (duet::model::PluginRef)> openEditor);
+
     /** Project lifecycle facts and Save remain host-owned; the bar presents and
         invokes them through this narrow seam. */
     void setProjectStatus (std::string name, bool dirty);
@@ -162,6 +166,7 @@ private:
     */
     ArrangementView arrangementView { view };
     PianoRoll pianoRoll { view, arrangementView.selection() };
+    Mixer mixer;
     TransportBar transport { view };
 
     juce::TextButton duetButton { "Duet" };
@@ -176,6 +181,7 @@ private:
     std::unique_ptr<AcceleratedSurface> hardwareContext;
 
     std::function<void()> saveAction;
+    std::function<void (duet::model::PluginRef)> pluginEditorAction;
     std::function<void (juce::PopupMenu&)> buildHostMenu;
     std::function<void (int)> hostMenuItemChosen;
     bool accelerated = false;

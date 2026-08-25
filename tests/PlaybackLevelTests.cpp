@@ -81,6 +81,30 @@ TEST_CASE ("muting a track silences it during playback")
     REQUIRE (session.outputPeakDb() <= duet::model::silentDb);
 }
 
+TEST_CASE ("solo silences the other tracks and unsolo restores them")
+{
+    const TempProject project;
+    Session session { project.editFile() };
+    session.loadDemoContent();
+    const auto first = session.tracks().front().track;
+    TrackRef second = duet::model::noTrack;
+    session.performAction ("Duplicate the phrase",
+                           [&] (auto& ops) { second = ops.duplicateTrack (first); });
+    session.performAction ("Solo Track", [first] (auto& ops) { ops.setTrackSolo (first, true); });
+    duet::testing::pumpMessages (200);
+
+    REQUIRE (session.playWithoutAudioDevice (playedSeconds));
+    REQUIRE (session.trackPeakDb (first) > audibleDb);
+    REQUIRE (session.trackPeakDb (second) <= duet::model::silentDb);
+
+    session.setPlaybackPositionSeconds (0.0);
+    session.performAction ("Unsolo Track",
+                           [first] (auto& ops) { ops.setTrackSolo (first, false); });
+    duet::testing::pumpMessages (200);
+    REQUIRE (session.playWithoutAudioDevice (playedSeconds));
+    REQUIRE (session.trackPeakDb (second) > audibleDb);
+}
+
 TEST_CASE ("undoing a sounding MIDI note leaves no voice stuck behind")
 {
     const TempProject project;

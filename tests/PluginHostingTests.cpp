@@ -194,6 +194,28 @@ TEST_CASE (
     const auto rendered = temp.folder() / "processed.wav";
     REQUIRE (session.renderToFile (rendered));
     REQUIRE_THAT (duet::testing::peakLevelOf (rendered), WithinAbs (baselinePeak * 0.25, 0.001));
+
+    const auto beforeBypass = session.stateDigest();
+    session.performAction ("Bypass Plugin",
+                           [&] (auto& ops) { ops.setPluginBypassed (plugin, true); });
+    const auto bypassed = temp.folder() / "bypassed.wav";
+    REQUIRE (session.renderToFile (bypassed));
+    REQUIRE_THAT (duet::testing::peakLevelOf (bypassed), WithinAbs (baselinePeak, 0.001));
+    REQUIRE (session.undo());
+    REQUIRE (session.stateDigest() == beforeBypass);
+
+    const auto quietPreset = session.pluginOpaqueState (plugin);
+    REQUIRE_FALSE (quietPreset.empty());
+    session.performAction ("Turn the fixture up",
+                           [&] (auto& ops) { ops.setPluginParameter (plugin, parameterId, 0.8); });
+    const auto beforePresetLoad = session.stateDigest();
+    session.performAction ("Load Plugin Preset",
+                           [&] (auto& ops) { ops.setPluginOpaqueState (plugin, quietPreset); });
+    REQUIRE (session.undoNames().front() == "Load Plugin Preset");
+    REQUIRE_THAT (parameterValue (session, plugin, parameterId), WithinAbs (0.25, 0.000001));
+    REQUIRE (session.undo());
+    REQUIRE (session.stateDigest() == beforePresetLoad);
+    REQUIRE_THAT (parameterValue (session, plugin, parameterId), WithinAbs (0.8, 0.000001));
 }
 
 TEST_CASE ("a project restores a VST3's state, and still opens when the VST3 is missing")

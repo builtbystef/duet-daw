@@ -95,6 +95,7 @@ std::vector<TrackDrawing> ArrangementView::tracks()
         drawing.name = track.name;
         drawing.kind = track.kind;
         drawing.colour = track.colour;
+        drawing.pan = track.pan;
         drawing.muted = track.muted;
         drawing.soloed = track.soloed;
         drawing.recordArmed = track.recordArmed;
@@ -229,6 +230,19 @@ void ArrangementView::setTrackColour (duet::model::TrackRef track, duet::model::
     if (session != nullptr && session->track (track).colour != colour)
         session->performAction ("Set Track Colour",
                                 [&] (auto& ops) { ops.setTrackColour (track, colour); });
+}
+
+void ArrangementView::cyclePan (duet::model::TrackRef track)
+{
+    if (session == nullptr)
+        return;
+    const auto pan = session->track (track).pan;
+    auto next = -1.0;
+    if (pan < -0.5)
+        next = 0.0;
+    else if (pan < 0.5)
+        next = 1.0;
+    session->performAction ("Pan Track", [&] (auto& ops) { ops.setTrackPan (track, next); });
 }
 
 void ArrangementView::toggleMute (duet::model::TrackRef track)

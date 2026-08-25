@@ -8,6 +8,7 @@
 #include <duet/gui/AutosaveSettings.h>
 #include <duet/gui/GraphiteLookAndFeel.h>
 #include <duet/gui/MainShell.h>
+#include <duet/gui/PluginEditorManager.h>
 #include <duet/gui/ProjectsSettings.h>
 #include <duet/gui/Rendering.h>
 #include <duet/gui/SessionClock.h>
@@ -85,6 +86,8 @@ public:
         : appearance (lookAndScale), settings (store),
           lifecycle (store, defaultProjectsDirectory()), reportTitle (std::move (titleChanged))
     {
+        shell.setPluginEditorAction ([this] (duet::model::PluginRef plugin)
+                                     { pluginEditors.open (plugin); });
         shell.setHostMenu ([this] (juce::PopupMenu& menu) { addHostEntries (menu); },
                            [this] (int itemId) { hostItemChosen (itemId); });
         shell.setSaveAction (
@@ -106,8 +109,8 @@ public:
 
     ~ShellHost() override
     {
-        // The shell reads the clock, and the clock reads the session: it stops
-        // reading before either of them goes.
+        // The shell and plugin windows stop reading the session before it goes.
+        pluginEditors.setSession (nullptr);
         shell.setTimelineClock (nullptr);
         shell.setSession (nullptr);
     }
@@ -414,6 +417,7 @@ private:
 
     void detachProject()
     {
+        pluginEditors.setSession (nullptr);
         shell.setTimelineClock (nullptr);
         shell.setSession (nullptr);
         clock.reset();
@@ -436,6 +440,7 @@ private:
         project->onCaptureViewState ([this] { return view.toData(); });
 
         clock = std::make_unique<duet::gui::SessionClock> (project->session());
+        pluginEditors.setSession (&project->session());
         shell.setSession (&project->session());
         shell.setTimelineClock (clock.get());
         shell.viewStateChanged();
@@ -490,6 +495,7 @@ private:
         from this one for the run of the app.
     */
     duet::gui::ViewState view;
+    duet::gui::PluginEditorManager pluginEditors { settings };
     duet::gui::MainShell shell { appearance, view };
 
     std::unique_ptr<duet::gui::SessionClock> clock;

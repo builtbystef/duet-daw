@@ -129,6 +129,10 @@ TEST_CASE ("track header edits each cross the Action seam once")
     REQUIRE (open.session.track (track).name == "Keys");
     REQUIRE (open.session.undoNames().front() == "Rename Track");
 
+    open.arrangement.cyclePan (track);
+    REQUIRE (open.session.track (track).pan == 1.0);
+    REQUIRE (open.session.undoNames().front() == "Pan Track");
+
     open.arrangement.toggleMute (track);
     REQUIRE (open.session.track (track).muted);
     REQUIRE (open.session.undoNames().front() == "Mute Track");

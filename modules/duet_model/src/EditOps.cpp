@@ -1,5 +1,7 @@
 #include "SessionImpl.h"
 
+#include <tracktion_engine/plugins/external/tracktion_ExternalAutomatableParameter.h>
+
 #include <algorithm>
 
 namespace duet::model
@@ -686,6 +688,14 @@ void EditOps::setNoteVelocity (NoteRef note, int velocity)
 //==============================================================================
 void EditOps::setTrackVolumeDb (TrackRef track, double db)
 {
+    if (track == masterChannel)
+    {
+        session.impl->edit->state.setProperty (
+            masterVolumeDbProperty, db, &session.impl->undoManager());
+        if (static_cast<bool> (session.impl->edit->state.getProperty (masterMutedProperty, false)))
+            return;
+    }
+
     if (auto* fader = session.impl->faderFor (track))
         fader->setVolumeDb (static_cast<float> (db));
 }
@@ -698,6 +708,23 @@ void EditOps::setTrackPan (TrackRef track, double pan)
 
 void EditOps::setTrackMute (TrackRef track, bool muted)
 {
+    if (track == masterChannel)
+    {
+        auto& state = session.impl->edit->state;
+        const auto wasMuted = static_cast<bool> (state.getProperty (masterMutedProperty, false));
+        if (wasMuted == muted)
+            return;
+        if (! state.hasProperty (masterVolumeDbProperty))
+            state.setProperty (masterVolumeDbProperty,
+                               session.impl->faderFor (masterChannel)->getVolumeDb(),
+                               &session.impl->undoManager());
+        state.setProperty (masterMutedProperty, muted, &session.impl->undoManager());
+        if (auto* fader = session.impl->faderFor (masterChannel))
+            fader->setVolumeDb (muted ? static_cast<float> (silentDb)
+                                      : static_cast<float> (state[masterVolumeDbProperty]));
+        return;
+    }
+
     // Written straight to the state, not through the engine's setter: the engine
     // binds mute and solo with no undo manager, because in its model they are
     // monitoring controls rather than edits. In Duet they are mixer values a
@@ -775,9 +802,11 @@ void EditOps::setSend (TrackRef track, TrackRef bus, double levelDb)
 //==============================================================================
 PluginRef EditOps::addPlugin (TrackRef track, BuiltinPlugin plugin, int position)
 {
-    auto* audioTrack = session.impl->trackFor (track);
+    auto* list = track == masterChannel ? &session.impl->edit->getMasterPluginList() : nullptr;
+    if (auto* audioTrack = session.impl->trackFor (track))
+        list = &audioTrack->pluginList;
 
-    if (audioTrack == nullptr)
+    if (list == nullptr)
         return noPlugin;
 
     auto created = session.impl->edit->getPluginCache().createNewPlugin (engineTypeOf (plugin), {});
@@ -785,17 +814,18 @@ PluginRef EditOps::addPlugin (TrackRef track, BuiltinPlugin plugin, int position
     if (created == nullptr)
         return noPlugin;
 
-    audioTrack->pluginList.insertPlugin (
-        created, rawPositionFor (audioTrack->pluginList, position), nullptr);
+    list->insertPlugin (created, rawPositionFor (*list, position), nullptr);
     stateParametersExplicitly (*created);
     return toRef<PluginRef> (created->itemID);
 }
 
 PluginRef EditOps::addPlugin (TrackRef track, std::string_view knownPluginIdentifier, int position)
 {
-    auto* audioTrack = session.impl->trackFor (track);
+    auto* list = track == masterChannel ? &session.impl->edit->getMasterPluginList() : nullptr;
+    if (auto* audioTrack = session.impl->trackFor (track))
+        list = &audioTrack->pluginList;
 
-    if (audioTrack == nullptr)
+    if (list == nullptr)
         return noPlugin;
 
     auto& manager = session.impl->engine.getPluginManager();
@@ -816,8 +846,7 @@ PluginRef EditOps::addPlugin (TrackRef track, std::string_view knownPluginIdenti
     created->state.setProperty (juce::Identifier { externalPluginIdentifierProperty },
                                 toJuceString (knownPluginIdentifier),
                                 nullptr);
-    audioTrack->pluginList.insertPlugin (
-        created, rawPositionFor (audioTrack->pluginList, position), nullptr);
+    list->insertPlugin (created, rawPositionFor (*list, position), nullptr);
     stateParametersExplicitly (*created);
     return toRef<PluginRef> (created->itemID);
 }
@@ -845,6 +874,30 @@ void EditOps::reorderPlugin (PluginRef plugin, int newPosition)
 
     held->removeFromParent();
     list->insertPlugin (held, rawPositionFor (*list, newPosition), nullptr);
+}
+
+void EditOps::setPluginBypassed (PluginRef plugin, bool bypassed)
+{
+    if (auto* p = session.impl->pluginFor (plugin))
+        p->setEnabled (! bypassed);
+}
+
+void EditOps::setPluginOpaqueState (PluginRef plugin, std::string_view opaqueState)
+{
+    auto* external = dynamic_cast<te::ExternalPlugin*> (session.impl->pluginFor (plugin));
+    if (external == nullptr || external->getAudioPluginInstance() == nullptr || opaqueState.empty())
+        return;
+
+    const juce::MemoryBlock state { opaqueState.data(), opaqueState.size() };
+    external->state.setProperty (
+        te::IDs::state, state.toBase64Encoding(), &session.impl->undoManager());
+    external->restorePluginStateFromValueTree (external->state);
+    for (auto* parameter : external->getAutomatableParameters())
+        if (auto* hosted = dynamic_cast<te::ExternalAutomatableParameter*> (parameter))
+        {
+            hosted->valueChangedByPlugin();
+            stateExternalParameter (*external, *hosted, session.impl->undoManager());
+        }
 }
 
 void EditOps::setPluginParameter (PluginRef plugin, std::string_view parameterId, double value)

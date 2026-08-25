@@ -11,7 +11,9 @@ add_library(duet_gui STATIC
     src/Appearance.cpp
     src/ArrangementView.cpp
     src/AutosaveSettings.cpp
+    src/Mixer.cpp
     src/PianoRoll.cpp
+    src/PluginPresets.cpp
     src/Rendering.cpp
     src/ProjectsSettings.cpp
     src/Selection.cpp
@@ -57,7 +59,9 @@ add_library(duet_gui_components STATIC
     components_src/GraphiteLookAndFeel.cpp
     components_src/InterTypeface.cpp
     components_src/MainShell.cpp
+    components_src/MixerCanvas.cpp
     components_src/PianoRollCanvas.cpp
+    components_src/PluginEditorManager.cpp
     components_src/SettingsWindow.cpp)
 add_library(duet::gui_components ALIAS duet_gui_components)
 
@@ -69,4 +73,4 @@ target_link_libraries(duet_gui_components
     # what every surface is drawn on, and this is the way out for one that ever
     # stops holding.
     PUBLIC juce::juce_opengl
-    PRIVATE duet_gui_fonts)
+    PRIVATE duet_gui_fonts duet::model_engine_access)

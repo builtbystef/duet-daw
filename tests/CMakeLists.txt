@@ -24,12 +24,15 @@ add_executable(duet_tests
     DeviceRebuildTests.cpp
     EditVocabularyTests.cpp
     GraphiteTokenTests.cpp
+    MasterMixerTests.cpp
     MidiOpsTests.cpp
     MixerOpsTests.cpp
+    MixerViewTests.cpp
     PlaybackLevelTests.cpp
     PianoRollTests.cpp
     PluginHostingTests.cpp
     PluginOpsTests.cpp
+    PluginPresetTests.cpp
     ProjectLayoutTests.cpp
     ProjectAndTransportOpsTests.cpp
     ProjectLifecycleTests.cpp

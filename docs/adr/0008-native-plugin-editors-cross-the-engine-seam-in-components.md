@@ -1,0 +1,3 @@
+# 0008 — Native plugin editors cross the engine seam only in GUI components
+
+Context: a VST3's native editor is a JUCE `AudioProcessorEditor`, while Duet's public model facade and paintless GUI target deliberately expose no engine or JUCE types. Decision: `duet_gui_components` may use the off-public-path engine-access target solely to host plugin editors and translate their gestures back into engine-free Actions; no engine type enters `duet_gui`, and all project edits, bypass, parameters, and preset loads still cross the model vocabulary. Reason: a generic-only editor would discard plugin-authored interfaces, while widening the public facade would make the engine boundary ineffective everywhere rather than granting one narrow, greppable exception.

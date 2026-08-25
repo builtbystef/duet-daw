@@ -3,6 +3,7 @@
 #include <duet/gui/Appearance.h>
 #include <duet/gui/ArrangementCanvas.h>
 #include <duet/gui/MainShell.h>
+#include <duet/gui/MixerCanvas.h>
 #include <duet/gui/PianoRollCanvas.h>
 #include <duet/gui/Shortcuts.h>
 #include <duet/gui/ViewState.h>
@@ -156,6 +157,24 @@ TEST_CASE ("switching the bottom tab lays the newly shown surface out, bounds or
     REQUIRE (pianoRoll.isVisible());
     REQUIRE_FALSE (mixer.isVisible());
     REQUIRE_FALSE (pianoRoll.getBounds().isEmpty());
+}
+
+TEST_CASE ("the Mixer tab is the live mixer surface rather than an empty dock")
+{
+    OpenShell open;
+    const auto editFile =
+        std::filesystem::temp_directory_path()
+        / ("duet-mixer-" + std::to_string (juce::Random::getSystemRandom().nextInt64())
+           + ".tracktionedit");
+    duet::model::Session session { editFile };
+    open.shell.setSession (&session);
+    open.shell.perform (Command::showMixer);
+
+    const auto* mixer =
+        dynamic_cast<const duet::gui::MixerCanvas*> (&open.surface (duet::gui::surfaceId::mixer));
+    REQUIRE (mixer != nullptr);
+    REQUIRE (mixer->model().strips().size()
+             == static_cast<std::size_t> (session.audioTrackCount() + 1));
 }
 
 TEST_CASE ("double-clicking a MIDI clip opens that clip in the Piano Roll")

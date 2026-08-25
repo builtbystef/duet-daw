@@ -1,5 +1,7 @@
 #include "SessionImpl.h"
 
+#include <duet/model/PluginEditorAccess.h>
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -120,6 +122,13 @@ void Session::startUndoHistory()
 
 tracktion::engine::Edit& EngineAccess::editOf (Session& session) { return *session.impl->edit; }
 
+juce::AudioProcessor* PluginEditorAccess::processorOf (Session& session, PluginRef plugin)
+{
+    if (auto* external = dynamic_cast<te::ExternalPlugin*> (session.impl->pluginFor (plugin)))
+        return external->getAudioPluginInstance();
+    return nullptr;
+}
+
 Session::~Session()
 {
     impl->playbackKeeper.stopTimer();
@@ -235,6 +244,7 @@ namespace
         info.name = plugin.getName().toStdString();
         info.builtin = builtinOf (plugin);
         info.sidechainSource = toRef<TrackRef> (plugin.getSidechainSourceID());
+        info.bypassed = ! plugin.isEnabled();
 
         if (auto* external = dynamic_cast<te::ExternalPlugin*> (&plugin))
         {
@@ -341,6 +351,25 @@ TrackInfo Session::track (TrackRef ref) const
     return {};
 }
 
+MasterInfo Session::master() const
+{
+    MasterInfo info;
+
+    if (auto* fader = impl->faderFor (masterChannel))
+    {
+        info.volumeDb =
+            impl->edit->state.getProperty (masterVolumeDbProperty, fader->getVolumeDb());
+        info.pan = fader->getPan();
+        info.muted = impl->edit->state.getProperty (masterMutedProperty, false);
+    }
+
+    for (auto* plugin : impl->edit->getMasterPluginList().getPlugins())
+        if (isProducersPlugin (*plugin))
+            info.plugins.push_back (describe (*plugin));
+
+    return info;
+}
+
 int Session::audioTrackCount() const { return te::getAudioTracks (*impl->edit).size(); }
 
 std::vector<NoteInfo> Session::notes (ClipRef clip) const
@@ -386,6 +415,20 @@ std::vector<PluginParameterInfo> Session::pluginParameters (PluginRef plugin) co
               parameter->valueToString (parameter->getCurrentExplicitValue()).toStdString() });
 
     return out;
+}
+
+std::string Session::pluginOpaqueState (PluginRef plugin) const
+{
+    auto* external = dynamic_cast<te::ExternalPlugin*> (impl->pluginFor (plugin));
+    if (external == nullptr)
+        return {};
+    auto* processor = external->getAudioPluginInstance();
+    if (processor == nullptr)
+        return {};
+
+    juce::MemoryBlock state;
+    processor->getStateInformation (state);
+    return { static_cast<const char*> (state.getData()), state.getSize() };
 }
 
 std::vector<AutomationPoint> Session::automationPoints (const AutomationTarget& target) const
@@ -440,6 +483,19 @@ double Session::liveTrackVolumeDb (TrackRef track) const
         return fader->getVolumeDb();
 
     return 0.0;
+}
+
+void Session::previewVolumeDb (TrackRef channel, double db)
+{
+    if (auto* fader = impl->faderFor (channel))
+        fader->volParam->setParameter (te::decibelsToVolumeFaderPosition (static_cast<float> (db)),
+                                       juce::dontSendNotification);
+}
+
+void Session::previewPan (TrackRef channel, double pan)
+{
+    if (auto* fader = impl->faderFor (channel))
+        fader->panParam->setParameter (static_cast<float> (pan), juce::dontSendNotification);
 }
 
 //==============================================================================
@@ -565,6 +621,8 @@ std::string Session::stateDigest() const
 
     return std::move (digest).str();
 }
+
+std::uint64_t Session::revision() const noexcept { return impl->revision; }
 
 bool Session::renderToFile (const std::filesystem::path& destination)
 {

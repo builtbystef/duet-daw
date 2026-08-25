@@ -46,6 +46,7 @@ struct TrackDrawing
     std::string name;
     duet::model::TrackKind kind = duet::model::TrackKind::audio;
     duet::model::TrackColour colour = duet::model::TrackColour::orange;
+    double pan = 0.0;
     bool muted = false;
     bool soloed = false;
     bool recordArmed = false;
@@ -148,6 +149,7 @@ public:
     duet::model::TrackRef duplicateTrack (duet::model::TrackRef track);
     void deleteTrack (duet::model::TrackRef track);
     void setTrackColour (duet::model::TrackRef track, duet::model::TrackColour colour);
+    void cyclePan (duet::model::TrackRef track);
     void toggleMute (duet::model::TrackRef track);
     void toggleSolo (duet::model::TrackRef track);
     void toggleRecordArm (duet::model::TrackRef track);
