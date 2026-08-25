@@ -15,16 +15,44 @@ them into one required status, `checks-pass` — the only status branch protecti
 points at. Adding a job to that workflow means adding it to the `needs` list of
 `checks-pass`, which is what makes the new job able to fail the gate.
 
-`.github/workflows/nightly.yml` runs the two sanitizer configurations that the
-push gate is too slow to carry, and both have presets, so reproducing a nightly
+`.github/workflows/nightly.yml` runs the three sanitizer configurations that the
+push gate is too slow to carry, and each has a preset, so reproducing a nightly
 report locally is one command:
 
 - **ASan + UBSan** — `cmake --preset linux-asan && cmake --build --preset linux-asan -j 4 && ctest --preset linux-asan`
 - **TSan + UBSan** — the same three with `linux-tsan`
+- **RTSan** — the same three with `linux-rtsan`, and `clang-20`/`clang++-20` on
+  the `PATH` (below)
 
-They build into `build/linux-asan` and `build/linux-tsan`, each with its own copy
-of the vendored trees, so neither disturbs the ordinary build. CI configures with
-`-D DUET_CCACHE_ENABLED=OFF`; leave it on locally.
+They build into `build/linux-asan`, `build/linux-tsan` and `build/linux-rtsan`,
+each with its own copy of the vendored trees, so none disturbs the ordinary
+build. CI configures with `-D DUET_CCACHE_ENABLED=OFF`; leave it on locally.
+
+`linux-rtsan` is the real-time-safety backstop (ADR 0006), and the one
+configuration that names its compiler: RealtimeSanitizer first shipped in Clang
+20.1 and the spec pins 20.1.8, while Ubuntu 24.04 ships 18. The Clang 18 floor
+still governs what *builds* Duet — this is what lints it. Get the compiler from
+LLVM's own archive, which is where CI gets it too:
+
+```
+curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc > /dev/null
+echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-20 main" | sudo tee /etc/apt/sources.list.d/llvm-toolchain-noble-20.list
+sudo apt-get update && sudo apt-get install --no-install-recommends clang-20 libclang-rt-20-dev llvm-20
+```
+
+`libclang-rt-20-dev` is the runtime `-fsanitize=realtime` links against and
+`llvm-20` is the symbolizer; without the latter a report names addresses instead
+of the callback that broke the rule, so point RTSan at it:
+`RTSAN_OPTIONS=halt_on_error=1:external_symbolizer_path=/usr/bin/llvm-symbolizer-20`.
+Without root, `dpkg-deb -x` those same three packages into a prefix and put its
+`usr/bin` on the `PATH`: the binaries there carry the `-20` suffix the preset
+asks for, they find their own libraries through an RPATH, and the compiler-rt
+runtimes sit beside them where the driver already looks.
+
+The flag is not in the preset. `DUET_RTSAN` puts `-fsanitize=realtime` on the
+targets that link `duet::realtime`, so what is under the sanitizer is what
+declares itself to be callback code — `git grep duet::realtime` is the list, and
+a new callback target joins it by linking, not by editing a preset.
 
 On the dev machine the TSan binary refuses to start about four times in five —
 `FATAL: ThreadSanitizer: unexpected memory mapping`, before any test runs, and a

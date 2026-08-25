@@ -1,7 +1,8 @@
-# The sanitizer nightlies. Spec b1j3me settled two configurations here —
-# ASan+UBSan and TSan+UBSan — as separate runs, because the two are mutually
-# exclusive at link time. The third nightly the spec names, linux-rtsan, needs a
-# Clang the runner image does not ship and is its own slice.
+# The sanitizer nightlies. Spec b1j3me settles three configurations here —
+# ASan+UBSan, TSan+UBSan and RTSan — as separate runs, because no two of them
+# can share a link. The first two are a matrix over the runner image's own
+# compiler; RTSan is its own job because it is the one that needs a Clang the
+# image does not ship.
 #
 # These are deliberately not part of checks-pass: they are a slow backstop that
 # reports in the morning, not a gate on a push.
@@ -49,3 +50,48 @@ jobs:
           ASAN_OPTIONS: halt_on_error=1
           TSAN_OPTIONS: halt_on_error=1
           UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+
+  # The real-time-safety backstop (ADR 0006). Its own job rather than a third
+  # matrix entry: RealtimeSanitizer first shipped in Clang 20.1, the spec pins
+  # 20.1.8, and ubuntu-24.04 ships 18 — so this is the one nightly that installs
+  # a compiler before it can configure. The Clang 18 floor still governs what
+  # builds Duet; 20 is what lints it.
+  rtsan:
+    name: rtsan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.0.0
+
+      - uses: ./.github/actions/linux-build-env
+
+      # apt.llvm.org is LLVM's own archive and the only noble source carrying
+      # 20.1.8. The three packages are the compiler, the compiler-rt runtimes
+      # -fsanitize=realtime links against, and the symbolizer without which a
+      # report names addresses instead of the callback that broke the rule.
+      - name: Install Clang 20 from the LLVM apt source
+        run: |
+          set -eux
+          curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key \
+            | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc > /dev/null
+          echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-20 main" \
+            | sudo tee /etc/apt/sources.list.d/llvm-toolchain-noble-20.list
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes \
+            clang-20 libclang-rt-20-dev llvm-20
+          clang-20 --version
+
+      # The compiler and the flag both live in the preset, so a nightly report
+      # is one command away on the dev machine.
+      - name: Configure
+        run: cmake --preset linux-rtsan -D DUET_CCACHE_ENABLED=OFF
+
+      - name: Build
+        run: cmake --build --preset linux-rtsan -j ${{ env.DUET_BUILD_JOBS }}
+
+      - name: Test
+        run: ctest --preset linux-rtsan
+        env:
+          # halt_on_error is RTSan's own default and stated anyway, for the same
+          # reason the other two state it: a violation has to end the run.
+          RTSAN_OPTIONS: halt_on_error=1:external_symbolizer_path=/usr/bin/llvm-symbolizer-20

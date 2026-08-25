@@ -8,6 +8,7 @@
 # here, and so would a view-model header that reached for a component or a paint
 # type. The interface's own JUCE-linked suite is in gui/.
 add_subdirectory(support)
+add_subdirectory(rt_probes)
 add_subdirectory(sidecar_double)
 add_subdirectory(vst3_fixtures)
 
@@ -41,6 +42,7 @@ add_executable(duet_tests
     ProjectsSettingsTests.cpp
     ProjectTests.cpp
     ProjectViewTests.cpp
+    RealtimeSafetyTests.cpp
     RecordingTests.cpp
     RenderingTests.cpp
     SessionTests.cpp
@@ -60,6 +62,7 @@ target_link_libraries(duet_tests PRIVATE
     duet::gui
     duet::model
     duet::persistence
+    duet::rt_probes
     duet::test_support
     Catch2::Catch2)
 
@@ -70,7 +73,8 @@ target_link_libraries(duet_tests PRIVATE
 add_dependencies(duet_tests
     duet_sidecar_double
     duet_good_vst3_fixture_VST3
-    duet_crashing_vst3_fixture_VST3)
+    duet_crashing_vst3_fixture_VST3
+    duet_realtime_probe_vst3_VST3)
 # The reserved-accent guard reads Duet's own sources: the rule it checks is
 # about the whole tree rather than about any one object's behaviour.
 target_compile_definitions(duet_tests PRIVATE DUET_MODULES_DIR="${CMAKE_SOURCE_DIR}/modules")
@@ -81,7 +85,8 @@ target_compile_definitions(duet_tests PRIVATE DUET_TESTS_DIR="${CMAKE_CURRENT_SO
 target_compile_definitions(duet_tests PRIVATE
     DUET_SIDECAR_DOUBLE="$<TARGET_FILE:duet_sidecar_double>"
     DUET_GOOD_VST3_FIXTURE="$<GENEX_EVAL:$<TARGET_PROPERTY:duet_good_vst3_fixture_VST3,JUCE_PLUGIN_ARTEFACT_FILE>>"
-    DUET_CRASHING_VST3_FIXTURE="$<GENEX_EVAL:$<TARGET_PROPERTY:duet_crashing_vst3_fixture_VST3,JUCE_PLUGIN_ARTEFACT_FILE>>")
+    DUET_CRASHING_VST3_FIXTURE="$<GENEX_EVAL:$<TARGET_PROPERTY:duet_crashing_vst3_fixture_VST3,JUCE_PLUGIN_ARTEFACT_FILE>>"
+    DUET_REALTIME_PROBE_VST3="$<GENEX_EVAL:$<TARGET_PROPERTY:duet_realtime_probe_vst3_VST3,JUCE_PLUGIN_ARTEFACT_FILE>>")
 
 list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
 include(Catch)

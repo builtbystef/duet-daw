@@ -65,13 +65,26 @@
         "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=thread,undefined",
         "CMAKE_SHARED_LINKER_FLAGS": "-fsanitize=thread,undefined"
       }
+    },
+    {
+      "name": "linux-rtsan",
+      "displayName": "Linux nightly: RealtimeSanitizer",
+      "inherits": "linux-sanitizer-base",
+      "binaryDir": "${sourceDir}/build/linux-rtsan",
+      "description": "The audio-callback backstop, and the one configuration that names its compiler. RTSan first shipped in Clang 20.1 and the spec pins 20.1.8; the Clang 18 floor still governs what builds Duet. The driver refuses to combine it with Address, Thread, Undefined or Memory, which is why this is a third nightly and not a flag added to one of the other two. The flag itself is not here: DUET_RTSAN puts it on the targets that link duet::realtime, which is what the callback code declares itself through.",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang-20",
+        "CMAKE_CXX_COMPILER": "clang++-20",
+        "DUET_RTSAN": "ON"
+      }
     }
   ],
   "buildPresets": [
     { "name": "linux-debug",   "configurePreset": "linux-debug",   "configuration": "Debug" },
     { "name": "linux-release", "configurePreset": "linux-release", "configuration": "Release" },
     { "name": "linux-asan",    "configurePreset": "linux-asan",    "configuration": "Debug" },
-    { "name": "linux-tsan",    "configurePreset": "linux-tsan",    "configuration": "Debug" }
+    { "name": "linux-tsan",    "configurePreset": "linux-tsan",    "configuration": "Debug" },
+    { "name": "linux-rtsan",   "configurePreset": "linux-rtsan",   "configuration": "Debug" }
   ],
   "testPresets": [
     {
@@ -95,6 +108,12 @@
     {
       "name": "linux-tsan",
       "configurePreset": "linux-tsan",
+      "configuration": "Debug",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "linux-rtsan",
+      "configurePreset": "linux-rtsan",
       "configuration": "Debug",
       "output": { "outputOnFailure": true }
     }

@@ -33,6 +33,24 @@ if(DUET_CCACHE_ENABLED)
     endif()
 endif()
 
+# RealtimeSanitizer, the real-time-safety backstop the nightly runs (ADR 0006).
+# It is off everywhere else: the flag reaches only the targets that link
+# duet::realtime, and the annotation those targets carry compiles to nothing
+# without it, so the ordinary GCC 13 and Clang 18 builds are untouched.
+#
+# RTSan first shipped in Clang 20.1 and the spec pins the floor at 20.1.8, so
+# say that here rather than let it surface as an unknown-flag error deep in a
+# build. The Clang 18 floor still governs what builds Duet; this is what lints
+# it (spec b1j3me, research bd11an).
+option(DUET_RTSAN "Build the audio-callback targets with RealtimeSanitizer" OFF)
+
+if(DUET_RTSAN AND NOT (CMAKE_CXX_COMPILER_ID STREQUAL "Clang"
+                       AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 20.1.8))
+    message(FATAL_ERROR
+        "DUET_RTSAN needs Clang 20.1.8 or newer with compiler-rt, and this is "
+        "${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}. AGENTS.md says where to get one.")
+endif()
+
 include(FetchContent)
 
 # JUCE is declared before Tracktion Engine on purpose. Tracktion guards its own
@@ -117,6 +135,7 @@ set_target_properties(nlohmann_json PROPERTIES
     INTERFACE_SYSTEM_INCLUDE_DIRECTORIES
         "$<TARGET_PROPERTY:nlohmann_json,INTERFACE_INCLUDE_DIRECTORIES>")
 
+add_subdirectory(modules/duet_realtime)
 add_subdirectory(modules/duet_collab)
 add_subdirectory(modules/duet_model)
 add_subdirectory(modules/duet_persistence)
