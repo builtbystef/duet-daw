@@ -85,6 +85,36 @@ TEST_CASE ("a commanded device rebuild stops a rolling transport, and the model 
     REQUIRE (session.isPlaying());
 }
 
+TEST_CASE ("a commanded device rebuild ends a take, and the model starts no other", "[devices]")
+{
+    const TempProject project;
+    Session session { project.editFile() };
+    session.useNoAudioDevice();
+
+    // The churn the hosted switch leaves behind, made to happen and waited out,
+    // so that the only rebuild this case meets is the one it asks for.
+    session.rebuildDevices();
+
+    REQUIRE (armATrack (session) != duet::model::noTrack);
+
+    session.startRecording();
+    REQUIRE (duet::testing::pumpUntil ([&] { return session.isRecording(); }));
+
+    // What one press of Play survives, one press of Record does not. The
+    // rebuild frees the playback graph, and a take rolling through it is over
+    // (hazard 6). The model deliberately does not ask again, the way the
+    // playback keeper above does: TransportControl::record starts a take at the
+    // playhead, so a second ask would land the first half as one clip and begin
+    // another. This is why a take test must not be left rolling through a
+    // message loop it does not need.
+    session.rebuildDevices();
+    REQUIRE_FALSE (session.isRecording());
+
+    duet::testing::pumpMessages (200);
+    REQUIRE_FALSE (session.isRecording());
+    REQUIRE_FALSE (session.isPlaying());
+}
+
 TEST_CASE ("a take waits while the engine's devices are still churning", "[devices]")
 {
     const TempProject project;

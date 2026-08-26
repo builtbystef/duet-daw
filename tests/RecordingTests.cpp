@@ -29,6 +29,16 @@ namespace
 */
 constexpr int playheadAttempts = 10;
 
+/** How long one of those attempts gives the message loop to report the move.
+
+    Blocks are what move the playhead, so an attempt that runs out costs the
+    answer nothing: the next one pushes more blocks and asks again. What this
+    bounds is only how long a take is left rolling through a message loop with
+    no blocks going through it, and that is exposure to be spent sparingly —
+    every device apply that lands there ends the take.
+*/
+constexpr int msPerPlayheadAttempt = 100;
+
 /** Where the audio take starts: anywhere but the start of the timeline. */
 constexpr double takeStartSeconds = 4.0;
 
@@ -57,11 +67,12 @@ InputRef inputOfKind (const Session& session, InputKind kind)
 */
 double runUntilThePlayheadMoves (Session& session)
 {
-    for (int attempt = 0; attempt < playheadAttempts && session.playbackPositionSeconds() <= 0.0;
-         ++attempt)
+    const auto moved = [&session] { return session.playbackPositionSeconds() > 0.0; };
+
+    for (int attempt = 0; attempt < playheadAttempts && ! moved(); ++attempt)
     {
         session.runWithoutAudioDevice (0.5);
-        duet::testing::pumpMessages (200);
+        duet::testing::pumpUntil (moved, msPerPlayheadAttempt);
     }
 
     return session.playbackPositionSeconds();
@@ -131,6 +142,14 @@ TEST_CASE ("an undo during a take neither stops it nor moves the playhead")
     Session session { project.editFile() };
     session.useNoAudioDevice();
 
+    // Giving up the audio device is itself a device change, and the engine
+    // answers one with applies that reload the playback context's devices. An
+    // apply that lands on a take frees the graph the take is rolling through
+    // and ends it, which is a device rebuild's doing and not an undo's — so
+    // this case has the rebuild happen, and waits for the engine to go quiet
+    // about it, before there is a take for it to end.
+    session.rebuildDevices();
+
     const auto midiInput = inputOfKind (session, InputKind::midi);
     REQUIRE (midiInput != duet::model::noInput);
 
@@ -145,8 +164,12 @@ TEST_CASE ("an undo during a take neither stops it nor moves the playhead")
     session.setTrackInput (keys, midiInput);
     session.setTrackRecordArmed (keys, true);
 
+    // Record on settled devices starts the take at once; on devices that have
+    // only just gone quiet it waits out the rest of the pre-roll first. Which
+    // of the two this is is not what the case is about, so it waits for the
+    // take rather than assuming either.
     session.startRecording();
-    REQUIRE (session.isRecording());
+    REQUIRE (duet::testing::pumpUntil ([&] { return session.isRecording(); }));
 
     const auto reached = runUntilThePlayheadMoves (session);
     REQUIRE (reached > 0.0);

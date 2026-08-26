@@ -660,3 +660,29 @@ ratio to 4 through the facade and reading the display string back.
 range itself, after converting it, so that the number the facade reports back is
 the number the plugin uses. The engine's own clip is left in place underneath;
 this only stops the facade from reporting a value that was never adopted.
+
+### The transport ends a take whose playhead is not rolling, on the message loop
+
+**The engine.** `TransportControl` runs a 50 Hz timer on the message thread, and
+every tick a transport that says it is recording while the playback graph's
+playhead is not playing is stopped:
+`if (! playHeadWrapper->isPlaying()) { if (isRecording()) { stop (false, false); return; } }`.
+Freeing or reloading the playback context therefore does not end a take by
+itself — the next turn of the message loop does. That is the whole answer to what
+can stop a take that has begun: anything that leaves the graph without a rolling
+playhead, plus a message loop.
+
+**Where.** `TransportControl::timerCallback`;
+`TransportControl::PlayHeadWrapper::isPlaying`, which reads the playhead out of
+the current `EditPlaybackContext`.
+
+**Proved.** `3ho6tg`. `an undo during a take neither stops it nor moves the
+playhead` was made to fail on demand, at the assertion it failed at in the wild,
+by calling `Session::rebuildDevices` on the rolling take.
+
+**Duet.** Nothing asks a stopped take to record again — hazard 6's recording
+remedy is a pre-roll and not a retry, because a second ask would land the first
+half as one clip and begin another. So a headless take test has any device
+rebuild happen before the take rather than during it, and spends as little
+message loop as it can while a take is rolling. `a commanded device rebuild ends
+a take, and the model starts no other` pins that contract.
