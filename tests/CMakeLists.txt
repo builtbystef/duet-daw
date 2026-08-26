@@ -14,6 +14,7 @@ add_subdirectory(vst3_fixtures)
 
 add_executable(duet_tests
     TestMain.cpp
+    AppSettingsTests.cpp
     AppearanceTests.cpp
     ArrangementTrackTests.cpp
     ArrangementViewTests.cpp

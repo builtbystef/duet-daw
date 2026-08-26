@@ -4,6 +4,8 @@
 
 #include <duet/model/EngineAccess.h>
 
+#include "AppSettingsStore.h"
+
 #include <algorithm>
 #include <functional>
 #include <memory>
@@ -188,34 +190,6 @@ private:
     te::LevelMeasurer::Client client;
 };
 
-/** The app-global engine settings store.
-
-    Reading XDG_CONFIG_HOME at construction time keeps the test process's
-    isolated settings home effective even when another JUCE static has already
-    cached its special locations before main. In the app this resolves to the
-    same Duet/Settings.xml as Tracktion's default storage.
-*/
-class DuetPropertyStorage final : public te::PropertyStorage
-{
-public:
-    DuetPropertyStorage() : te::PropertyStorage ("Duet") {}
-
-    juce::File getAppPrefsFolder() override
-    {
-        const auto xdgConfigHome =
-            juce::SystemStats::getEnvironmentVariable ("XDG_CONFIG_HOME", {});
-
-        if (xdgConfigHome.isNotEmpty())
-        {
-            auto folder = juce::File { xdgConfigHome }.getChildFile (getApplicationName());
-            folder.createDirectory();
-            return folder;
-        }
-
-        return te::PropertyStorage::getAppPrefsFolder();
-    }
-};
-
 /** What Duet tells the engine about itself: scans run in a child process, and
     recordings land in the project folder rather than the engine's default.
 */
@@ -264,7 +238,11 @@ struct Session::Impl
     */
     std::filesystem::path recordingDirectory { projectFolder };
 
-    te::Engine engine { std::make_unique<DuetPropertyStorage>(),
+    /** The one app-global store, lent to this session's Engine: the shell's
+        settings and the engine's are the same file, and a second holder of it
+        would write the set it read over the set the other holds.
+    */
+    te::Engine engine { std::make_unique<SharedPropertyStorage>(),
                         nullptr,
                         std::make_unique<DuetBehaviour> (recordingDirectory) };
     std::unique_ptr<te::Edit> edit;

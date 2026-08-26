@@ -1,6 +1,5 @@
-#include "PropertyStorageSettings.h"
-
 #include <duet/app/ProjectLifecycle.h>
+#include <duet/app/PropertyStorageSettings.h>
 #include <duet/model/Session.h>
 #include <duet/persistence/Project.h>
 
@@ -616,6 +615,12 @@ public:
         auto& desktop = juce::Desktop::getInstance();
 
         settings = std::make_unique<PropertyStorageSettings>();
+
+        // Which Duet last wrote the store. The shell is where this is stamped
+        // because the version is the application's, and the store outlives
+        // every project that runs under it.
+        settings->setValue ("duetApplicationVersion", JUCE_APPLICATION_VERSION_STRING);
+
         appearance =
             std::make_unique<duet::gui::Appearance> (*settings, desktop.isDarkModeActive());
         look = std::make_unique<duet::gui::GraphiteLookAndFeel> (*appearance);

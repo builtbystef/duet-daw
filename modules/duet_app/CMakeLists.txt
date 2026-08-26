@@ -2,22 +2,27 @@
 # transport, and the host of duet_gui's surfaces.
 #
 # Project lifecycle is paintless so launch, whole-folder transitions and dirty
-# decisions are exercised without a window or dialog.
+# decisions are exercised without a window or dialog. The app-global settings
+# store is here for the same reason: it needs no window, and what the tests must
+# be able to link is the store the shell actually runs on.
 add_library(duet_app_core STATIC
-    src/ProjectLifecycle.cpp)
+    src/ProjectLifecycle.cpp
+    src/PropertyStorageSettings.cpp)
 add_library(duet::app_core ALIAS duet_app_core)
 
 target_include_directories(duet_app_core PUBLIC include)
 target_compile_features(duet_app_core PRIVATE cxx_std_20)
 target_link_libraries(duet_app_core PUBLIC duet::gui duet::persistence)
+# The settings store is the model's app-global one, reached through the facade,
+# so no engine include directory reaches a consumer of this target.
+target_link_libraries(duet_app_core PRIVATE duet::model)
 
 juce_add_gui_app(duet_app
     PRODUCT_NAME "Duet"
     VERSION      ${PROJECT_VERSION})
 
 target_sources(duet_app PRIVATE
-    src/Main.cpp
-    src/PropertyStorageSettings.cpp)
+    src/Main.cpp)
 
 target_compile_features(duet_app PRIVATE cxx_std_20)
 target_compile_definitions(duet_app PRIVATE

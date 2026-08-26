@@ -13,13 +13,13 @@ namespace duet::app
 
     The shell is where this lives because the store is the machine's and not a
     project's: it exists before the first project is opened and outlives the last
-    one, so it cannot hang off a session. PropertyStorage is the engine's own
-    class and needs no Engine to make — it is a properties file under the user's
-    application-data folder, which is where the engine's settings already are.
+    one, so it cannot hang off a session. What it holds is the one store every
+    open session's engine holds too, reached through the model's facade — the
+    interface's settings and the engine's are one file, and one holder is what
+    keeps either side from writing the whole file over the other.
 
-    Every write re-reads the file first and flushes it after, so a setting the
-    producer changes is on disk before the next thing that could end the process,
-    and so a key another writer has added since is not dropped by ours.
+    Every write puts the store on disk, so a setting the producer changes is
+    written before the next thing that could end the process.
 */
 class PropertyStorageSettings final : public duet::gui::Settings
 {

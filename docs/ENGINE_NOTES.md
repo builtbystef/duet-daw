@@ -534,3 +534,30 @@ level as the render with nothing muted.
 reach the file — a render of the whole project is what the producer hears.
 `Session::renderTrackToFile` keeps it, because a render of one track is a
 measurement of that track and has to ignore what is soloed elsewhere.
+
+### A PropertyStorage is a whole `Settings.xml`, held from the moment it is read
+
+**The engine.** `PropertyStorage` reads `Settings.xml` under the app prefs
+folder on first use and keeps that set in a `juce::PropertiesFile`, which writes
+the whole set it holds every time it saves — on `save()`, on its two-second
+timer, and from its destructor. Two of them open on one path therefore write
+over each other: whichever saves last decides the file, and the keys the other
+added since it read are gone. `te::Engine`'s constructor takes ownership of a
+`unique_ptr<PropertyStorage>`, so one instance cannot be handed to two Engines;
+every default method of the class routes through the virtual
+`getPropertiesFile()`.
+
+**Where.** `PropertyStorage::getPropertiesFile` in
+`tracktion_PropertyStorage.cpp`, and the `Engine` constructors in
+`tracktion_Engine.cpp`.
+
+**Proved.** `uztxbx`: with the shell's store and a session's engine each holding
+one of their own, a value written through the shell while the project was open
+was gone from the file once the session closed — the engine's snapshot, taken
+when its Engine was made, went out over it.
+
+**Duet.** One store per process, `DuetPropertyStorage`, reached through a
+`juce::SharedResourcePointer`: `duet::model::AppSettings` is the engine-free
+handle the shell holds one through, and each session's Engine is given a
+`SharedPropertyStorage` — a forwarding adapter that owns a reference to the same
+store rather than a second one.
