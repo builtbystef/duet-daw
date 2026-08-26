@@ -1,11 +1,12 @@
 ---
 id: v6ac5c
 title: A built-in plugin parameter's value is the engine's number, not the producer's
-state: todo
+state: done
+assignee: claude
 priority: medium
 parent: b1j3me
 created: 2026-08-26T15:11:00Z
-updated: 2026-08-26T15:38:27Z
+updated: 2026-08-26T17:07:10Z
 ---
 
 ## What is wrong
@@ -68,3 +69,62 @@ Decision (2026-08-26, user): **a built-in plugin parameter reads and writes in r
 **The escape hatch stays open.** Where a built-in parameter has no sensible real-unit form, say so through the unit field rather than inventing one — criterion one already allows this ('or says plainly that it does not'). It is the exception, not the default.
 
 Build against this; no further escalation is needed on the question of which number crosses the seam.
+
+**claude** — 2026-08-26T17:07:10Z
+
+Built. A built-in plugin parameter now crosses the facade as the producer's
+number, both ways, per the decision above.
+
+**The conversion.** One table beside `engineTypeOf` in `EditOps.cpp`, declared as
+`unitsOfBuiltinParameter` in `SessionImpl.h`: an entry per parameter of every
+built-in Duet ships, each giving the unit and, where the engine holds something
+else, the pair of conversions. `realParameterValue` and `engineParameterValue`
+apply it. Four sites use them — `Session::pluginParameters`,
+`EditOps::setPluginParameter`, and both ends of a plugin-parameter automation
+curve (`toCurveValue` / the new `fromCurveValue`), which is the decision's
+"one scale per parameter, wherever it is read".
+
+**What converts, and what only gains a unit.** The compressor's ratio (the
+engine's reciprocal) and threshold (a gain); the reverb's room size, damping,
+width, and wet and dry levels; the synth's percentages, and its filter frequency,
+which the engine keeps as a midi note number. Everything else the engine already
+holds in the producer's terms and only needed saying what it is measured in.
+
+**The unit is stated, not derived.** The old `unitOf` read the unit out of the
+display string when the display's number matched the value, which made a
+parameter's unit depend on its value: a 4OSC pan read "R" at 0 and nothing at
+−0.5, an EQ gain read "dB" at −3 and nothing at 0, because JUCE writes "+0.00 dB"
+and `from_chars` will not parse a leading plus. The table states it instead. A
+scanned plugin's unit is now always empty — Duet does not own that mapping, and
+its display string already crosses as an estimate (ADR 0002).
+
+**Empty unit, by design and by test.** The plain numbers are the EQ's four Q
+controls, the reverb's room size and freeze, and the synth's four pans. The
+coverage test names exactly that set per built-in and fails if a parameter goes
+quiet that should not, which is criterion one enforced rather than asserted once.
+
+**Two ends beside the value.** `get_plugin_chain`'s BuiltinParam gained `min` and
+`max` (criterion three). A write outside them is held at them, so without them a
+Suggestion asking for more than the plugin has would land short and silently —
+the failure the decision names, one level up.
+
+**A second defect, found and fixed here.** `AutomatableParameter::setParameter`
+stores what it is handed untouched and clips only the value it processes with,
+and `getCurrentExplicitValue` returns the first of those. Setting a compressor's
+ratio to 4 on the engine's scale read back 4, displayed "0.25 : 1", and
+compressed at 1.05 to one — the read agreeing with the write and neither
+agreeing with the sound. Criterion two would have passed vacuously on it.
+`setPluginParameter` now holds the converted value inside the parameter's range
+itself. Recorded in `docs/ENGINE_NOTES.md`, along with the rewrite of the
+display-string entry.
+
+**The fixture corpus speaks the new scale.** `tests/fixtures/collaborator/*.json`
+held the engine's numbers for the compressor and the reverb; each is converted
+mechanically, so the projects the seven fixtures build are the same ones,
+written the way the tools now read them. Their README says so.
+
+**Discovered, not done:** 3cs2ma — an automation lane draws a plugin parameter
+linearly across its range, and the compressor ratio's range is now 1.05 to 1000,
+which puts 4 : 1 at the floor of the lane. The read is right; the drawing is not.
+
+Checks: format, lint, full build and 332/332 ctest, all clean.

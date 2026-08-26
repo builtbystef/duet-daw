@@ -582,9 +582,9 @@
         {
           "builtin": "reverb",
           "parameters": {
-            "room size": 0.7,
-            "wet level": 1.0,
-            "dry level": 0.0
+            "room size": 8.0,
+            "wet level": 9.5424,
+            "dry level": -100.0
           }
         }
       ],
@@ -616,8 +616,8 @@
         {
           "builtin": "compressor",
           "parameters": {
-            "threshold": 0.912,
-            "ratio": 0.0
+            "threshold": -0.8,
+            "ratio": 1000.0
           }
         }
       ],

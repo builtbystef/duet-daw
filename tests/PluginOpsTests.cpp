@@ -3,9 +3,14 @@
 #include <duet/testing/TestSupport.h>
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 
 #include <algorithm>
+#include <cmath>
+#include <map>
+#include <string>
+#include <vector>
 
 using Catch::Matchers::WithinAbs;
 using duet::model::BuiltinPlugin;
@@ -36,6 +41,24 @@ double parameterOf (const Session& session, PluginRef plugin, const std::string&
             return parameter.value;
 
     return 0.0;
+}
+
+std::string displayOf (const Session& session, PluginRef plugin, const std::string& parameterId)
+{
+    for (const auto& parameter : session.pluginParameters (plugin))
+        if (parameter.parameterId == parameterId)
+            return parameter.displayValue;
+
+    return {};
+}
+
+std::string unitOf (const Session& session, PluginRef plugin, const std::string& parameterId)
+{
+    for (const auto& parameter : session.pluginParameters (plugin))
+        if (parameter.parameterId == parameterId)
+            return parameter.unit;
+
+    return {};
 }
 } // namespace
 
@@ -120,14 +143,14 @@ TEST_CASE ("a compressor takes a parameter and a sidechain source from another t
                                bass = ops.createTrack (TrackKind::audio, "Bass");
                                compressor = ops.addPlugin (bass, BuiltinPlugin::compressor, 0);
                                ops.setPluginSidechainSource (compressor, kick);
-                               ops.setPluginParameter (compressor, "ratio", 0.25);
+                               ops.setPluginParameter (compressor, "ratio", 4.0);
                            });
 
     // One element of a Suggestion, one Action: the whole thing reads back.
     REQUIRE (session.undoNames() == std::vector<std::string> { "Sidechain the bass to the kick" });
     REQUIRE (session.track (bass).plugins.front().builtin == BuiltinPlugin::compressor);
     REQUIRE (session.track (bass).plugins.front().sidechainSource == kick);
-    REQUIRE_THAT (parameterOf (session, compressor, "ratio"), WithinAbs (0.25, 0.000001));
+    REQUIRE_THAT (parameterOf (session, compressor, "ratio"), WithinAbs (4.0, 0.000001));
 
     const auto parameters = session.pluginParameters (compressor);
 
@@ -141,15 +164,15 @@ TEST_CASE ("a compressor takes a parameter and a sidechain source from another t
     {
         session.performAction ("Loosen the ratio",
                                [&] (auto& ops)
-                               { ops.setPluginParameter (compressor, "ratio", 0.75); });
+                               { ops.setPluginParameter (compressor, "ratio", 2.0); });
 
-        REQUIRE_THAT (parameterOf (session, compressor, "ratio"), WithinAbs (0.75, 0.000001));
+        REQUIRE_THAT (parameterOf (session, compressor, "ratio"), WithinAbs (2.0, 0.000001));
 
         REQUIRE (session.undo());
-        REQUIRE_THAT (parameterOf (session, compressor, "ratio"), WithinAbs (0.25, 0.000001));
+        REQUIRE_THAT (parameterOf (session, compressor, "ratio"), WithinAbs (4.0, 0.000001));
 
         REQUIRE (session.redo());
-        REQUIRE_THAT (parameterOf (session, compressor, "ratio"), WithinAbs (0.75, 0.000001));
+        REQUIRE_THAT (parameterOf (session, compressor, "ratio"), WithinAbs (2.0, 0.000001));
     }
 
     SECTION ("the sidechain source is cleared")
@@ -160,6 +183,101 @@ TEST_CASE ("a compressor takes a parameter and a sidechain source from another t
 
         REQUIRE (session.track (bass).plugins.front().sidechainSource == duet::model::noTrack);
     }
+}
+
+TEST_CASE ("a built-in's parameter is written and read in the units its name implies")
+{
+    const TempProject project;
+    Session session { project.editFile() };
+
+    PluginRef compressor = duet::model::noPlugin;
+
+    session.performAction ("Compress the bass",
+                           [&] (auto& ops)
+                           {
+                               const auto bass = ops.createTrack (TrackKind::audio, "Bass");
+                               compressor = ops.addPlugin (bass, BuiltinPlugin::compressor, 0);
+                               ops.setPluginParameter (compressor, "ratio", 4.0);
+                               ops.setPluginParameter (compressor, "threshold", -12.0);
+                           });
+
+    // Four to one is 4, not the 0.25 the engine holds, and a threshold twelve
+    // decibels down is −12, not the gain of 0.251 underneath it.
+    REQUIRE_THAT (parameterOf (session, compressor, "ratio"), WithinAbs (4.0, 0.001));
+    REQUIRE_THAT (parameterOf (session, compressor, "threshold"), WithinAbs (-12.0, 0.01));
+
+    // The plugin's own text is the independent witness: it says what the
+    // producer sees, and it now says the number beside it.
+    REQUIRE (displayOf (session, compressor, "ratio") == "4.00 : 1");
+    REQUIRE (displayOf (session, compressor, "threshold") == "-12.00 dB");
+
+    REQUIRE (unitOf (session, compressor, "threshold") == "dB");
+    REQUIRE (unitOf (session, compressor, "ratio") == ":1");
+}
+
+TEST_CASE ("every parameter of every built-in says what its number is, and takes back what it gave")
+{
+    // The plain numbers, named one by one: everything else Duet ships is
+    // measured in something, and a parameter that says nothing when it should
+    // is the defect this list guards against.
+    const auto builtin = GENERATE (BuiltinPlugin::eq,
+                                   BuiltinPlugin::compressor,
+                                   BuiltinPlugin::reverb,
+                                   BuiltinPlugin::synth,
+                                   BuiltinPlugin::sampler);
+
+    const std::map<BuiltinPlugin, std::vector<std::string>> withoutUnit {
+        { BuiltinPlugin::eq, { "High-pass Q", "Low-pass Q", "Mid Q 1", "Mid Q 2" } },
+        { BuiltinPlugin::compressor, {} },
+        // A room size is a place on the engine's own one-to-eleven scale, and
+        // freeze is on or off.
+        { BuiltinPlugin::reverb, { "mode", "room size" } },
+        // A pan is the mixer's −1 to +1, which is not measured in anything.
+        { BuiltinPlugin::synth, { "pan1", "pan2", "pan3", "pan4" } },
+        // The engine's sampler has no automatable parameters at all.
+        { BuiltinPlugin::sampler, {} },
+    };
+
+    const TempProject project;
+    Session session { project.editFile() };
+
+    PluginRef plugin = duet::model::noPlugin;
+
+    session.performAction ("Put one in",
+                           [&] (auto& ops)
+                           {
+                               const auto track = ops.createTrack (TrackKind::midi, "Under test");
+                               plugin = ops.addPlugin (track, builtin, 0);
+                           });
+
+    std::vector<std::string> silent;
+
+    for (const auto& parameter : session.pluginParameters (plugin))
+    {
+        INFO ("parameter " << parameter.parameterId);
+
+        REQUIRE (parameter.minValue < parameter.maxValue);
+        REQUIRE (parameter.value >= parameter.minValue);
+        REQUIRE (parameter.value <= parameter.maxValue);
+
+        if (parameter.unit.empty())
+            silent.push_back (parameter.parameterId);
+
+        // A quarter of the way along, which is inside every range and equal to
+        // no default: what is written is what comes back.
+        const auto wanted = parameter.minValue + 0.25 * (parameter.maxValue - parameter.minValue);
+
+        session.performAction ("Set it",
+                               [&] (auto& ops)
+                               { ops.setPluginParameter (plugin, parameter.parameterId, wanted); });
+
+        REQUIRE_THAT (parameterOf (session, plugin, parameter.parameterId),
+                      WithinAbs (wanted, std::max (0.0001, std::abs (wanted) * 0.0001)));
+    }
+
+    std::ranges::sort (silent);
+
+    REQUIRE (silent == withoutUnit.at (builtin));
 }
 
 TEST_CASE ("a chain position counts the producer's plugins, not the ones Duet put there")

@@ -613,6 +613,55 @@ const char* engineTypeOf (BuiltinPlugin plugin);
 /** Which built-in a plugin is, or nothing for one Duet does not ship. */
 std::optional<BuiltinPlugin> builtinOf (te::Plugin& plugin);
 
+/** What one of a built-in's parameters is in the producer's terms.
+
+    Duet ships the engine's own plugins, so it owns what their numbers mean, and
+    several of them hold a number the producer never sees: the compressor keeps
+    its ratio as one over the ratio and its threshold as a gain, the reverb keeps
+    a level the producer reads in decibels as a plain fraction. The facade speaks
+    the producer's number in both directions and this is the conversion, one
+    entry per parameter.
+*/
+struct ParameterUnits
+{
+    /** What the producer's number is measured in, and empty for a parameter
+        that is a plain number or a named choice.
+    */
+    std::string_view unit;
+
+    /** The producer's number, given the one the engine holds. Null for the
+        parameters the engine already holds in the producer's terms.
+    */
+    double (*toReal) (double engineValue) = nullptr;
+
+    /** The engine's number, given the producer's. Null alongside a null
+        `toReal`, and never null beside a set one.
+    */
+    double (*fromReal) (double realValue) = nullptr;
+};
+
+/** How a built-in's parameter crosses the facade, or nothing for a parameter no
+    built-in Duet ships owns — a plugin from an engine newer than this one.
+*/
+std::optional<ParameterUnits> unitsOfBuiltinParameter (BuiltinPlugin plugin,
+                                                       std::string_view parameterId);
+
+/** The producer's number for a parameter, given the one the engine holds.
+
+    An external plugin's number is its own and crosses untouched: Duet does not
+    know a third party's mapping and does not invent one (ADR 0002).
+*/
+double realParameterValue (te::AutomatableParameter& parameter, double engineValue);
+
+/** The engine's number for a parameter, given the producer's, held inside the
+    range the parameter accepts.
+
+    The clamp is the facade's, not the engine's: `setParameter` remembers what it
+    was handed and processes with the value clipped into range, so a number
+    outside it would read back as written while the plugin used another one.
+*/
+double engineParameterValue (te::AutomatableParameter& parameter, double realValue);
+
 /** Writes every parameter of a plugin into its state, at the value it already
     has.
 

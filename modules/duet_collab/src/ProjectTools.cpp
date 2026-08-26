@@ -606,6 +606,13 @@ namespace
                 entry["name"] = parameter.name;
                 entry["value"] = parameter.value;
                 entry["unit"] = parameter.unit;
+
+                // The two ends belong beside the value because a write outside
+                // them is held at them: a Suggestion that asked for more than
+                // the plugin has would otherwise land quietly short of what it
+                // asked for, and nothing would say so.
+                entry["min"] = parameter.minValue;
+                entry["max"] = parameter.maxValue;
             }
             else
             {

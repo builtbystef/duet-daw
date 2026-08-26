@@ -601,10 +601,16 @@ the top of `plugins/effects/tracktion_Compressor.cpp` and the
 **Proved.** `v5yhh1`, giving `PluginParameterInfo` a unit for the Tool
 Vocabulary.
 
-**Duet.** `PluginParameterInfo::unit` is the text after the number in the display
-string, and only when that number is the value — within a part in a hundred of
-it, since a display rounds. A parameter whose display says something else about
-itself has no unit rather than one that would misdescribe the number beside it.
+**Duet.** The facade converts, so that a built-in's value is the producer's
+number in both directions: the compressor's ratio is 4 for four to one and its
+threshold is in decibels, and `setPluginParameter` takes back exactly what
+`pluginParameters` gave. The conversion is one table beside `engineTypeOf` in
+`EditOps.cpp`, one entry per parameter of every built-in Duet ships, and it also
+states the unit — the display string is not read for it, because a plugin's own
+text is about the engine's number and a parameter's units must not depend on
+what its value happens to be. A parameter with no producer's unit — a filter's Q,
+a reverb's freeze, an oscillator's pan — says so with an empty unit. Proved
+again at `v6ac5c`.
 
 ### The engine's plugin scanner and a hosted VST3 both race under TSan
 
@@ -627,3 +633,27 @@ from `VST3PluginInstanceHeadless::VST3Parameter::getText`.
 own code under the sanitizers, and neither report is reached from a Duet thread.
 A TSan report from this case is expected noise; one that names Duet memory is
 not.
+
+### A parameter remembers what it was handed, not what it uses
+
+**The engine.** `AutomatableParameter::setParameter` stores the value it is given
+in `currentParameterValue` untouched, and only the value it processes with —
+`currentValue`, and `currentBaseValue` — goes through `getValueRange().clipValue`.
+`getCurrentExplicitValue()` returns the first of those. A parameter set outside
+its range therefore reads back as it was set while the plugin uses another
+number, and the display string, which is also built from the explicit value,
+agrees with the read rather than with the sound: a compressor ratio set to 4 on
+the engine's own 0..0.95 scale reads back 4, displays `0.25 : 1`, and compresses
+at 1.05 to one.
+
+**Where.** `AutomatableParameter::setParameter` and `setParameterValue` in
+`model/automation/tracktion_AutomatableParameter.cpp`;
+`getCurrentExplicitValue` in the matching header.
+
+**Proved.** `v6ac5c`, on the dev machine 2026-08-26, by setting a compressor's
+ratio to 4 through the facade and reading the display string back.
+
+**Duet.** `EditOps::setPluginParameter` holds the value inside the parameter's
+range itself, after converting it, so that the number the facade reports back is
+the number the plugin uses. The engine's own clip is left in place underneath;
+this only stops the facade from reporting a value that was never adopted.

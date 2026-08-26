@@ -144,13 +144,15 @@ TEST_CASE ("a plugin parameter carries a curve of its own")
 
     session.performAction ("Ride the ratio",
                            [&] (auto& ops)
-                           { ops.setAutomationPoints (ratio, { { 1.0, 0.2 }, { 3.0, 0.8 } }); });
+                           { ops.setAutomationPoints (ratio, { { 1.0, 2.0 }, { 3.0, 8.0 } }); });
 
+    // A lane on a plugin parameter is on the parameter's own scale: two to one
+    // and eight to one, the numbers get_plugin_chain reports and setParam takes.
     const auto points = session.automationPoints (ratio);
 
     REQUIRE (points.size() == 2);
-    REQUIRE_THAT (points.front().value, WithinAbs (0.2, 0.000001));
-    REQUIRE_THAT (points.back().value, WithinAbs (0.8, 0.000001));
+    REQUIRE_THAT (points.front().value, WithinAbs (2.0, 0.000001));
+    REQUIRE_THAT (points.back().value, WithinAbs (8.0, 0.000001));
 
     REQUIRE (session.undo());
     REQUIRE (session.stateDigest() == beforeCurve);

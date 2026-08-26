@@ -35,12 +35,23 @@ namespace
 
     /** The value an automation curve stores for a target, given the value the
         facade speaks: a fader curve is written in decibels and stored as a
-        fader position, and everything else stores what it is given.
+        fader position, a plugin parameter's curve is written in the producer's
+        units and stored in the engine's, and a pan curve stores what it is
+        given.
+
+        One scale per parameter, wherever it is read: a lane that carried the
+        engine's number while `pluginParameters` carried the producer's would be
+        the same confusion in a second place.
     */
-    float toCurveValue (const AutomationTarget& target, double value)
+    float toCurveValue (const AutomationTarget& target,
+                        te::AutomatableParameter& parameter,
+                        double value)
     {
         if (target.kind == AutomationTarget::Kind::trackVolume)
             return te::decibelsToVolumeFaderPosition (static_cast<float> (value));
+
+        if (target.kind == AutomationTarget::Kind::pluginParameter)
+            return static_cast<float> (engineParameterValue (parameter, value));
 
         return static_cast<float> (value);
     }
@@ -193,6 +204,244 @@ std::optional<BuiltinPlugin> builtinOf (te::Plugin& plugin)
             return builtin;
 
     return {};
+}
+
+namespace
+{
+    /** Below this the engine's compressor prints its ratio as "INF", so this is
+        where a ratio the producer can still name stops: one over it, 1000 to
+        one, is the largest ratio the facade reports and the smallest number the
+        engine is asked to hold.
+    */
+    constexpr double smallestRatioValueHeld = 0.001;
+
+    /** The other end of the engine's own range, which is the gentlest ratio its
+        compressor can be set to.
+    */
+    constexpr double largestRatioValueHeld = 0.95;
+
+    /** The engine's reverb scales its wet and dry fractions by these on the way
+        into the decibels it displays.
+    */
+    constexpr double reverbWetScale = 3.0;
+    constexpr double reverbDryScale = 2.0;
+
+    double gainToDecibels (double gain) { return te::gainToDb (static_cast<float> (gain)); }
+
+    double decibelsToGain (double decibels) { return te::dbToGain (static_cast<float> (decibels)); }
+
+    /** A fraction of one, read and written as a percentage. */
+    constexpr ParameterUnits percentOfOne { "%",
+                                            [] (double value) { return value * 100.0; },
+                                            [] (double value) { return value / 100.0; } };
+
+    /** A gain, read and written in decibels. */
+    constexpr ParameterUnits decibelsFromGain { "dB", gainToDecibels, decibelsToGain };
+
+    /** A parameter the engine already holds in the producer's terms, which only
+        needs saying what it is measured in.
+    */
+    constexpr ParameterUnits asHeld (std::string_view unit) { return { unit, nullptr, nullptr }; }
+
+    /** Whether an id is a stem and nothing but the number the synth puts after
+        it — `tune1` through `tune4` for the four oscillators' tuning, and
+        nothing for `tune` alone, which no plugin has.
+    */
+    bool namedLike (std::string_view parameterId, std::string_view stem)
+    {
+        return parameterId.starts_with (stem)
+               && parameterId.find_first_not_of ("0123456789", stem.size())
+                      == std::string_view::npos;
+    }
+
+    std::optional<ParameterUnits> equaliserUnits (std::string_view parameterId)
+    {
+        if (parameterId.find ("freq") != std::string_view::npos)
+            return asHeld ("Hz");
+
+        if (parameterId.find ("gain") != std::string_view::npos)
+            return asHeld ("dB");
+
+        if (parameterId.find ('Q') != std::string_view::npos)
+            return asHeld ("");
+
+        return {};
+    }
+
+    std::optional<ParameterUnits> compressorUnits (std::string_view parameterId)
+    {
+        // One over the ratio is what the engine holds, so the two conversions
+        // are the same reciprocal, each holding its side inside its own range.
+        if (parameterId == "ratio")
+            return ParameterUnits {
+                ":1",
+                [] (double value) { return 1.0 / std::max (value, smallestRatioValueHeld); },
+                [] (double value) {
+                    return 1.0
+                           / std::clamp (
+                               value, 1.0 / largestRatioValueHeld, 1.0 / smallestRatioValueHeld);
+                },
+            };
+
+        if (parameterId == "threshold")
+            return decibelsFromGain;
+
+        if (parameterId == "attack" || parameterId == "release")
+            return asHeld ("ms");
+
+        if (parameterId == "output gain" || parameterId == "input gain")
+            return asHeld ("dB");
+
+        return {};
+    }
+
+    std::optional<ParameterUnits> reverbUnits (std::string_view parameterId)
+    {
+        // The room size the producer reads is the engine's own one-to-eleven
+        // scale, which is what its editor puts beside the knob.
+        if (parameterId == "room size")
+            return ParameterUnits { "",
+                                    [] (double value) { return 1.0 + 10.0 * value; },
+                                    [] (double value) { return (value - 1.0) / 10.0; } };
+
+        if (parameterId == "damping" || parameterId == "width")
+            return percentOfOne;
+
+        if (parameterId == "wet level")
+            return ParameterUnits {
+                "dB",
+                [] (double value) { return gainToDecibels (reverbWetScale * value); },
+                [] (double value) { return decibelsToGain (value) / reverbWetScale; },
+            };
+
+        if (parameterId == "dry level")
+            return ParameterUnits {
+                "dB",
+                [] (double value) { return gainToDecibels (reverbDryScale * value); },
+                [] (double value) { return decibelsToGain (value) / reverbDryScale; },
+            };
+
+        // Freeze is on above half way and off below it: a named choice, and the
+        // one reverb parameter with no producer's number of its own.
+        if (parameterId == "mode")
+            return asHeld ("");
+
+        return {};
+    }
+
+    std::optional<ParameterUnits> synthUnits (std::string_view parameterId)
+    {
+        if (namedLike (parameterId, "tune"))
+            return asHeld ("st");
+
+        if (namedLike (parameterId, "fineTune"))
+            return asHeld ("cents");
+
+        if (namedLike (parameterId, "level") || parameterId == "delayFeedback"
+            || parameterId == "delayCrossfeed" || parameterId == "masterLevel")
+            return asHeld ("dB");
+
+        if (namedLike (parameterId, "pulseWidth") || namedLike (parameterId, "detune")
+            || namedLike (parameterId, "lfoDepth") || parameterId == "filterAmount"
+            || parameterId == "distortion" || parameterId == "delayMix"
+            || parameterId == "chorusWidth" || parameterId == "chorusMix"
+            || parameterId == "reverbSize" || parameterId == "reverbDamping"
+            || parameterId == "reverbWidth" || parameterId == "reverbMix")
+            return percentOfOne;
+
+        if (namedLike (parameterId, "spread") || namedLike (parameterId, "modSustain")
+            || parameterId == "ampSustain" || parameterId == "ampVelocity"
+            || parameterId == "filterSustain" || parameterId == "filterResonance"
+            || parameterId == "filterKey" || parameterId == "filterVelocity")
+            return asHeld ("%");
+
+        if (namedLike (parameterId, "modAttack") || namedLike (parameterId, "modDecay")
+            || namedLike (parameterId, "modRelease") || parameterId == "ampAttack"
+            || parameterId == "ampDecay" || parameterId == "ampRelease"
+            || parameterId == "filterAttack" || parameterId == "filterDecay"
+            || parameterId == "filterRelease")
+            return asHeld ("s");
+
+        if (namedLike (parameterId, "lfoRate") || parameterId == "chorusSpeed")
+            return asHeld ("Hz");
+
+        if (parameterId == "chorusDepth" || parameterId == "legato")
+            return asHeld ("ms");
+
+        // The filter's own frequency is a midi note number, and 440 Hz is the
+        // note the engine's editor puts at 69, as every other pitch does.
+        if (parameterId == "filterFreq")
+            return ParameterUnits {
+                "Hz",
+                [] (double value) { return 440.0 * std::pow (2.0, (value - 69.0) / 12.0); },
+                [] (double value) { return 12.0 * std::log2 (value / 440.0) + 69.0; },
+            };
+
+        // A pan position is the same −1 to +1 the mixer's is, whatever the
+        // synth's own editor prints beside it.
+        if (namedLike (parameterId, "pan"))
+            return asHeld ("");
+
+        return {};
+    }
+} // namespace
+
+std::optional<ParameterUnits> unitsOfBuiltinParameter (BuiltinPlugin plugin,
+                                                       std::string_view parameterId)
+{
+    switch (plugin)
+    {
+        case BuiltinPlugin::eq:
+            return equaliserUnits (parameterId);
+        case BuiltinPlugin::compressor:
+            return compressorUnits (parameterId);
+        case BuiltinPlugin::reverb:
+            return reverbUnits (parameterId);
+        case BuiltinPlugin::synth:
+            return synthUnits (parameterId);
+        case BuiltinPlugin::sampler:
+            // The engine's sampler has no automatable parameters at all.
+            break;
+    }
+
+    return {};
+}
+
+namespace
+{
+    std::optional<ParameterUnits> unitsOf (te::AutomatableParameter& parameter)
+    {
+        auto* plugin = parameter.getPlugin();
+
+        if (plugin == nullptr)
+            return {};
+
+        const auto builtin = builtinOf (*plugin);
+
+        if (! builtin.has_value())
+            return {};
+
+        return unitsOfBuiltinParameter (*builtin, parameter.paramID.toStdString());
+    }
+} // namespace
+
+double realParameterValue (te::AutomatableParameter& parameter, double engineValue)
+{
+    const auto units = unitsOf (parameter);
+
+    return units.has_value() && units->toReal != nullptr ? units->toReal (engineValue)
+                                                         : engineValue;
+}
+
+double engineParameterValue (te::AutomatableParameter& parameter, double realValue)
+{
+    const auto units = unitsOf (parameter);
+    const auto engineValue =
+        units.has_value() && units->fromReal != nullptr ? units->fromReal (realValue) : realValue;
+    const auto range = parameter.getValueRange();
+
+    return std::clamp (
+        engineValue, static_cast<double> (range.getStart()), static_cast<double> (range.getEnd()));
 }
 
 te::AutomatableParameter* Session::Impl::parameterFor (const AutomationTarget& target) const
@@ -905,7 +1154,8 @@ void EditOps::setPluginParameter (PluginRef plugin, std::string_view parameterId
     if (auto* p = session.impl->pluginFor (plugin))
         if (auto parameter = p->getAutomatableParameterByID (toJuceString (parameterId)))
         {
-            parameter->setParameter (static_cast<float> (value), juce::sendNotification);
+            parameter->setParameter (static_cast<float> (engineParameterValue (*parameter, value)),
+                                     juce::sendNotification);
 
             if (auto* external = dynamic_cast<te::ExternalPlugin*> (p))
                 stateExternalParameter (*external, *parameter, session.impl->undoManager());
@@ -952,7 +1202,7 @@ void EditOps::setAutomationPoints (const AutomationTarget& target,
 
     for (const auto& point : points)
     {
-        const auto value = toCurveValue (target, point.value);
+        const auto value = toCurveValue (target, *parameter, point.value);
         const auto existing = indexOfPointAt (curve, point.timeSeconds, tempoSequence);
 
         // A time the curve already has a point at takes the new value rather

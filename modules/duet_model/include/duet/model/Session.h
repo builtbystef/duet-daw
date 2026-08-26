@@ -259,11 +259,24 @@ struct PluginInfo
 /** One of a plugin's parameters. A built-in's value is in the real units the
     producer sees; a scanned VST3's is the plugin's normalised 0..1 value, with
     its own display string beside it.
+
+    Duet ships the built-ins, so it owns what their numbers mean and converts
+    where the engine underneath holds something else: the compressor's ratio is
+    4 for four to one, not the 0.25 stored, and its threshold is in decibels,
+    not the gain stored. The conversion is the same in both directions, so
+    `setPluginParameter` takes back exactly what was read here, and an
+    automation point on the parameter is on this same scale. Duet does not own a
+    scanned plugin's mapping and does not invent one: its value crosses raw.
 */
 struct PluginParameterInfo
 {
     std::string parameterId;
     std::string name;
+
+    /** The value, and the two ends of what it may be — in the units below, so a
+        write outside them is one the producer can see coming. It is held inside
+        them rather than refused.
+    */
     double value = 0.0;
     double minValue = 0.0;
     double maxValue = 0.0;
@@ -271,15 +284,12 @@ struct PluginParameterInfo
     /** The plugin's own display string for this value. */
     std::string displayValue;
 
-    /** What the value is measured in — "dB", "Hz", "ms" — and empty for a
-        parameter that is a plain number, a named choice, or one whose display
-        string says something other than this value.
+    /** What the value is measured in — "dB", "Hz", "ms", ":1" for a ratio.
 
-        Read from the display string, which is where a plugin says what its own
-        number means: the text after the number is the unit, and only when that
-        number is this value. A compressor that holds a ratio as 0.05 and
-        displays it as "20.00 : 1" has no unit here, because "0.05 : 1" would be
-        a lie about the value beside it.
+        Empty says plainly that the number is not measured in anything: a plain
+        number such as a filter's Q, a named choice such as a reverb's freeze,
+        or a scanned plugin's normalised value, whose meaning is the vendor's
+        and reaches the Collaborator as an estimated display string instead.
     */
     std::string unit;
 };

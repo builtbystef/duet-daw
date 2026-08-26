@@ -297,7 +297,7 @@ TEST_CASE ("automation lanes carry their points in time order, and name what the
                 { AutomationPoint { 2.0, -3.0, 0.0 }, AutomationPoint { 0.0, -12.0, 0.0 } });
 
             ops.setAutomationPoints (AutomationTarget::parameterOf (compressor, "ratio"),
-                                     { AutomationPoint { 0.0, 0.25, 0.0 } });
+                                     { AutomationPoint { 0.0, 4.0, 0.0 } });
         });
 
     const ToolRun run { session, Json::array ({ toolCall ("get_automation", bass) }) };
@@ -327,6 +327,10 @@ TEST_CASE ("automation lanes carry their points in time order, and name what the
     REQUIRE (ratio.at ("target").at ("pluginId") == duet::collab::toolId::forPlugin (compressor));
     REQUIRE (ratio.at ("target").at ("paramId") == "ratio");
     REQUIRE (ratio.at ("points").size() == 1);
+
+    // One scale per parameter, wherever it is read: a lane on the ratio carries
+    // the four get_plugin_chain reports, not the quarter the engine holds.
+    REQUIRE_THAT (ratio.at ("points").at (0).at ("value").get<double>(), WithinAbs (4.0, 0.001));
 }
 
 TEST_CASE ("a plugin chain carries its order, its enabled state, its latency and its parameters",
@@ -349,6 +353,7 @@ TEST_CASE ("a plugin chain carries its order, its enabled state, its latency and
 
                                ops.setPluginParameter (eq, "Low-pass freq", 80.0);
                                ops.setPluginParameter (eq, "Low-pass gain", -3.0);
+                               ops.setPluginParameter (compressor, "ratio", 4.0);
                                ops.setPluginBypassed (compressor, true);
                            });
 
@@ -401,13 +406,27 @@ TEST_CASE ("a plugin chain carries its order, its enabled state, its latency and
         return Json::object();
     };
 
-    // A unit is only a unit when the plugin's own text is about this value. The
-    // compressor's attack is milliseconds and says so; its ratio is held as
-    // 0.05 and displayed as "20.00 : 1", and calling ": 1" the unit of 0.05
-    // would tell the Collaborator the ratio is one to twenty.
+    // Duet ships the compressor, so it says what each of its numbers is: the
+    // attack is milliseconds, the ratio is a ratio, and the threshold is the
+    // decibels the producer reads, not the gain the engine keeps underneath.
     REQUIRE (compressorParameterCalled ("attack").at ("unit") == "ms");
-    REQUIRE (compressorParameterCalled ("ratio").at ("unit").get<std::string>().empty());
-    REQUIRE (compressorParameterCalled ("threshold").at ("unit").get<std::string>().empty());
+    REQUIRE (compressorParameterCalled ("ratio").at ("unit") == ":1");
+    REQUIRE (compressorParameterCalled ("threshold").at ("unit") == "dB");
+
+    // Four to one, read as the number that would be written to set it, with the
+    // two ends of what may be written beside it: everything the Collaborator
+    // needs to change a parameter it has just read, and nothing it has to
+    // derive.
+    const auto ratio = compressorParameterCalled ("ratio");
+
+    REQUIRE_THAT (ratio.at ("value").get<double>(), WithinAbs (4.0, 0.001));
+    REQUIRE_THAT (ratio.at ("min").get<double>(), WithinAbs (1.0526, 0.001));
+    REQUIRE_THAT (ratio.at ("max").get<double>(), WithinAbs (1000.0, 0.001));
+
+    const auto frequencyRange = parameterCalled ("Low-pass freq");
+
+    REQUIRE_THAT (frequencyRange.at ("min").get<double>(), WithinAbs (20.0, 0.001));
+    REQUIRE_THAT (frequencyRange.at ("max").get<double>(), WithinAbs (20000.0, 0.001));
 }
 
 TEST_CASE ("every tool in the vocabulary answers, and a name outside it is an error the run "

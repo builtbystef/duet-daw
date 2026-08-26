@@ -65,3 +65,10 @@ mixer       { volumeDb, pan, mute, solo, sends: [{ busId, levelDb }] }
 
 A clip whose `lengthBars` is longer than its pattern's is looped over that
 pattern, which is how one bar of a kick fills thirty-two.
+
+A plugin parameter's value is the producer's — a compressor's ratio is 4 for
+four to one, its threshold is in decibels, a reverb's levels are in decibels and
+its room size is on the one-to-eleven scale its editor shows. The corpus held
+the engine's own numbers until issue v6ac5c made the facade convert; the
+projects these files build are the same ones, written the way the tools now read
+them.

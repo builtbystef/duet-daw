@@ -397,41 +397,41 @@ namespace
         return noTrack;
     }
 
-    /** The unit a plugin's own display string states this value in.
+    /** What one of a plugin's parameters is measured in.
 
-        A plugin says what its number means in the text beside it — "80 Hz",
-        "-3.00 dB", "100.0 ms" — and everything after the number is the unit.
-        Only when the number in the text IS this value, though: a plugin may
-        display something else about a parameter instead, as the compressor
-        displays a ratio of 0.05 as "20.00 : 1" and a threshold of 0.501 as
-        "-6.02 dB", and a unit taken from either of those would say the value is
-        something it is not. There is no unit rather than a wrong one.
+        Duet ships the engine's own plugins, so it states their units itself,
+        from the table that also says which number crosses the facade. It does
+        not state a scanned plugin's: that number is the vendor's normalised
+        0..1 and the only thing that says what it means is the vendor's own
+        display string, which crosses as an estimate instead (ADR 0002).
     */
-    std::string unitOf (const std::string& displayValue, double value)
+    std::string unitOf (te::Plugin& plugin, const std::string& parameterId)
     {
-        constexpr std::string_view blanks = " \t";
+        const auto builtin = builtinOf (plugin);
 
-        auto text = std::string_view { displayValue };
-        text.remove_prefix (std::min (text.find_first_not_of (blanks), text.size()));
-
-        double displayed = 0.0;
-        const auto* const end = text.data() + text.size();
-        const auto parsed = std::from_chars (text.data(), end, displayed);
-
-        if (parsed.ec != std::errc {})
+        if (! builtin.has_value())
             return {};
 
-        // A displayed number is rounded, so it is this value when it is within a
-        // part in a hundred of it.
-        if (std::abs (displayed - value) > std::max (0.01, 0.01 * std::abs (value)))
-            return {};
+        const auto units = unitsOfBuiltinParameter (*builtin, parameterId);
 
-        auto rest = text.substr (static_cast<std::size_t> (parsed.ptr - text.data()));
-        rest.remove_prefix (std::min (rest.find_first_not_of (blanks), rest.size()));
+        return units.has_value() ? std::string { units->unit } : std::string {};
+    }
 
-        const auto last = rest.find_last_not_of (blanks);
+    /** The value the facade speaks for a curve point, given the one the curve
+        stores — the mirror of `toCurveValue`, so that a point goes in and comes
+        back the same however its target holds it.
+    */
+    double fromCurveValue (const AutomationTarget& target,
+                           te::AutomatableParameter& parameter,
+                           float value)
+    {
+        if (target.kind == AutomationTarget::Kind::trackVolume)
+            return te::volumeFaderPositionToDB (value);
 
-        return std::string { last == std::string_view::npos ? rest : rest.substr (0, last + 1) };
+        if (target.kind == AutomationTarget::Kind::pluginParameter)
+            return realParameterValue (parameter, value);
+
+        return value;
     }
 
     PluginInfo describe (te::Plugin& plugin)
@@ -605,16 +605,20 @@ std::vector<PluginParameterInfo> Session::pluginParameters (PluginRef plugin) co
 
     for (auto* parameter : p->getAutomatableParameters())
     {
-        const auto displayValue =
-            parameter->valueToString (parameter->getCurrentExplicitValue()).toStdString();
+        const auto held = parameter->getCurrentExplicitValue();
+
+        // A reciprocal turns the range end for end, so the ends are sorted
+        // after the conversion rather than converted in place.
+        const auto oneEnd = realParameterValue (*parameter, parameter->getValueRange().getStart());
+        const auto otherEnd = realParameterValue (*parameter, parameter->getValueRange().getEnd());
 
         out.push_back ({ parameter->paramID.toStdString(),
                          parameter->getParameterName().toStdString(),
-                         parameter->getCurrentExplicitValue(),
-                         parameter->getValueRange().getStart(),
-                         parameter->getValueRange().getEnd(),
-                         displayValue,
-                         unitOf (displayValue, parameter->getCurrentExplicitValue()) });
+                         realParameterValue (*parameter, held),
+                         std::min (oneEnd, otherEnd),
+                         std::max (oneEnd, otherEnd),
+                         parameter->valueToString (held).toStdString(),
+                         unitOf (*p, parameter->paramID.toStdString()) });
     }
 
     return out;
@@ -651,9 +655,7 @@ std::vector<AutomationPoint> Session::automationPoints (const AutomationTarget& 
         const auto value = curve.getPointValue (point);
 
         out.push_back ({ te::toTime (curve.getPointPosition (point), tempoSequence).inSeconds(),
-                         target.kind == AutomationTarget::Kind::trackVolume
-                             ? te::volumeFaderPositionToDB (value)
-                             : value,
+                         fromCurveValue (target, *parameter, value),
                          curve.getPointCurve (point) });
     }
 
@@ -669,8 +671,7 @@ double Session::automationValueAt (const AutomationTarget& target, double timeSe
 
     const auto value = te::getValueAt (*parameter, te::TimePosition::fromSeconds (timeSeconds));
 
-    return target.kind == AutomationTarget::Kind::trackVolume ? te::volumeFaderPositionToDB (value)
-                                                              : value;
+    return fromCurveValue (target, *parameter, value);
 }
 
 double Session::tempoBpm() const { return impl->edit->tempoSequence.getBpmAt (te::TimePosition()); }

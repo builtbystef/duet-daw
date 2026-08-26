@@ -196,14 +196,14 @@
         {
           "builtin": "compressor",
           "parameters": {
-            "ratio": 0.95
+            "ratio": 1.052632
           }
         },
         {
           "builtin": "compressor",
           "parameters": {
-            "ratio": 0.05,
-            "threshold": 0.0178,
+            "ratio": 20.0,
+            "threshold": -35.0,
             "attack": 0.3,
             "release": 40.0
           }
@@ -271,8 +271,8 @@
         {
           "builtin": "compressor",
           "parameters": {
-            "ratio": 0.25,
-            "threshold": 0.0562,
+            "ratio": 4.0,
+            "threshold": -25.0,
             "attack": 2.0,
             "release": 90.0
           }
@@ -408,9 +408,9 @@
         {
           "builtin": "reverb",
           "parameters": {
-            "room size": 0.7,
-            "wet level": 1.0,
-            "dry level": 0.0
+            "room size": 8.0,
+            "wet level": 9.5424,
+            "dry level": -100.0
           }
         }
       ],
@@ -430,8 +430,8 @@
         {
           "builtin": "compressor",
           "parameters": {
-            "threshold": 0.912,
-            "ratio": 0.0
+            "threshold": -0.8,
+            "ratio": 1000.0
           }
         }
       ],
