@@ -97,12 +97,12 @@ A bare value is by construction a fact; anything wrapped is a guess.
 
 ```
 list_tracks     {}                                  → { tracks: [{ id, name, kind: "midi"|"audio"|"group"|"master",
-                                                        instrument?: string, role?: string, output: trackId,
+                                                        instrument?: string, output: trackId,
                                                         mixer: { volumeDb, pan, mute, solo,
                                                                  sends: [{ busId, levelDb }] },
                                                         clipCount, hasMidi, pluginNames: string[],
                                                         automatedParameters: string[] }] }
-get_arrangement {}                                  → { key?: Estimate<string>, tempoBpm, timeSignature,
+get_arrangement {}                                  → { key?: string, tempoBpm, timeSignature,
                                                         barCount, sections: [{ name, startBar, endBar }],
                                                         placements: [{ trackId, clips: [{ clipId, name,
                                                           startBar, lengthBars, looped }] }] }
@@ -135,7 +135,7 @@ AutomationTarget = { kind: "volume" } | { kind: "pan" }
                  | { kind: "pluginParam", pluginId, paramId }
 ```
 
-Buses are tracks: master and groups are read through the same tools. Spectral bands are a fixed named set (sub, low, low-mid, mid, high-mid, high, air) whose edges the tool description documents — the "measured by a documented routine" requirement. `get_arrangement.key` is present only when the project declares a key; otherwise the model asks `estimate_audio_content`.
+Buses are tracks: master and groups are read through the same tools. Spectral bands are a fixed named set (sub, low, low-mid, mid, high-mid, high, air) whose edges the tool description documents — the "measured by a documented routine" requirement. `get_arrangement.key` is present only when the project declares a key, and it crosses bare: a declared key is read from the project model, which the provenance rule makes a fact rather than an `Estimate`. A project that declares none omits the field, and that absence is what sends the model to `estimate_audio_content`. A track has no role: nothing in milestone one lets a producer declare one — not the project model, not the timeline or mixer UI, not the edit vocabulary — and a tool may not invent a fact no one stated. The model reads what a track is for from its name, its instrument and its content, which is what every fod077 run did unaided (settled at 9alksy).
 
 There are no diagnostic tools, no pre-seeded state, no selection/transport tools (all settled at u24m3x). The model starts blind and asks; everything it knows is in the trace.
 
