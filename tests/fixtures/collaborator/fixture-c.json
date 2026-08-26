@@ -1,0 +1,507 @@
+{
+  "id": "fixture-c",
+  "prompt": "The chord loop feels like it never resolves \u2014 it just stops and starts over. Ideas?",
+  "rebuild": {
+    "notes": "Rebuilt from fod077's fixture-c.",
+    "dropped": [
+      "Chorus",
+      "Redux",
+      "Vinyl Distortion"
+    ],
+    "bussesAdded": [
+      "reverb",
+      "delay"
+    ]
+  },
+  "arrangement": {
+    "key": "A minor",
+    "tempoBpm": 84,
+    "timeSignature": "4/4",
+    "sections": [
+      {
+        "name": "A",
+        "startBar": 1,
+        "endBar": 16
+      },
+      {
+        "name": "A Repeat",
+        "startBar": 17,
+        "endBar": 32
+      }
+    ]
+  },
+  "tracks": [
+    {
+      "id": "drums",
+      "name": "Drums",
+      "kind": "midi",
+      "instrument": "sampler",
+      "clips": [
+        {
+          "name": "beat",
+          "startBar": 1,
+          "lengthBars": 32,
+          "pattern": "boom_bap"
+        }
+      ],
+      "patterns": {
+        "boom_bap": {
+          "lengthBars": 2,
+          "notes": [
+            {
+              "pitch": 36,
+              "startBeats": 0.0,
+              "lengthBeats": 0.25,
+              "velocity": 110
+            },
+            {
+              "pitch": 42,
+              "startBeats": 0.5,
+              "lengthBeats": 0.2,
+              "velocity": 80
+            },
+            {
+              "pitch": 38,
+              "startBeats": 1.0,
+              "lengthBeats": 0.25,
+              "velocity": 100
+            },
+            {
+              "pitch": 42,
+              "startBeats": 1.5,
+              "lengthBeats": 0.2,
+              "velocity": 76
+            },
+            {
+              "pitch": 42,
+              "startBeats": 2.5,
+              "lengthBeats": 0.2,
+              "velocity": 80
+            },
+            {
+              "pitch": 36,
+              "startBeats": 2.55,
+              "lengthBeats": 0.25,
+              "velocity": 104
+            },
+            {
+              "pitch": 38,
+              "startBeats": 3.0,
+              "lengthBeats": 0.25,
+              "velocity": 100
+            },
+            {
+              "pitch": 42,
+              "startBeats": 3.5,
+              "lengthBeats": 0.2,
+              "velocity": 76
+            },
+            {
+              "pitch": 36,
+              "startBeats": 4.0,
+              "lengthBeats": 0.25,
+              "velocity": 110
+            },
+            {
+              "pitch": 42,
+              "startBeats": 4.5,
+              "lengthBeats": 0.2,
+              "velocity": 80
+            },
+            {
+              "pitch": 38,
+              "startBeats": 5.0,
+              "lengthBeats": 0.25,
+              "velocity": 100
+            },
+            {
+              "pitch": 42,
+              "startBeats": 5.5,
+              "lengthBeats": 0.2,
+              "velocity": 76
+            },
+            {
+              "pitch": 36,
+              "startBeats": 6.5,
+              "lengthBeats": 0.25,
+              "velocity": 102
+            },
+            {
+              "pitch": 42,
+              "startBeats": 6.55,
+              "lengthBeats": 0.2,
+              "velocity": 80
+            },
+            {
+              "pitch": 38,
+              "startBeats": 7.0,
+              "lengthBeats": 0.25,
+              "velocity": 100
+            },
+            {
+              "pitch": 42,
+              "startBeats": 7.5,
+              "lengthBeats": 0.2,
+              "velocity": 76
+            }
+          ]
+        }
+      },
+      "mixer": {
+        "volumeDb": -2.5,
+        "pan": 0.0,
+        "mute": false,
+        "solo": false,
+        "sends": []
+      }
+    },
+    {
+      "id": "keys",
+      "name": "Rhodes",
+      "kind": "midi",
+      "instrument": "sampler",
+      "clips": [
+        {
+          "name": "progression",
+          "startBar": 1,
+          "lengthBars": 32,
+          "pattern": "chords_8bar"
+        }
+      ],
+      "patterns": {
+        "chords_8bar": {
+          "lengthBars": 8,
+          "notes": [
+            {
+              "pitch": 57,
+              "startBeats": 0.0,
+              "lengthBeats": 7.5,
+              "velocity": 88
+            },
+            {
+              "pitch": 60,
+              "startBeats": 0.0,
+              "lengthBeats": 7.5,
+              "velocity": 86
+            },
+            {
+              "pitch": 64,
+              "startBeats": 0.0,
+              "lengthBeats": 7.5,
+              "velocity": 88
+            },
+            {
+              "pitch": 67,
+              "startBeats": 0.0,
+              "lengthBeats": 7.5,
+              "velocity": 84
+            },
+            {
+              "pitch": 53,
+              "startBeats": 8.0,
+              "lengthBeats": 7.5,
+              "velocity": 88
+            },
+            {
+              "pitch": 57,
+              "startBeats": 8.0,
+              "lengthBeats": 7.5,
+              "velocity": 86
+            },
+            {
+              "pitch": 60,
+              "startBeats": 8.0,
+              "lengthBeats": 7.5,
+              "velocity": 88
+            },
+            {
+              "pitch": 64,
+              "startBeats": 8.0,
+              "lengthBeats": 7.5,
+              "velocity": 84
+            },
+            {
+              "pitch": 55,
+              "startBeats": 16.0,
+              "lengthBeats": 7.5,
+              "velocity": 88
+            },
+            {
+              "pitch": 60,
+              "startBeats": 16.0,
+              "lengthBeats": 7.5,
+              "velocity": 86
+            },
+            {
+              "pitch": 64,
+              "startBeats": 16.0,
+              "lengthBeats": 7.5,
+              "velocity": 88
+            },
+            {
+              "pitch": 71,
+              "startBeats": 16.0,
+              "lengthBeats": 7.5,
+              "velocity": 82
+            },
+            {
+              "pitch": 55,
+              "startBeats": 24.0,
+              "lengthBeats": 7.5,
+              "velocity": 88
+            },
+            {
+              "pitch": 59,
+              "startBeats": 24.0,
+              "lengthBeats": 7.5,
+              "velocity": 86
+            },
+            {
+              "pitch": 62,
+              "startBeats": 24.0,
+              "lengthBeats": 7.5,
+              "velocity": 88
+            },
+            {
+              "pitch": 65,
+              "startBeats": 24.0,
+              "lengthBeats": 7.5,
+              "velocity": 82
+            }
+          ]
+        }
+      },
+      "mixer": {
+        "volumeDb": -6.0,
+        "pan": -0.05,
+        "mute": false,
+        "solo": false,
+        "sends": [
+          {
+            "busId": "reverb",
+            "levelDb": -12.0
+          }
+        ]
+      }
+    },
+    {
+      "id": "bass",
+      "name": "Bass",
+      "kind": "midi",
+      "instrument": "sampler",
+      "clips": [
+        {
+          "name": "roots",
+          "startBar": 1,
+          "lengthBars": 32,
+          "pattern": "roots_8bar"
+        }
+      ],
+      "patterns": {
+        "roots_8bar": {
+          "lengthBars": 8,
+          "notes": [
+            {
+              "pitch": 33,
+              "startBeats": 0.0,
+              "lengthBeats": 3.5,
+              "velocity": 96
+            },
+            {
+              "pitch": 33,
+              "startBeats": 4.0,
+              "lengthBeats": 3.5,
+              "velocity": 90
+            },
+            {
+              "pitch": 29,
+              "startBeats": 8.0,
+              "lengthBeats": 3.5,
+              "velocity": 96
+            },
+            {
+              "pitch": 29,
+              "startBeats": 12.0,
+              "lengthBeats": 3.5,
+              "velocity": 90
+            },
+            {
+              "pitch": 36,
+              "startBeats": 16.0,
+              "lengthBeats": 3.5,
+              "velocity": 96
+            },
+            {
+              "pitch": 36,
+              "startBeats": 20.0,
+              "lengthBeats": 3.5,
+              "velocity": 90
+            },
+            {
+              "pitch": 31,
+              "startBeats": 24.0,
+              "lengthBeats": 3.5,
+              "velocity": 96
+            },
+            {
+              "pitch": 31,
+              "startBeats": 28.0,
+              "lengthBeats": 3.5,
+              "velocity": 90
+            }
+          ]
+        }
+      },
+      "mixer": {
+        "volumeDb": -4.0,
+        "pan": 0.0,
+        "mute": false,
+        "solo": false,
+        "sends": []
+      }
+    },
+    {
+      "id": "melody",
+      "name": "Lead",
+      "kind": "midi",
+      "instrument": "synth",
+      "clips": [
+        {
+          "name": "motif",
+          "startBar": 9,
+          "lengthBars": 8,
+          "pattern": "motif"
+        },
+        {
+          "name": "motif",
+          "startBar": 25,
+          "lengthBars": 8,
+          "pattern": "motif"
+        }
+      ],
+      "patterns": {
+        "motif": {
+          "lengthBars": 8,
+          "notes": [
+            {
+              "pitch": 76,
+              "startBeats": 0.5,
+              "lengthBeats": 1.5,
+              "velocity": 84
+            },
+            {
+              "pitch": 72,
+              "startBeats": 2.0,
+              "lengthBeats": 1.0,
+              "velocity": 80
+            },
+            {
+              "pitch": 69,
+              "startBeats": 3.0,
+              "lengthBeats": 2.0,
+              "velocity": 82
+            },
+            {
+              "pitch": 72,
+              "startBeats": 8.5,
+              "lengthBeats": 1.5,
+              "velocity": 84
+            },
+            {
+              "pitch": 69,
+              "startBeats": 10.0,
+              "lengthBeats": 2.0,
+              "velocity": 80
+            },
+            {
+              "pitch": 76,
+              "startBeats": 16.5,
+              "lengthBeats": 1.5,
+              "velocity": 84
+            },
+            {
+              "pitch": 79,
+              "startBeats": 18.0,
+              "lengthBeats": 1.0,
+              "velocity": 82
+            },
+            {
+              "pitch": 76,
+              "startBeats": 19.0,
+              "lengthBeats": 2.0,
+              "velocity": 80
+            },
+            {
+              "pitch": 74,
+              "startBeats": 24.5,
+              "lengthBeats": 3.0,
+              "velocity": 82
+            }
+          ]
+        }
+      },
+      "mixer": {
+        "volumeDb": -9.0,
+        "pan": 0.1,
+        "mute": false,
+        "solo": false,
+        "sends": [
+          {
+            "busId": "delay",
+            "levelDb": -12.0
+          },
+          {
+            "busId": "reverb",
+            "levelDb": -10.0
+          }
+        ]
+      }
+    },
+    {
+      "id": "reverb",
+      "name": "Reverb",
+      "kind": "group",
+      "plugins": [
+        {
+          "builtin": "reverb",
+          "parameters": {
+            "room size": 0.7,
+            "wet level": 1.0,
+            "dry level": 0.0
+          }
+        }
+      ],
+      "mixer": {
+        "volumeDb": -3.0,
+        "pan": 0.0,
+        "mute": false,
+        "solo": false,
+        "sends": []
+      }
+    },
+    {
+      "id": "delay",
+      "name": "Delay",
+      "kind": "group",
+      "mixer": {
+        "volumeDb": -3.0,
+        "pan": 0.0,
+        "mute": false,
+        "solo": false,
+        "sends": []
+      }
+    },
+    {
+      "id": "master",
+      "name": "Master",
+      "kind": "master",
+      "mixer": {
+        "volumeDb": 0.0,
+        "pan": 0.0,
+        "mute": false,
+        "solo": false,
+        "sends": []
+      }
+    }
+  ]
+}

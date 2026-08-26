@@ -1,0 +1,198 @@
+#pragma once
+
+/** One Task Run's worth of tool calls, driven through the socket protocol
+    against a real project.
+
+    The seam the spec names for this area is the protocol, so a tool assertion
+    is made on what came back over a socket from a real child process — never on
+    a C++ call into the tool layer. What the double asked, the service answered,
+    and the project it answered from are all real; only the model asking the
+    questions is not there.
+*/
+
+#include "CollaboratorHarness.h"
+
+#include <duet/collab/ProjectTools.h>
+#include <duet/collab/ToolDispatch.h>
+#include <duet/model/Session.h>
+#include <duet/testing/TestSupport.h>
+
+#include <cstddef>
+#include <mutex>
+#include <string>
+#include <thread>
+#include <utility>
+#include <vector>
+
+namespace duet::testing
+{
+/** One entry of the list the `call-tools` script is given. */
+inline Json toolCall (const std::string& tool, Json arguments = Json::object())
+{
+    Json call = Json::object();
+    call["tool"] = tool;
+    call["args"] = std::move (arguments);
+
+    return call;
+}
+
+/** A call naming one track, which is what three of the five tools take. */
+inline Json toolCall (const std::string& tool, duet::model::TrackRef track)
+{
+    Json arguments = Json::object();
+    arguments["trackId"] = duet::collab::toolId::forTrack (track);
+
+    return toolCall (tool, arguments);
+}
+
+/** Only what a tool run needs of a listener: when the run ended, and how.
+
+    Declared before the harness that reports to it, which is what the seam asks
+    of anyone who attaches — this class holds both, in that order, so a test
+    cannot get it wrong.
+*/
+class RunEnding final : public duet::collab::TaskRunListener
+{
+public:
+    void commentaryDelta (const std::string&, const std::string&) override {}
+    void toolActivity (const std::string&, const std::string&, duet::collab::ToolPhase) override {}
+
+    void runFinished (const std::string&,
+                      duet::collab::RunStatus status,
+                      const std::string& error) override
+    {
+        const std::lock_guard lock (mutex);
+        ended = true;
+        howItEnded = status;
+        why = error;
+    }
+
+    [[nodiscard]] bool hasEnded() const
+    {
+        const std::lock_guard lock (mutex);
+
+        return ended;
+    }
+
+    [[nodiscard]] duet::collab::RunStatus status() const
+    {
+        const std::lock_guard lock (mutex);
+
+        return howItEnded;
+    }
+
+    [[nodiscard]] std::string error() const
+    {
+        const std::lock_guard lock (mutex);
+
+        return why;
+    }
+
+private:
+    mutable std::mutex mutex;
+    bool ended = false;
+    duet::collab::RunStatus howItEnded = duet::collab::RunStatus::failed;
+    std::string why;
+};
+
+/** How long a tool run is given to finish: long enough to spawn a child process
+    and answer a corpus fixture's worth of calls on a loaded machine.
+*/
+inline constexpr int toolRunTimeoutMs = 20000;
+
+class ToolRun
+{
+public:
+    /** Runs every call in order and waits for the run to end.
+
+        The wait pumps the message loop, and it has to: every tool read is
+        marshalled onto the message thread, so a test that blocked here instead
+        would be the thread the answer is waiting for.
+    */
+    ToolRun (duet::model::Session& session,
+             const Json& calls,
+             duet::collab::ProjectReadMarshal marshal = messageThreadMarshal())
+        : tools (session, std::move (marshal)),
+          harness ("call-tools", std::vector<std::string> { calls.dump() })
+    {
+        tools.addTo (registry);
+
+        harness->setMethodHandler ("tool.call",
+                                   [this] (const Json& params) { return registry.call (params); });
+        harness->setTaskRunListener (&ending);
+        harness->start();
+
+        const auto start = harness->startRun ("what is in this project?", {});
+        runId = start.runId;
+        accepted = start.started;
+
+        ran = pumpUntil ([this] { return ending.hasEnded(); }, toolRunTimeoutMs);
+
+        for (const auto& report : harness.reports())
+            if (report.at ("tag") == "tool")
+                answers.push_back (report.at ("payload").at ("response"));
+    }
+
+    /** Whether the run was accepted and reached its ending. */
+    [[nodiscard]] bool finished() const
+    {
+        return accepted && ran && ending.status() == duet::collab::RunStatus::completed;
+    }
+
+    /** The whole JSON-RPC response to each call, in the order they were made.
+
+        A reference and not a copy, deliberately: an assertion reaches into a
+        result, and a result handed over by value dies at the end of the
+        expression that asked for it, taking the reference with it.
+    */
+    [[nodiscard]] const std::vector<Json>& responses() const { return answers; }
+
+    /** What one call answered with, and an empty object when it failed. */
+    [[nodiscard]] const Json& result (std::size_t call) const { return memberOf (call, "result"); }
+
+    /** Why one call failed, and an empty object when it did not. */
+    [[nodiscard]] const Json& error (std::size_t call) const { return memberOf (call, "error"); }
+
+    [[nodiscard]] const std::string& id() const { return runId; }
+
+    /** The thread the service answers tool calls on, which is never the thread
+        a project read happens on.
+    */
+    [[nodiscard]] std::thread::id serviceThread() const { return harness->serviceThreadId(); }
+
+private:
+    [[nodiscard]] const Json& memberOf (std::size_t call, const char* member) const
+    {
+        static const Json nothing = Json::object();
+
+        if (call >= answers.size() || ! answers.at (call).contains (member))
+            return nothing;
+
+        return answers.at (call).at (member);
+    }
+
+    duet::collab::ToolRegistry registry;
+    duet::collab::ProjectTools tools;
+
+    // Before the harness, so that the service is gone before the listener is.
+    RunEnding ending;
+    Harness harness;
+
+    std::vector<Json> answers;
+    std::string runId;
+    bool accepted = false;
+    bool ran = false;
+};
+
+/** The one entry of a track list that names this track. */
+inline Json trackEntry (const Json& listTracks, duet::model::TrackRef track)
+{
+    const auto wanted = duet::collab::toolId::forTrack (track);
+
+    for (const auto& entry : listTracks.at ("tracks"))
+        if (entry.at ("id") == wanted)
+            return entry;
+
+    return Json::object();
+}
+} // namespace duet::testing

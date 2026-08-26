@@ -39,6 +39,7 @@ add_executable(duet_tests
     PluginOpsTests.cpp
     PluginPresetTests.cpp
     ProjectLayoutTests.cpp
+    ProjectToolsTests.cpp
     ProjectAndTransportOpsTests.cpp
     ProjectLifecycleTests.cpp
     ProjectsSettingsTests.cpp
@@ -54,6 +55,7 @@ add_executable(duet_tests
     TaskRunTests.cpp
     TextEncodingTests.cpp
     TimelineGeometryTests.cpp
+    ToolFixtureTests.cpp
     TransportBarTests.cpp
     TrackOpsTests.cpp
     ViewStateTests.cpp
@@ -63,6 +65,7 @@ target_compile_features(duet_tests PRIVATE cxx_std_20)
 target_link_libraries(duet_tests PRIVATE
     duet::app_core
     duet::collab
+    duet::collab_tools
     duet::gui
     duet::model
     duet::persistence

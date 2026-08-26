@@ -1,0 +1,513 @@
+{
+  "id": "fixture-a",
+  "prompt": "The low end turns to mud when everything's playing. What's going on?",
+  "rebuild": {
+    "notes": "Rebuilt from fod077's fixture-a. The kick and the bass share pitch 36; the fod077 file named it C1 on one and C2 on the other, and the rebuild has no note names to disagree about \u2014 a tool result carries pitch and nothing else.",
+    "dropped": [
+      "Auto Filter",
+      "Saturator"
+    ],
+    "bussesAdded": [
+      "reverb",
+      "delay"
+    ]
+  },
+  "arrangement": {
+    "key": "F minor",
+    "tempoBpm": 128,
+    "timeSignature": "4/4",
+    "sections": [
+      {
+        "name": "Intro",
+        "startBar": 1,
+        "endBar": 16
+      },
+      {
+        "name": "Groove",
+        "startBar": 17,
+        "endBar": 48
+      },
+      {
+        "name": "Break",
+        "startBar": 49,
+        "endBar": 56
+      },
+      {
+        "name": "Drop",
+        "startBar": 57,
+        "endBar": 88
+      },
+      {
+        "name": "Outro",
+        "startBar": 89,
+        "endBar": 96
+      }
+    ]
+  },
+  "tracks": [
+    {
+      "id": "kick",
+      "name": "Kick",
+      "kind": "midi",
+      "instrument": "sampler",
+      "clips": [
+        {
+          "name": "kick loop",
+          "startBar": 17,
+          "lengthBars": 32,
+          "pattern": "four_floor"
+        },
+        {
+          "name": "kick loop",
+          "startBar": 57,
+          "lengthBars": 32,
+          "pattern": "four_floor"
+        },
+        {
+          "name": "kick loop",
+          "startBar": 89,
+          "lengthBars": 8,
+          "pattern": "four_floor"
+        }
+      ],
+      "patterns": {
+        "four_floor": {
+          "lengthBars": 1,
+          "notes": [
+            {
+              "pitch": 36,
+              "startBeats": 0.0,
+              "lengthBeats": 0.25,
+              "velocity": 118
+            },
+            {
+              "pitch": 36,
+              "startBeats": 1.0,
+              "lengthBeats": 0.25,
+              "velocity": 114
+            },
+            {
+              "pitch": 36,
+              "startBeats": 2.0,
+              "lengthBeats": 0.25,
+              "velocity": 118
+            },
+            {
+              "pitch": 36,
+              "startBeats": 3.0,
+              "lengthBeats": 0.25,
+              "velocity": 115
+            }
+          ]
+        }
+      },
+      "plugins": [
+        {
+          "builtin": "eq",
+          "parameters": {
+            "Low-pass freq": 28.0,
+            "Low-pass gain": -12.0
+          }
+        }
+      ],
+      "mixer": {
+        "volumeDb": 0.0,
+        "pan": 0.0,
+        "mute": false,
+        "solo": false,
+        "sends": []
+      }
+    },
+    {
+      "id": "bass",
+      "name": "Sub Bass",
+      "kind": "midi",
+      "instrument": "synth",
+      "clips": [
+        {
+          "name": "sub line",
+          "startBar": 17,
+          "lengthBars": 32,
+          "pattern": "sub_line"
+        },
+        {
+          "name": "sub line",
+          "startBar": 57,
+          "lengthBars": 32,
+          "pattern": "sub_line"
+        }
+      ],
+      "patterns": {
+        "sub_line": {
+          "lengthBars": 2,
+          "notes": [
+            {
+              "pitch": 29,
+              "startBeats": 0.0,
+              "lengthBeats": 4.0,
+              "velocity": 100
+            },
+            {
+              "pitch": 32,
+              "startBeats": 4.0,
+              "lengthBeats": 2.0,
+              "velocity": 100
+            },
+            {
+              "pitch": 36,
+              "startBeats": 6.0,
+              "lengthBeats": 2.0,
+              "velocity": 100
+            }
+          ]
+        }
+      },
+      "mixer": {
+        "volumeDb": -1.0,
+        "pan": 0.0,
+        "mute": false,
+        "solo": false,
+        "sends": []
+      }
+    },
+    {
+      "id": "hats",
+      "name": "Hats",
+      "kind": "midi",
+      "instrument": "sampler",
+      "clips": [
+        {
+          "name": "offbeats",
+          "startBar": 25,
+          "lengthBars": 24,
+          "pattern": "offbeat_8ths"
+        },
+        {
+          "name": "offbeats",
+          "startBar": 57,
+          "lengthBars": 32,
+          "pattern": "offbeat_8ths"
+        }
+      ],
+      "patterns": {
+        "offbeat_8ths": {
+          "lengthBars": 1,
+          "notes": [
+            {
+              "pitch": 42,
+              "startBeats": 0.5,
+              "lengthBeats": 0.25,
+              "velocity": 96
+            },
+            {
+              "pitch": 42,
+              "startBeats": 1.5,
+              "lengthBeats": 0.25,
+              "velocity": 92
+            },
+            {
+              "pitch": 42,
+              "startBeats": 2.5,
+              "lengthBeats": 0.25,
+              "velocity": 96
+            },
+            {
+              "pitch": 42,
+              "startBeats": 3.5,
+              "lengthBeats": 0.25,
+              "velocity": 90
+            }
+          ]
+        }
+      },
+      "plugins": [
+        {
+          "builtin": "eq",
+          "parameters": {
+            "Low-pass freq": 300.0,
+            "Low-pass gain": -12.0
+          }
+        }
+      ],
+      "mixer": {
+        "volumeDb": -8.5,
+        "pan": 0.1,
+        "mute": false,
+        "solo": false,
+        "sends": []
+      }
+    },
+    {
+      "id": "clap",
+      "name": "Clap",
+      "kind": "midi",
+      "instrument": "sampler",
+      "clips": [
+        {
+          "name": "backbeat",
+          "startBar": 33,
+          "lengthBars": 16,
+          "pattern": "backbeat"
+        },
+        {
+          "name": "backbeat",
+          "startBar": 57,
+          "lengthBars": 32,
+          "pattern": "backbeat"
+        }
+      ],
+      "patterns": {
+        "backbeat": {
+          "lengthBars": 1,
+          "notes": [
+            {
+              "pitch": 39,
+              "startBeats": 1.0,
+              "lengthBeats": 0.25,
+              "velocity": 104
+            },
+            {
+              "pitch": 39,
+              "startBeats": 3.0,
+              "lengthBeats": 0.25,
+              "velocity": 102
+            }
+          ]
+        }
+      },
+      "mixer": {
+        "volumeDb": -6.0,
+        "pan": 0.0,
+        "mute": false,
+        "solo": false,
+        "sends": [
+          {
+            "busId": "reverb",
+            "levelDb": -14.0
+          }
+        ]
+      }
+    },
+    {
+      "id": "stab",
+      "name": "Stab",
+      "kind": "midi",
+      "instrument": "synth",
+      "clips": [
+        {
+          "name": "fm stab",
+          "startBar": 33,
+          "lengthBars": 16,
+          "pattern": "fm_stab"
+        },
+        {
+          "name": "fm stab",
+          "startBar": 57,
+          "lengthBars": 32,
+          "pattern": "fm_stab"
+        }
+      ],
+      "patterns": {
+        "fm_stab": {
+          "lengthBars": 2,
+          "notes": [
+            {
+              "pitch": 53,
+              "startBeats": 1.5,
+              "lengthBeats": 0.5,
+              "velocity": 98
+            },
+            {
+              "pitch": 56,
+              "startBeats": 1.5,
+              "lengthBeats": 0.5,
+              "velocity": 98
+            },
+            {
+              "pitch": 60,
+              "startBeats": 1.5,
+              "lengthBeats": 0.5,
+              "velocity": 98
+            },
+            {
+              "pitch": 53,
+              "startBeats": 5.0,
+              "lengthBeats": 0.5,
+              "velocity": 94
+            },
+            {
+              "pitch": 56,
+              "startBeats": 5.0,
+              "lengthBeats": 0.5,
+              "velocity": 94
+            },
+            {
+              "pitch": 60,
+              "startBeats": 5.0,
+              "lengthBeats": 0.5,
+              "velocity": 94
+            }
+          ]
+        }
+      },
+      "plugins": [
+        {
+          "builtin": "eq",
+          "parameters": {
+            "Low-pass freq": 150.0,
+            "Low-pass gain": -12.0
+          }
+        }
+      ],
+      "mixer": {
+        "volumeDb": -7.5,
+        "pan": -0.05,
+        "mute": false,
+        "solo": false,
+        "sends": [
+          {
+            "busId": "delay",
+            "levelDb": -12.0
+          },
+          {
+            "busId": "reverb",
+            "levelDb": -10.0
+          }
+        ]
+      }
+    },
+    {
+      "id": "pad",
+      "name": "Dark Pad",
+      "kind": "midi",
+      "instrument": "synth",
+      "clips": [
+        {
+          "name": "break pad",
+          "startBar": 49,
+          "lengthBars": 8,
+          "pattern": "break_pad"
+        }
+      ],
+      "patterns": {
+        "break_pad": {
+          "lengthBars": 8,
+          "notes": [
+            {
+              "pitch": 41,
+              "startBeats": 0.0,
+              "lengthBeats": 16.0,
+              "velocity": 80
+            },
+            {
+              "pitch": 48,
+              "startBeats": 0.0,
+              "lengthBeats": 16.0,
+              "velocity": 80
+            },
+            {
+              "pitch": 56,
+              "startBeats": 0.0,
+              "lengthBeats": 16.0,
+              "velocity": 80
+            },
+            {
+              "pitch": 44,
+              "startBeats": 16.0,
+              "lengthBeats": 16.0,
+              "velocity": 80
+            },
+            {
+              "pitch": 51,
+              "startBeats": 16.0,
+              "lengthBeats": 16.0,
+              "velocity": 80
+            },
+            {
+              "pitch": 60,
+              "startBeats": 16.0,
+              "lengthBeats": 16.0,
+              "velocity": 80
+            }
+          ]
+        }
+      },
+      "plugins": [
+        {
+          "builtin": "eq",
+          "parameters": {
+            "Low-pass freq": 120.0,
+            "Low-pass gain": -12.0
+          }
+        }
+      ],
+      "mixer": {
+        "volumeDb": -10.0,
+        "pan": 0.0,
+        "mute": false,
+        "solo": false,
+        "sends": [
+          {
+            "busId": "reverb",
+            "levelDb": -8.0
+          }
+        ]
+      }
+    },
+    {
+      "id": "reverb",
+      "name": "Reverb",
+      "kind": "group",
+      "plugins": [
+        {
+          "builtin": "reverb",
+          "parameters": {
+            "room size": 0.7,
+            "wet level": 1.0,
+            "dry level": 0.0
+          }
+        }
+      ],
+      "mixer": {
+        "volumeDb": -3.0,
+        "pan": 0.0,
+        "mute": false,
+        "solo": false,
+        "sends": []
+      }
+    },
+    {
+      "id": "delay",
+      "name": "Delay",
+      "kind": "group",
+      "mixer": {
+        "volumeDb": -3.0,
+        "pan": 0.0,
+        "mute": false,
+        "solo": false,
+        "sends": []
+      }
+    },
+    {
+      "id": "master",
+      "name": "Master",
+      "kind": "master",
+      "plugins": [
+        {
+          "builtin": "compressor",
+          "parameters": {
+            "threshold": 0.9661,
+            "ratio": 0.0
+          }
+        }
+      ],
+      "mixer": {
+        "volumeDb": 0.0,
+        "pan": 0.0,
+        "mute": false,
+        "solo": false,
+        "sends": []
+      }
+    }
+  ]
+}

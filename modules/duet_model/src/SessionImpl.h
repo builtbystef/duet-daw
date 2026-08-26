@@ -33,6 +33,22 @@ inline constexpr const char* externalParameterValueProperty = "value";
 inline constexpr const char* masterMutedProperty = "duetMasterMuted";
 inline constexpr const char* masterVolumeDbProperty = "duetMasterVolumeDb";
 
+/** The arrangement's named sections, and the key the project declares.
+
+    Duet's own facts about the project, kept on the Edit's own state tree beside
+    the master's, because that is where the model already keeps what the engine
+    has no place for and because a save copies that tree whole (ADR 0005). The
+    engine has an ArrangerTrack that would hold sections, and Duet does not use
+    it: it is a track, so it would join every track list, every render bit set
+    and every graph the engine builds, to carry three strings.
+*/
+inline constexpr const char* sectionsNode = "DUETSECTIONS";
+inline constexpr const char* sectionNode = "SECTION";
+inline constexpr const char* sectionNameProperty = "name";
+inline constexpr const char* sectionStartBarProperty = "startBar";
+inline constexpr const char* sectionEndBarProperty = "endBar";
+inline constexpr const char* projectKeyProperty = "duetProjectKey";
+
 inline juce::File toJuceFile (const std::filesystem::path& path)
 {
     return juce::File { juce::String { path.string() } };

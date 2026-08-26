@@ -561,3 +561,47 @@ when its Engine was made, went out over it.
 handle the shell holds one through, and each session's Engine is given a
 `SharedPropertyStorage` — a forwarding adapter that owns a reference to the same
 store rather than a second one.
+
+### The engine's ArrangerTrack is a track, and would be counted as one
+
+**The engine.** `ArrangerTrack` holds `ArrangerClip`s — named sections of an
+Edit, moved around as blocks — and it is a `ClipTrack`, so `getAllTracks`
+returns it, a render's track bit set indexes past it, and every graph the engine
+builds walks it. Nothing on `Edit` makes one: there is no `getArrangerTrack`, and
+the type appears in the engine's own sources only in the umbrella header, the
+module build file, and the two `isArrangerTrack` predicates.
+
+**Where.** `model/tracks/tracktion_ArrangerTrack.h` and
+`model/clips/tracktion_ArrangerClip.h`; `te::getAllTracks` in
+`tracktion_TrackUtils.h`.
+
+**Proved.** `v5yhh1`, reading the engine sources while deciding where the
+arrangement's sections live.
+
+**Duet.** Sections are Duet's own state: a `DUETSECTIONS` child on `edit.state`
+holding a name and a bar range each, written through the Edit's UndoManager and
+carried by a save because a save copies that tree whole (ADR 0005). The
+alternative was a whole track, joining every track list and every render bit set,
+to carry three strings.
+
+### A plugin says what its value means, and not always about that value
+
+**The engine.** Every `AutomatableParameter` has a `valueToString`, and `getLabel`
+is empty on all of the engine's own plugins, so the only place a built-in states
+a unit is inside that display string. The string is not always about the value
+beside it: `CompressorPlugin` holds its ratio as 0.05 and displays it as
+`20.00 : 1`, and holds its threshold as a gain of 0.501 and displays it as
+`-6.02 dB`, while `EqualiserPlugin` displays a frequency of 80 as `80 Hz`.
+
+**Where.** `AutomatableParameter::getLabel` and `valueToString` in
+`model/automation/tracktion_AutomatableParameter.h`; the parameter definitions at
+the top of `plugins/effects/tracktion_Compressor.cpp` and the
+`EQAutomatableParameter` in `plugins/effects/tracktion_Equaliser.cpp`.
+
+**Proved.** `v5yhh1`, giving `PluginParameterInfo` a unit for the Tool
+Vocabulary.
+
+**Duet.** `PluginParameterInfo::unit` is the text after the number in the display
+string, and only when that number is the value — within a part in a hundred of
+it, since a display rounds. A parameter whose display says something else about
+itself has no unit rather than one that would misdescribe the number beside it.

@@ -4,9 +4,11 @@
 
 #include <algorithm>
 #include <array>
+#include <charconv>
 #include <cmath>
 #include <sstream>
 #include <stdexcept>
+#include <string_view>
 #include <unordered_set>
 #include <utility>
 
@@ -395,6 +397,43 @@ namespace
         return noTrack;
     }
 
+    /** The unit a plugin's own display string states this value in.
+
+        A plugin says what its number means in the text beside it — "80 Hz",
+        "-3.00 dB", "100.0 ms" — and everything after the number is the unit.
+        Only when the number in the text IS this value, though: a plugin may
+        display something else about a parameter instead, as the compressor
+        displays a ratio of 0.05 as "20.00 : 1" and a threshold of 0.501 as
+        "-6.02 dB", and a unit taken from either of those would say the value is
+        something it is not. There is no unit rather than a wrong one.
+    */
+    std::string unitOf (const std::string& displayValue, double value)
+    {
+        constexpr std::string_view blanks = " \t";
+
+        auto text = std::string_view { displayValue };
+        text.remove_prefix (std::min (text.find_first_not_of (blanks), text.size()));
+
+        double displayed = 0.0;
+        const auto* const end = text.data() + text.size();
+        const auto parsed = std::from_chars (text.data(), end, displayed);
+
+        if (parsed.ec != std::errc {})
+            return {};
+
+        // A displayed number is rounded, so it is this value when it is within a
+        // part in a hundred of it.
+        if (std::abs (displayed - value) > std::max (0.01, 0.01 * std::abs (value)))
+            return {};
+
+        auto rest = text.substr (static_cast<std::size_t> (parsed.ptr - text.data()));
+        rest.remove_prefix (std::min (rest.find_first_not_of (blanks), rest.size()));
+
+        const auto last = rest.find_last_not_of (blanks);
+
+        return std::string { last == std::string_view::npos ? rest : rest.substr (0, last + 1) };
+    }
+
     PluginInfo describe (te::Plugin& plugin)
     {
         PluginInfo info;
@@ -403,6 +442,7 @@ namespace
         info.builtin = builtinOf (plugin);
         info.sidechainSource = toRef<TrackRef> (plugin.getSidechainSourceID());
         info.bypassed = ! plugin.isEnabled();
+        info.latencySeconds = plugin.getLatencySeconds();
 
         if (auto* external = dynamic_cast<te::ExternalPlugin*> (&plugin))
         {
@@ -564,13 +604,18 @@ std::vector<PluginParameterInfo> Session::pluginParameters (PluginRef plugin) co
         return out;
 
     for (auto* parameter : p->getAutomatableParameters())
-        out.push_back (
-            { parameter->paramID.toStdString(),
-              parameter->getParameterName().toStdString(),
-              parameter->getCurrentExplicitValue(),
-              parameter->getValueRange().getStart(),
-              parameter->getValueRange().getEnd(),
-              parameter->valueToString (parameter->getCurrentExplicitValue()).toStdString() });
+    {
+        const auto displayValue =
+            parameter->valueToString (parameter->getCurrentExplicitValue()).toStdString();
+
+        out.push_back ({ parameter->paramID.toStdString(),
+                         parameter->getParameterName().toStdString(),
+                         parameter->getCurrentExplicitValue(),
+                         parameter->getValueRange().getStart(),
+                         parameter->getValueRange().getEnd(),
+                         displayValue,
+                         unitOf (displayValue, parameter->getCurrentExplicitValue()) });
+    }
 
     return out;
 }
@@ -639,6 +684,39 @@ TimeSignature Session::timeSignature() const
 }
 
 double Session::editLengthSeconds() const { return impl->edit->getLength().inSeconds(); }
+
+double Session::barAtSeconds (double seconds) const
+{
+    // The engine counts whole bars elapsed and the producer counts bars, one
+    // apart, which is the same offset barStartSeconds takes off on the way in.
+    return impl->edit->tempoSequence.toBarsAndBeats (te::TimePosition::fromSeconds (seconds))
+               .getTotalBars()
+           + 1.0;
+}
+
+double Session::beatsAtSeconds (double seconds) const
+{
+    return impl->edit->tempoSequence.toBeats (te::TimePosition::fromSeconds (seconds)).inBeats();
+}
+
+std::vector<SectionInfo> Session::sections() const
+{
+    std::vector<SectionInfo> out;
+
+    const auto list = impl->edit->state.getChildWithName (juce::Identifier { sectionsNode });
+
+    for (const auto& entry : list)
+        out.push_back ({ entry[juce::Identifier { sectionNameProperty }].toString().toStdString(),
+                         static_cast<int> (entry[juce::Identifier { sectionStartBarProperty }]),
+                         static_cast<int> (entry[juce::Identifier { sectionEndBarProperty }]) });
+
+    return out;
+}
+
+std::string Session::key() const
+{
+    return impl->edit->state[juce::Identifier { projectKeyProperty }].toString().toStdString();
+}
 
 double Session::barStartSeconds (int bar) const
 {

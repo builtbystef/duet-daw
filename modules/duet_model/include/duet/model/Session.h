@@ -246,6 +246,14 @@ struct PluginInfo
 
     /** True when the plugin remains in the chain but does not process audio. */
     bool bypassed = false;
+
+    /** How far the plugin delays what passes through it, in seconds.
+
+        Seconds and not samples, because a delay in samples is only a number
+        once a sample rate is chosen, and the project does not choose one: the
+        rate belongs to whatever device or render the project is played through.
+    */
+    double latencySeconds = 0.0;
 };
 
 /** One of a plugin's parameters. A built-in's value is in the real units the
@@ -262,6 +270,18 @@ struct PluginParameterInfo
 
     /** The plugin's own display string for this value. */
     std::string displayValue;
+
+    /** What the value is measured in — "dB", "Hz", "ms" — and empty for a
+        parameter that is a plain number, a named choice, or one whose display
+        string says something other than this value.
+
+        Read from the display string, which is where a plugin says what its own
+        number means: the text after the number is the unit, and only when that
+        number is this value. A compressor that holds a ratio as 0.05 and
+        displays it as "20.00 : 1" has no unit here, because "0.05 : 1" would be
+        a lie about the value beside it.
+    */
+    std::string unit;
 };
 
 /** A track's send into a bus. */
@@ -396,7 +416,6 @@ struct PluginScanResult
     std::vector<std::filesystem::path> badFiles;
 };
 
-/** How many beats are in a bar, and what a beat is. */
 /** A stretch of the timeline, in seconds. */
 struct LoopRange
 {
@@ -404,10 +423,23 @@ struct LoopRange
     double endSeconds = 0.0;
 };
 
+/** How many beats are in a bar, and what a beat is. */
 struct TimeSignature
 {
     int numerator = 4;
     int denominator = 4;
+};
+
+/** One named stretch of the arrangement — an intro, a drop, an outro.
+
+    Bars count from one, and both ends are in it: an eight-bar intro at the
+    start of the project runs from bar 1 to bar 8.
+*/
+struct SectionInfo
+{
+    std::string name;
+    int startBar = 1;
+    int endBar = 1;
 };
 
 /** The edit operations, callable only from inside an Action.
@@ -595,6 +627,22 @@ public:
 
     void setTempo (double bpm);
     void setTimeSignature (int numerator, int denominator);
+
+    /** States the arrangement's named sections, replacing whatever it had.
+
+        The whole list at once, like an automation curve's points: a section is
+        only meaningful beside the others, and stating them together is what
+        keeps a rename and a resize from being two Actions.
+    */
+    void setSections (const std::vector<SectionInfo>& sections);
+
+    /** States the key the project is in — "F minor", "C", whatever the
+        producer calls it — and an empty key is a project that declares none.
+
+        Duet does not parse it. A key is what the producer says the music is in,
+        and a tool that reads it back reads it back as a fact for that reason.
+    */
+    void setKey (std::string_view key);
 
 private:
     friend class Session;
@@ -860,6 +908,24 @@ public:
         counts them.
     */
     [[nodiscard]] double barStartSeconds (int bar) const;
+
+    /** Which bar a moment falls in, counting from one, and fractional through
+        the bar: the start of bar 5 is 5.0 and its middle is 5.5.
+
+        The inverse of barStartSeconds, and what turns a length in seconds into
+        one in bars — the difference between the two ends.
+    */
+    [[nodiscard]] double barAtSeconds (double seconds) const;
+
+    /** How many beats into the project a moment is, counting from zero. */
+    [[nodiscard]] double beatsAtSeconds (double seconds) const;
+
+    /** The arrangement's named sections, in the order the producer put them. */
+    [[nodiscard]] std::vector<SectionInfo> sections() const;
+
+    /** The key the project declares it is in, and empty when it declares none.
+    */
+    [[nodiscard]] std::string key() const;
 
     /** The fader level automation is driving a track to right now, in decibels.
         Equal to the track's volumeDb until playback hands the fader to a curve.

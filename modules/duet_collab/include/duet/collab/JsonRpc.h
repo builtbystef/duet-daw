@@ -13,13 +13,20 @@ namespace duet::collab
     is part of this module's public interface rather than hidden behind it: a
     tool result and a Task Run event are JSON objects and there is nothing to be
     gained by copying them into a second shape on the way through.
+
+    Objects keep the order they were written in rather than sorting their keys,
+    which is the prompt-cache discipline the spec asks of every tool result: a
+    result states its stable content first and the content an edit moves last,
+    so that a fader change invalidates the tail of a cached prefix instead of
+    its middle. Two objects with the same members in a different order are
+    therefore not equal — compare members, not whole objects.
 */
-using Json = nlohmann::json;
+using Json = nlohmann::ordered_json;
 
 /** The JSON-RPC 2.0 error codes this seam answers with.
 
-    The first five are the specification's own. The last two are Duet's, and sit
-    inside the -32099..-32000 range the specification reserves for an
+    The first five are the specification's own. The last three are Duet's, and
+    sit inside the -32099..-32000 range the specification reserves for an
     implementation's own server errors.
 */
 namespace rpcError
@@ -31,6 +38,7 @@ namespace rpcError
     inline constexpr int internalError = -32603;
     inline constexpr int sidecarUnavailable = -32000;
     inline constexpr int runAlreadyActive = -32001;
+    inline constexpr int unknownTool = -32002;
 } // namespace rpcError
 
 /** The error member of a JSON-RPC response. */

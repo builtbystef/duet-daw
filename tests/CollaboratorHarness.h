@@ -82,11 +82,21 @@ public:
     */
     explicit Harness (const std::string& script = "obey",
                       const std::filesystem::path& executable = DUET_SIDECAR_DOUBLE)
+        : Harness (script, {}, executable)
+    {
+    }
+
+    /** The same, for a script that takes an argument of its own. */
+    Harness (const std::string& script,
+             const std::vector<std::string>& scriptArguments,
+             const std::filesystem::path& executable = DUET_SIDECAR_DOUBLE)
     {
         CollaboratorService::Configuration configuration;
         configuration.socketPath = folder.socketPath();
         configuration.sidecar.executable = executable;
         configuration.sidecar.arguments = { script };
+        configuration.sidecar.arguments.insert (
+            configuration.sidecar.arguments.end(), scriptArguments.begin(), scriptArguments.end());
         configuration.requestTimeout = 5s;
         configuration.sidecarStartTimeout = 5s;
         configuration.sidecarStopTimeout = 2s;

@@ -1015,4 +1015,39 @@ void EditOps::setTimeSignature (int numerator, int denominator)
         timeSig->denominator = denominator;
     }
 }
+
+void EditOps::setSections (const std::vector<SectionInfo>& sections)
+{
+    auto* undoManager = &session.impl->undoManager();
+    auto list = session.impl->edit->state.getOrCreateChildWithName (
+        juce::Identifier { sectionsNode }, undoManager);
+
+    list.removeAllChildren (undoManager);
+
+    for (const auto& section : sections)
+    {
+        // The properties go on before the child does, so the whole section is
+        // one undoable addition rather than one addition and three writes.
+        juce::ValueTree entry { juce::Identifier { sectionNode } };
+        entry.setProperty (
+            juce::Identifier { sectionNameProperty }, toJuceString (section.name), nullptr);
+        entry.setProperty (juce::Identifier { sectionStartBarProperty }, section.startBar, nullptr);
+        entry.setProperty (juce::Identifier { sectionEndBarProperty }, section.endBar, nullptr);
+
+        list.appendChild (entry, undoManager);
+    }
+}
+
+void EditOps::setKey (std::string_view key)
+{
+    const juce::Identifier property { projectKeyProperty };
+    auto* undoManager = &session.impl->undoManager();
+
+    // No property at all is what "declares none" is, so that a project that has
+    // never named a key and one whose key was cleared are the same project.
+    if (key.empty())
+        session.impl->edit->state.removeProperty (property, undoManager);
+    else
+        session.impl->edit->state.setProperty (property, toJuceString (key), undoManager);
+}
 } // namespace duet::model

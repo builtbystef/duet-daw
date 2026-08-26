@@ -1,0 +1,766 @@
+{
+  "id": "fixture-f",
+  "prompt": "Give me honest feedback on this one before I send it to a friend.",
+  "rebuild": {
+    "notes": "Rebuilt from fod077's fixture-f, the control. Its pad held Dm and F across the Rhodes' Bb and Am bars, which fod077 recorded as a fixture bug rather than deliberate colour; the pad is voiced to follow the changes here, so the control is unambiguous. Its filter sweep in the break is an EQ sweep: Duet's built-ins have no filter, and an EQ frequency is the same gesture on the devices Duet ships.",
+    "dropped": [
+      "Auto Filter"
+    ],
+    "bussesAdded": [
+      "reverb",
+      "delay"
+    ]
+  },
+  "arrangement": {
+    "key": "D minor",
+    "tempoBpm": 121,
+    "timeSignature": "4/4",
+    "sections": [
+      {
+        "name": "Intro",
+        "startBar": 1,
+        "endBar": 8
+      },
+      {
+        "name": "Groove",
+        "startBar": 9,
+        "endBar": 24
+      },
+      {
+        "name": "Break",
+        "startBar": 25,
+        "endBar": 32
+      },
+      {
+        "name": "Main",
+        "startBar": 33,
+        "endBar": 56
+      },
+      {
+        "name": "Outro",
+        "startBar": 57,
+        "endBar": 64
+      }
+    ]
+  },
+  "tracks": [
+    {
+      "id": "kick",
+      "name": "Kick",
+      "kind": "midi",
+      "instrument": "sampler",
+      "clips": [
+        {
+          "name": "kick",
+          "startBar": 1,
+          "lengthBars": 24,
+          "pattern": "four_floor"
+        },
+        {
+          "name": "kick",
+          "startBar": 33,
+          "lengthBars": 24,
+          "pattern": "four_floor"
+        },
+        {
+          "name": "kick out",
+          "startBar": 57,
+          "lengthBars": 8,
+          "pattern": "four_floor"
+        }
+      ],
+      "patterns": {
+        "four_floor": {
+          "lengthBars": 1,
+          "notes": [
+            {
+              "pitch": 36,
+              "startBeats": 0.0,
+              "lengthBeats": 0.25,
+              "velocity": 114
+            },
+            {
+              "pitch": 36,
+              "startBeats": 1.0,
+              "lengthBeats": 0.25,
+              "velocity": 108
+            },
+            {
+              "pitch": 36,
+              "startBeats": 2.0,
+              "lengthBeats": 0.25,
+              "velocity": 114
+            },
+            {
+              "pitch": 36,
+              "startBeats": 3.0,
+              "lengthBeats": 0.25,
+              "velocity": 110
+            }
+          ]
+        }
+      },
+      "plugins": [
+        {
+          "builtin": "eq",
+          "parameters": {
+            "Low-pass freq": 30.0,
+            "Low-pass gain": -12.0
+          }
+        }
+      ],
+      "mixer": {
+        "volumeDb": 0.0,
+        "pan": 0.0,
+        "mute": false,
+        "solo": false,
+        "sends": []
+      }
+    },
+    {
+      "id": "hats",
+      "name": "Hats",
+      "kind": "midi",
+      "instrument": "sampler",
+      "clips": [
+        {
+          "name": "hats",
+          "startBar": 5,
+          "lengthBars": 20,
+          "pattern": "hat_groove"
+        },
+        {
+          "name": "hats",
+          "startBar": 33,
+          "lengthBars": 24,
+          "pattern": "hat_groove"
+        }
+      ],
+      "patterns": {
+        "hat_groove": {
+          "lengthBars": 2,
+          "notes": [
+            {
+              "pitch": 42,
+              "startBeats": 0.5,
+              "lengthBeats": 0.2,
+              "velocity": 98
+            },
+            {
+              "pitch": 42,
+              "startBeats": 1.5,
+              "lengthBeats": 0.2,
+              "velocity": 86
+            },
+            {
+              "pitch": 42,
+              "startBeats": 2.5,
+              "lengthBeats": 0.2,
+              "velocity": 96
+            },
+            {
+              "pitch": 42,
+              "startBeats": 3.25,
+              "lengthBeats": 0.2,
+              "velocity": 72
+            },
+            {
+              "pitch": 42,
+              "startBeats": 3.5,
+              "lengthBeats": 0.2,
+              "velocity": 90
+            },
+            {
+              "pitch": 42,
+              "startBeats": 4.5,
+              "lengthBeats": 0.2,
+              "velocity": 98
+            },
+            {
+              "pitch": 42,
+              "startBeats": 5.5,
+              "lengthBeats": 0.2,
+              "velocity": 84
+            },
+            {
+              "pitch": 42,
+              "startBeats": 6.5,
+              "lengthBeats": 0.2,
+              "velocity": 96
+            },
+            {
+              "pitch": 42,
+              "startBeats": 7.5,
+              "lengthBeats": 0.2,
+              "velocity": 88
+            }
+          ]
+        }
+      },
+      "mixer": {
+        "volumeDb": -9.5,
+        "pan": 0.08,
+        "mute": false,
+        "solo": false,
+        "sends": [
+          {
+            "busId": "reverb",
+            "levelDb": -20.0
+          }
+        ]
+      }
+    },
+    {
+      "id": "shaker",
+      "name": "Shaker",
+      "kind": "audio",
+      "clips": [
+        {
+          "name": "shaker",
+          "startBar": 9,
+          "lengthBars": 16
+        },
+        {
+          "name": "shaker",
+          "startBar": 33,
+          "lengthBars": 24
+        }
+      ],
+      "mixer": {
+        "volumeDb": -13.0,
+        "pan": -0.12,
+        "mute": false,
+        "solo": false,
+        "sends": []
+      }
+    },
+    {
+      "id": "bass",
+      "name": "Bass",
+      "kind": "midi",
+      "instrument": "synth",
+      "clips": [
+        {
+          "name": "bassline",
+          "startBar": 9,
+          "lengthBars": 16,
+          "pattern": "bass_2bar"
+        },
+        {
+          "name": "bassline",
+          "startBar": 33,
+          "lengthBars": 24,
+          "pattern": "bass_2bar"
+        }
+      ],
+      "patterns": {
+        "bass_2bar": {
+          "lengthBars": 2,
+          "notes": [
+            {
+              "pitch": 38,
+              "startBeats": 0.5,
+              "lengthBeats": 0.75,
+              "velocity": 100
+            },
+            {
+              "pitch": 38,
+              "startBeats": 1.5,
+              "lengthBeats": 0.4,
+              "velocity": 92
+            },
+            {
+              "pitch": 41,
+              "startBeats": 2.5,
+              "lengthBeats": 0.75,
+              "velocity": 98
+            },
+            {
+              "pitch": 45,
+              "startBeats": 3.75,
+              "lengthBeats": 0.2,
+              "velocity": 88
+            },
+            {
+              "pitch": 36,
+              "startBeats": 4.5,
+              "lengthBeats": 0.75,
+              "velocity": 100
+            },
+            {
+              "pitch": 36,
+              "startBeats": 5.5,
+              "lengthBeats": 0.4,
+              "velocity": 92
+            },
+            {
+              "pitch": 33,
+              "startBeats": 6.5,
+              "lengthBeats": 1.25,
+              "velocity": 98
+            }
+          ]
+        }
+      },
+      "plugins": [
+        {
+          "builtin": "eq",
+          "parameters": {
+            "Low-pass freq": 25.0,
+            "Low-pass gain": -12.0
+          }
+        },
+        {
+          "builtin": "compressor",
+          "parameters": {
+            "ratio": 0.25,
+            "threshold": 0.0631,
+            "attack": 1.0,
+            "release": 85.0
+          }
+        }
+      ],
+      "mixer": {
+        "volumeDb": -2.5,
+        "pan": 0.0,
+        "mute": false,
+        "solo": false,
+        "sends": []
+      }
+    },
+    {
+      "id": "chords",
+      "name": "Rhodes",
+      "kind": "midi",
+      "instrument": "sampler",
+      "clips": [
+        {
+          "name": "chords",
+          "startBar": 9,
+          "lengthBars": 16,
+          "pattern": "chords_4bar"
+        },
+        {
+          "name": "chords",
+          "startBar": 25,
+          "lengthBars": 8,
+          "pattern": "chords_4bar"
+        },
+        {
+          "name": "chords",
+          "startBar": 33,
+          "lengthBars": 24,
+          "pattern": "chords_4bar"
+        }
+      ],
+      "patterns": {
+        "chords_4bar": {
+          "lengthBars": 4,
+          "notes": [
+            {
+              "pitch": 62,
+              "startBeats": 1.5,
+              "lengthBeats": 1.25,
+              "velocity": 92
+            },
+            {
+              "pitch": 65,
+              "startBeats": 1.5,
+              "lengthBeats": 1.25,
+              "velocity": 90
+            },
+            {
+              "pitch": 69,
+              "startBeats": 1.5,
+              "lengthBeats": 1.25,
+              "velocity": 92
+            },
+            {
+              "pitch": 72,
+              "startBeats": 1.5,
+              "lengthBeats": 1.25,
+              "velocity": 86
+            },
+            {
+              "pitch": 60,
+              "startBeats": 5.5,
+              "lengthBeats": 1.25,
+              "velocity": 90
+            },
+            {
+              "pitch": 65,
+              "startBeats": 5.5,
+              "lengthBeats": 1.25,
+              "velocity": 88
+            },
+            {
+              "pitch": 69,
+              "startBeats": 5.5,
+              "lengthBeats": 1.25,
+              "velocity": 90
+            },
+            {
+              "pitch": 58,
+              "startBeats": 9.5,
+              "lengthBeats": 1.25,
+              "velocity": 92
+            },
+            {
+              "pitch": 62,
+              "startBeats": 9.5,
+              "lengthBeats": 1.25,
+              "velocity": 90
+            },
+            {
+              "pitch": 65,
+              "startBeats": 9.5,
+              "lengthBeats": 1.25,
+              "velocity": 92
+            },
+            {
+              "pitch": 57,
+              "startBeats": 13.5,
+              "lengthBeats": 1.25,
+              "velocity": 90
+            },
+            {
+              "pitch": 60,
+              "startBeats": 13.5,
+              "lengthBeats": 1.25,
+              "velocity": 88
+            },
+            {
+              "pitch": 64,
+              "startBeats": 13.5,
+              "lengthBeats": 1.25,
+              "velocity": 90
+            }
+          ]
+        }
+      },
+      "plugins": [
+        {
+          "builtin": "eq",
+          "parameters": {
+            "Low-pass freq": 160.0,
+            "Low-pass gain": -12.0,
+            "Mid freq 1": 350.0,
+            "Mid gain 1": -2.0
+          }
+        },
+        {
+          "builtin": "compressor",
+          "parameters": {
+            "ratio": 0.4,
+            "threshold": 0.0794,
+            "attack": 15.0,
+            "release": 150.0
+          }
+        }
+      ],
+      "mixer": {
+        "volumeDb": -7.0,
+        "pan": -0.05,
+        "mute": false,
+        "solo": false,
+        "sends": [
+          {
+            "busId": "reverb",
+            "levelDb": -11.0
+          }
+        ]
+      }
+    },
+    {
+      "id": "pluck",
+      "name": "Pluck",
+      "kind": "midi",
+      "instrument": "synth",
+      "clips": [
+        {
+          "name": "pluck",
+          "startBar": 17,
+          "lengthBars": 8,
+          "pattern": "pluck_motif"
+        },
+        {
+          "name": "pluck",
+          "startBar": 41,
+          "lengthBars": 16,
+          "pattern": "pluck_motif"
+        }
+      ],
+      "patterns": {
+        "pluck_motif": {
+          "lengthBars": 4,
+          "notes": [
+            {
+              "pitch": 74,
+              "startBeats": 0.5,
+              "lengthBeats": 0.4,
+              "velocity": 88
+            },
+            {
+              "pitch": 77,
+              "startBeats": 1.75,
+              "lengthBeats": 0.4,
+              "velocity": 82
+            },
+            {
+              "pitch": 81,
+              "startBeats": 3.0,
+              "lengthBeats": 0.75,
+              "velocity": 86
+            },
+            {
+              "pitch": 77,
+              "startBeats": 6.5,
+              "lengthBeats": 0.4,
+              "velocity": 84
+            },
+            {
+              "pitch": 72,
+              "startBeats": 8.5,
+              "lengthBeats": 0.4,
+              "velocity": 88
+            },
+            {
+              "pitch": 76,
+              "startBeats": 10.0,
+              "lengthBeats": 0.75,
+              "velocity": 84
+            },
+            {
+              "pitch": 74,
+              "startBeats": 14.5,
+              "lengthBeats": 1.0,
+              "velocity": 86
+            }
+          ]
+        }
+      },
+      "mixer": {
+        "volumeDb": -9.0,
+        "pan": 0.15,
+        "mute": false,
+        "solo": false,
+        "sends": [
+          {
+            "busId": "delay",
+            "levelDb": -9.0
+          },
+          {
+            "busId": "reverb",
+            "levelDb": -14.0
+          }
+        ]
+      }
+    },
+    {
+      "id": "pad",
+      "name": "Pad",
+      "kind": "midi",
+      "instrument": "synth",
+      "clips": [
+        {
+          "name": "pad",
+          "startBar": 25,
+          "lengthBars": 8,
+          "pattern": "pad_break"
+        },
+        {
+          "name": "pad",
+          "startBar": 33,
+          "lengthBars": 24,
+          "pattern": "pad_break"
+        }
+      ],
+      "patterns": {
+        "pad_break": {
+          "lengthBars": 4,
+          "notes": [
+            {
+              "pitch": 50,
+              "startBeats": 0.0,
+              "lengthBeats": 4.0,
+              "velocity": 76
+            },
+            {
+              "pitch": 57,
+              "startBeats": 0.0,
+              "lengthBeats": 4.0,
+              "velocity": 76
+            },
+            {
+              "pitch": 65,
+              "startBeats": 0.0,
+              "lengthBeats": 4.0,
+              "velocity": 76
+            },
+            {
+              "pitch": 53,
+              "startBeats": 4.0,
+              "lengthBeats": 4.0,
+              "velocity": 76
+            },
+            {
+              "pitch": 60,
+              "startBeats": 4.0,
+              "lengthBeats": 4.0,
+              "velocity": 76
+            },
+            {
+              "pitch": 69,
+              "startBeats": 4.0,
+              "lengthBeats": 4.0,
+              "velocity": 76
+            },
+            {
+              "pitch": 46,
+              "startBeats": 8.0,
+              "lengthBeats": 4.0,
+              "velocity": 76
+            },
+            {
+              "pitch": 53,
+              "startBeats": 8.0,
+              "lengthBeats": 4.0,
+              "velocity": 76
+            },
+            {
+              "pitch": 62,
+              "startBeats": 8.0,
+              "lengthBeats": 4.0,
+              "velocity": 76
+            },
+            {
+              "pitch": 45,
+              "startBeats": 12.0,
+              "lengthBeats": 4.0,
+              "velocity": 76
+            },
+            {
+              "pitch": 52,
+              "startBeats": 12.0,
+              "lengthBeats": 4.0,
+              "velocity": 76
+            },
+            {
+              "pitch": 60,
+              "startBeats": 12.0,
+              "lengthBeats": 4.0,
+              "velocity": 76
+            }
+          ]
+        }
+      },
+      "plugins": [
+        {
+          "builtin": "eq",
+          "parameters": {
+            "Low-pass freq": 240.0,
+            "Low-pass gain": -12.0
+          }
+        }
+      ],
+      "automation": [
+        {
+          "target": {
+            "pluginIndex": 0,
+            "paramId": "High-pass freq"
+          },
+          "points": [
+            {
+              "timeBeats": 96,
+              "value": 400.0
+            },
+            {
+              "timeBeats": 124,
+              "value": 6000.0
+            },
+            {
+              "timeBeats": 128,
+              "value": 2200.0
+            }
+          ]
+        }
+      ],
+      "mixer": {
+        "volumeDb": -11.5,
+        "pan": 0.0,
+        "mute": false,
+        "solo": false,
+        "sends": [
+          {
+            "busId": "reverb",
+            "levelDb": -8.0
+          }
+        ]
+      }
+    },
+    {
+      "id": "reverb",
+      "name": "Reverb",
+      "kind": "group",
+      "plugins": [
+        {
+          "builtin": "reverb",
+          "parameters": {
+            "room size": 0.7,
+            "wet level": 1.0,
+            "dry level": 0.0
+          }
+        }
+      ],
+      "mixer": {
+        "volumeDb": -3.0,
+        "pan": 0.0,
+        "mute": false,
+        "solo": false,
+        "sends": []
+      }
+    },
+    {
+      "id": "delay",
+      "name": "Delay",
+      "kind": "group",
+      "mixer": {
+        "volumeDb": -3.0,
+        "pan": 0.0,
+        "mute": false,
+        "solo": false,
+        "sends": []
+      }
+    },
+    {
+      "id": "master",
+      "name": "Master",
+      "kind": "master",
+      "plugins": [
+        {
+          "builtin": "compressor",
+          "parameters": {
+            "ratio": 0.5,
+            "threshold": 0.1585,
+            "attack": 10.0,
+            "release": 300.0
+          }
+        },
+        {
+          "builtin": "compressor",
+          "parameters": {
+            "threshold": 0.8913,
+            "ratio": 0.0
+          }
+        }
+      ],
+      "mixer": {
+        "volumeDb": 0.0,
+        "pan": 0.0,
+        "mute": false,
+        "solo": false,
+        "sends": []
+      }
+    }
+  ]
+}

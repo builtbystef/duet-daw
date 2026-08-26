@@ -80,6 +80,20 @@ private:
 */
 void pumpMessages (int milliseconds);
 
+/** Runs one piece of work on the message thread and waits for it to have run.
+
+    This is what the Collaborator service's own thread marshals a project read
+    through: the message thread is the sole writer of the project model, so a
+    tool reads the authoritative state by going there. The suite supplies it
+    because the Collaborator's own module links no JUCE and cannot.
+
+    Whoever calls it from another thread owes the message loop a pump, or
+    nothing there will run. It gives up after a while rather than waiting for
+    ever, so a suite that forgot fails an assertion instead of hanging.
+*/
+using MessageThreadCall = std::function<void (const std::function<void()>&)>;
+[[nodiscard]] MessageThreadCall messageThreadMarshal();
+
 /** How long pumpUntil runs the message loop before it gives up on a condition.
 
     Under the four seconds of the engine's own device-list rebuild timer, so

@@ -28,6 +28,12 @@ namespace
     */
     constexpr int msPerPumpUntilLook = 5;
 
+    /** How long a marshalled read waits for the message thread before it gives
+        up: longer than any read of the project model takes, and short enough
+        that a suite that stopped pumping fails rather than hangs.
+    */
+    constexpr int marshalTimeoutMs = 10000;
+
     constexpr double toneSampleRate = 44100.0;
     constexpr int toneBitDepth = 16;
     constexpr float toneAmplitude = 0.5F;
@@ -96,6 +102,32 @@ std::filesystem::path TempProject::writeTone (std::string_view fileName,
 void pumpMessages (int milliseconds)
 {
     juce::MessageManager::getInstance()->runDispatchLoopUntil (milliseconds);
+}
+
+MessageThreadCall messageThreadMarshal()
+{
+    return [] (const std::function<void()>& work)
+    {
+        if (juce::MessageManager::getInstance()->isThisTheMessageThread())
+        {
+            work();
+            return;
+        }
+
+        // The work outlives the call only if the wait fails, and the wait
+        // failing is the suite's fault rather than the model's: what it leaves
+        // behind is an unanswered tool call, which reads as a failed assertion.
+        juce::WaitableEvent done;
+
+        juce::MessageManager::callAsync (
+            [&work, &done]
+            {
+                work();
+                done.signal();
+            });
+
+        done.wait (marshalTimeoutMs);
+    };
 }
 
 bool pumpUntil (const std::function<bool()>& condition, int timeoutMilliseconds)

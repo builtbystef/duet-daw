@@ -7,7 +7,7 @@
 // service it talks to, so a test that passes says the protocol works and not
 // that one implementation agrees with itself.
 //
-// Run as: duet_sidecar_double <socket-path> [script]
+// Run as: duet_sidecar_double <socket-path> [script] [script-argument]
 //
 // The script runs once on connecting, and may leave writes for later, released
 // by a chosen inbound request. Otherwise the double obeys — every request gets
@@ -15,7 +15,9 @@
 //
 // The `run-*` scripts are the Task Run ones: each says what this double does
 // when a `run.start` arrives, which is the only way the lifecycle rules can be
-// driven from the far side of the seam.
+// driven from the far side of the seam. `call-tools` is the Tool Vocabulary
+// one: its script argument is a JSON array of the calls to make, each of them
+// `{ tool, args }`, and every answer comes back as a report.
 
 #include <nlohmann/json.hpp>
 
@@ -37,7 +39,11 @@
 
 namespace
 {
-using Json = nlohmann::json;
+/** Ordered, like the service's own: a double that sorted the keys of what it
+    relays would make the prompt-cache discipline unassertable through it, and a
+    real sidecar on a JavaScript runtime does not sort them either.
+*/
+using Json = nlohmann::ordered_json;
 
 constexpr auto connectRetryInterval = std::chrono::milliseconds { 20 };
 constexpr int connectAttempts = 250;
@@ -195,6 +201,24 @@ std::optional<Json> awaitResponse (Connection& connection)
     return std::nullopt;
 }
 
+/** The same, for the answer to one particular request.
+
+    A double that both asks questions and reports what it saw has more than one
+    answer in flight, and the id is the only thing that says which is which:
+    without this, the answer to the last report reads as the answer to the next
+    tool call.
+*/
+std::optional<Json> awaitResponseTo (Connection& connection, int id)
+{
+    while (auto message = awaitResponse (connection))
+    {
+        if (message->value ("id", -1) == id)
+            return message;
+    }
+
+    return std::nullopt;
+}
+
 /** Sends one observation back to the DAW, for the test to assert on. */
 void report (Connection& connection, int id, const std::string& tag, const Json& payload)
 {
@@ -240,10 +264,46 @@ void sendFinished (const Connection& connection,
 */
 void performRun (Connection& connection,
                  const std::string& script,
+                 const std::string& scriptArgument,
                  const Json& params,
                  int runsSeen)
 {
     const auto runId = params.value ("runId", std::string {});
+
+    if (script == "call-tools")
+    {
+        // The Tool Vocabulary driven from the far side of the seam: the script
+        // argument is the list of calls to make, and every answer is reported
+        // back so the assertion about it is made in the suite's own process.
+        const auto calls = Json::parse (scriptArgument, nullptr, false);
+
+        if (calls.is_array())
+        {
+            for (const auto& call : calls)
+            {
+                const auto id = nextReportId();
+
+                connection.send (
+                    request (id,
+                             "tool.call",
+                             Json { { "runId", runId },
+                                    { "callId", "call-" + std::to_string (id) },
+                                    { "tool", call.value ("tool", std::string {}) },
+                                    { "args", call.value ("args", Json::object()) } }));
+
+                const auto answer = awaitResponseTo (connection, id);
+
+                report (connection,
+                        nextReportId(),
+                        "tool",
+                        Json { { "tool", call.value ("tool", std::string {}) },
+                               { "response", answer.value_or (Json()) } });
+            }
+        }
+
+        sendFinished (connection, runId, "completed");
+        return;
+    }
 
     if (script == "run-echo")
     {
@@ -417,8 +477,8 @@ Deferred runScript (Connection& connection, const std::string& script)
     }
 
     // A run script leaves nothing for the connect moment: what it does, it does
-    // when a run starts.
-    if (script.starts_with ("run-"))
+    // when a run starts. So does the Tool Vocabulary one.
+    if (script.starts_with ("run-") || script == "call-tools")
         return {};
 
     std::cerr << "duet_sidecar_double: unknown script " << script << "\n";
@@ -440,6 +500,10 @@ try
     }
 
     const auto script = arguments.size() > 2 ? arguments.at (2) : std::string { "obey" };
+
+    // What a script needs beyond its name: the `call-tools` list of calls, and
+    // nothing at all for every other script.
+    const auto scriptArgument = arguments.size() > 3 ? arguments.at (3) : std::string {};
 
     if (script == "run-slow-hang")
         std::this_thread::sleep_for (slowConnectDelay);
@@ -491,7 +555,11 @@ try
 
         if (method == "run.start")
         {
-            performRun (connection, script, message.value ("params", Json::object()), runsSeen);
+            performRun (connection,
+                        script,
+                        scriptArgument,
+                        message.value ("params", Json::object()),
+                        runsSeen);
             ++runsSeen;
         }
 
