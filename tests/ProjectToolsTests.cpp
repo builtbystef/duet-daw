@@ -594,9 +594,18 @@ TEST_CASE ("the transport keeps rolling while the Collaborator reads the project
     REQUIRE (run.finished());
 
     // Reading the project is not something a producer waits through: the
-    // transport is still rolling and the playhead has moved on.
+    // transport is still rolling. That is asked before anything here pumps the
+    // message loop, so a stop a tool call caused cannot be asked away by the
+    // model's own retry first.
     REQUIRE (session.isPlaying());
-    REQUIRE (session.playbackPositionSeconds() > before);
+
+    // The position the transport publishes moves in steps — the message thread
+    // publishes it, and a step here is one audio block (engine notes, further
+    // facts) — and five reads can cost less than one step. So the playhead
+    // moving on is waited for, not assumed from the run having been long
+    // enough. A tool call that stopped the transport or froze the playhead
+    // never gets past this, and the wait runs out instead.
+    REQUIRE (duet::testing::pumpUntil ([&] { return session.playbackPositionSeconds() > before; }));
 }
 
 TEST_CASE ("a tool result is the same bytes for the same project state, whenever it is asked",
