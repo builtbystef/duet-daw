@@ -656,6 +656,20 @@ struct ParameterUnits
         `toReal`, and never null beside a set one.
     */
     double (*fromReal) (double realValue) = nullptr;
+
+    /** How the producer's number is spread over the range it moves in, as a
+        control that draws the parameter would spread it: the proportion of the
+        range raised to this is the position, so a skew below one lifts the
+        small values away from the floor.
+
+        One is linear, which is what almost every parameter wants — a frequency
+        in hertz and a level in decibels are already even in the producer's ear.
+        It is Duet's own statement about that scale and not the engine's:
+        `AutomatableParameter::valueRange` carries a skew for the *raw* number,
+        and where a conversion turns the range end for end that skew describes
+        the wrong direction.
+    */
+    double skew = 1.0;
 };
 
 /** How a built-in's parameter crosses the facade, or nothing for a parameter no
@@ -670,6 +684,12 @@ std::optional<ParameterUnits> unitsOfBuiltinParameter (BuiltinPlugin plugin,
     know a third party's mapping and does not invent one (ADR 0002).
 */
 double realParameterValue (te::AutomatableParameter& parameter, double engineValue);
+
+/** How a parameter's producer-facing range is spread over a control that draws
+    it, and one — linear — for every parameter Duet has no better statement
+    about, an external plugin's included.
+*/
+double parameterSkew (te::AutomatableParameter& parameter);
 
 /** The engine's number for a parameter, given the producer's, held inside the
     range the parameter accepts.

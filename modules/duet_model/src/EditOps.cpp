@@ -220,6 +220,14 @@ namespace
     */
     constexpr double largestRatioValueHeld = 0.95;
 
+    /** How a ratio is spread over a control that draws it. The range reaches
+        1000 to one, so drawn evenly the whole of what a producer uses sits in
+        the bottom half of one percent of it. This is the skew that puts four to
+        one at the middle instead — measured at `3cs2ma`, and recorded in
+        `docs/ENGINE_NOTES.md`.
+    */
+    constexpr double ratioSkew = 0.12;
+
     /** The engine's reverb scales its wet and dry fractions by these on the way
         into the decibels it displays.
     */
@@ -281,6 +289,7 @@ namespace
                            / std::clamp (
                                value, 1.0 / largestRatioValueHeld, 1.0 / smallestRatioValueHeld);
                 },
+                ratioSkew,
             };
 
         if (parameterId == "threshold")
@@ -431,6 +440,13 @@ double realParameterValue (te::AutomatableParameter& parameter, double engineVal
 
     return units.has_value() && units->toReal != nullptr ? units->toReal (engineValue)
                                                          : engineValue;
+}
+
+double parameterSkew (te::AutomatableParameter& parameter)
+{
+    const auto units = unitsOf (parameter);
+
+    return units.has_value() ? units->skew : 1.0;
 }
 
 double engineParameterValue (te::AutomatableParameter& parameter, double realValue)

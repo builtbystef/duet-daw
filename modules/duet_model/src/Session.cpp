@@ -659,6 +659,7 @@ std::vector<PluginParameterInfo> Session::pluginParameters (PluginRef plugin) co
                          realParameterValue (*parameter, held),
                          std::min (oneEnd, otherEnd),
                          std::max (oneEnd, otherEnd),
+                         parameterSkew (*parameter),
                          parameter->valueToString (held).toStdString(),
                          unitOf (*p, parameter->paramID.toStdString()) });
     }

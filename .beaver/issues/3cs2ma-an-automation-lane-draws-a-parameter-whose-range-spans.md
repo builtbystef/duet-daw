@@ -1,10 +1,11 @@
 ---
 id: 3cs2ma
 title: An automation lane draws a parameter whose range spans orders of magnitude at the floor
-state: todo
+state: done
+assignee: claude
 priority: low
 created: 2026-08-26T17:03:03Z
-updated: 2026-08-26T19:19:19Z
+updated: 2026-08-26T20:55:47Z
 ---
 
 ## What is wrong
@@ -65,3 +66,51 @@ The skew therefore belongs beside the unit conversions in the `EditOps.cpp` tabl
 Where a parameter has no sensible non-linear form, `1.0` is the right answer and needs no justification.
 
 Build against this; no further escalation is needed on the question of how a lane maps value to position.
+
+**claude** — 2026-08-26T20:55:39Z
+
+Done. An automation lane now carries its target's skew and the geometry applies
+it, as the decision note settled.
+
+**What was built.** `ParameterUnits` (SessionImpl.h) gains `skew`, defaulting to
+1.0, so every entry in the `EditOps.cpp` table that says nothing stays linear.
+`parameterSkew` reads it beside `realParameterValue`, `PluginParameterInfo`
+carries it across the facade, `AutomationTargetOption` and
+`AutomationLaneDrawing` carry it on to the lane, and `valueAtY` / `yForValue`
+apply it in both directions. The skew is JUCE's convention — the height up the
+lane is the proportion of the range raised to it — which is what the word
+already means to a reader.
+
+**The ratio's skew is 0.12, chosen by measurement.** A `duet_scratch` probe read
+the range through `Session::pluginParameters` (1.05 .. 1000, as the issue said)
+and tabulated where each ratio would draw. 0.11898 is the skew that puts 4 : 1
+exactly half way up; 0.12 is its rounding and puts it at 0.497. On a 64-pixel
+lane that is 2 : 1 at 34 px, 4 : 1 at 32 px, 20 : 1 at 23 px — against all three
+at 63 px drawn evenly, which is the bug. A skew near 0.19 widens the 2 : 1
+through 20 : 1 span by one pixel but drops 4 : 1 to a third of the way up, so
+centring 4 : 1 won. Recorded in `docs/ENGINE_NOTES.md` under "The compressor's
+ratio range is too wide to draw evenly", with why the engine's own skew is the
+wrong number to forward.
+
+**Criterion two is met by construction.** Volume, pan and every parameter
+already even in the producer's ear take the three-field aggregate, so their skew
+is the default 1.0, and both geometry helpers short-circuit on it to the plain
+proportion. `a lane whose range is already linear in the producer's terms draws
+evenly` was written first, against a lane bound to the equaliser's parameter
+whose unit is "Hz", and passed before the change as well as after.
+
+**Facts for a reviewer.**
+- Nothing outside the lanes changed. `ProjectTools::describeParameters` builds
+  its JSON field by field, so `skew` is not exposed to the Collaborator — the
+  tools still carry the number and its two ends, as the issue intended.
+- `valueAtY` gained the `maximumValue <= minimumValue` guard `yForValue` already
+  had. The old expression survived a degenerate range by luck of `std::clamp`;
+  the proportion the new one computes would divide by zero.
+- The lane's skew is held to positive numbers in `skewOf`, so a lane that
+  arrives with a value no control could draw falls back to linear rather than
+  producing a NaN. The probe hit exactly that NaN before the clamp was added.
+
+**Checks.** Format clean; full clang-tidy sweep clean; 335/335 tests pass (the
+nine skips need a real audio device). Note for the next session: a full lint
+sweep took well over ten minutes on this machine today, not the ~80 s AGENTS.md
+records — it has to be run detached to finish.

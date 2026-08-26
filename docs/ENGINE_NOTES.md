@@ -686,3 +686,37 @@ half as one clip and begin another. So a headless take test has any device
 rebuild happen before the take rather than during it, and spends as little
 message loop as it can while a take is rolling. `a commanded device rebuild ends
 a take, and the model starts no other` pins that contract.
+
+### The compressor's ratio range is too wide to draw evenly
+
+**The engine.** `CompressorPlugin` holds one over the ratio, over the range 0.001
+to 0.95, so the ratios the facade reports run from 1.05 to 1000 to one. Drawn
+evenly, everything a producer uses is on the floor: 4 : 1 is three tenths of one
+percent up the range, and on a 64-pixel lane every ratio from 1.05 to 50 lands in
+the bottom pixel. No other built-in parameter has a range like it — a frequency
+in hertz, a level in decibels and a percentage are all already even in the
+producer's ear.
+
+**Where.** The parameter definitions at the top of
+`plugins/effects/tracktion_Compressor.cpp`, and `smallestRatioValueHeld` /
+`largestRatioValueHeld` in `EditOps.cpp`, which are where that range is named.
+
+**Proved.** `3cs2ma`, on the dev machine 2026-08-26, by a `duet_scratch` probe
+that read the range through `Session::pluginParameters` and tabulated where each
+ratio would draw at a range of skews.
+
+**Duet.** The units table in `EditOps.cpp` states a skew beside each conversion,
+and the ratio's is **0.12** — the position up a control is the proportion of the
+range raised to it, which is JUCE's own convention for the word. 0.12 is the
+rounding of 0.11898, the skew that puts 4 : 1 exactly half way up; the probe
+measured 2 : 1 at 34 px, 4 : 1 at 32 px and 20 : 1 at 23 px on a 64-pixel lane,
+against all three at 63 px drawn evenly. The skew that most widens 2 : 1 through
+20 : 1 is about 0.19, but it wins one pixel of that span while dropping 4 : 1 to
+a third of the way up, so centring 4 : 1 is what was chosen. Every other
+parameter's skew is 1 and draws exactly as it did before.
+
+The skew is Duet's own statement about the producer's scale and is not read from
+the engine: `AutomatableParameter::valueRange` carries a skew for the *raw*
+number, and the ratio's conversion is a reciprocal, so that skew describes a
+scale running the other way. Applied to the real-unit range it would draw the
+lane upside down.

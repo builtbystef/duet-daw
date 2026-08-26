@@ -281,6 +281,19 @@ struct PluginParameterInfo
     double minValue = 0.0;
     double maxValue = 0.0;
 
+    /** How the value is spread over that range on a control that draws it: the
+        proportion of the range raised to this is the position, so one is even
+        and a skew below one lifts the small values away from the floor.
+
+        Almost every parameter is even in the producer's ear and says so with
+        one. A compressor's ratio is the exception its range forces: it reaches
+        1000 to one, and drawn evenly every ratio anyone uses would sit on the
+        floor. A caller that only reads or writes the number can ignore this; it
+        is for the ones that draw the range, and an automation lane is the one
+        that does.
+    */
+    double skew = 1.0;
+
     /** The plugin's own display string for this value. */
     std::string displayValue;
 

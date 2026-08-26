@@ -25,6 +25,15 @@ struct AutomationTargetOption
     std::string name;
     double minimumValue = 0.0;
     double maximumValue = 1.0;
+
+    /** How the target's value is spread over that range: the proportion of the
+        range raised to this is the height up the lane, so one draws it evenly
+        and a skew below one lifts the small values away from the floor. It is
+        the target's own — a fader, a pan and every parameter already even in
+        the producer's ear are one; a compressor's ratio, whose range reaches
+        1000 to one, is not.
+    */
+    double skew = 1.0;
 };
 
 /** One point of a curve, where the lane draws it. */
@@ -59,6 +68,9 @@ struct AutomationLaneDrawing
     double minimumValue = 0.0;
     double maximumValue = 1.0;
 
+    /** How the value is spread over that range, as the picker offered it. */
+    double skew = 1.0;
+
     /** Where the lane is, in pixels from the top of the track's automation
         area: the arrangement puts that area under the track's row.
     */
@@ -71,9 +83,12 @@ struct AutomationLaneDrawing
 /** What value a height in a lane stands for, and where a value is drawn.
 
     A lane's top is its target's largest value and its bottom its smallest, as
-    every control the producer drags upwards to raise is. Pure geometry: the pair
-    is the whole of what a lane's height means, so a gesture and the paint that
-    follows it read the same lane the same way.
+    every control the producer drags upwards to raise is. The lane's skew is how
+    the values in between are spread over the height, and the pair applies it in
+    both directions, so a point is grabbed where it was drawn.
+
+    Pure geometry: the pair is the whole of what a lane's height means, so a
+    gesture and the paint that follows it read the same lane the same way.
 */
 [[nodiscard]] double valueAtY (const AutomationLaneDrawing& lane, int y);
 [[nodiscard]] int yForValue (const AutomationLaneDrawing& lane, double value);

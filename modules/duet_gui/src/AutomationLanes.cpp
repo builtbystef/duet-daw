@@ -28,18 +28,51 @@ namespace
         return one.kind == other.kind && one.track == other.track && one.plugin == other.plugin
                && one.parameterId == other.parameterId;
     }
+
+    /** A lane's skew, held to the positive numbers the exponent is defined for:
+        a lane arriving with nothing said about its skew, or with a number no
+        control could draw, is the even one every target but a handful is.
+    */
+    [[nodiscard]] double skewOf (const AutomationLaneDrawing& lane)
+    {
+        return lane.skew > 0.0 ? lane.skew : 1.0;
+    }
+
+    /** How far up its range a value sits, from 0 at the lane's bottom to 1 at
+        its top, and the value at such a height.
+
+        The skew is the exponent between the two: the height is the proportion
+        of the range raised to it, which is how a control that draws a parameter
+        spreads it. One leaves the proportion alone, so a lane that says nothing
+        about its skew is the plain linear lane it has always been.
+    */
+    [[nodiscard]] double heightOfValue (const AutomationLaneDrawing& lane, double value)
+    {
+        const auto proportion = std::clamp (
+            (value - lane.minimumValue) / (lane.maximumValue - lane.minimumValue), 0.0, 1.0);
+        const auto skew = skewOf (lane);
+
+        return skew == 1.0 ? proportion : std::pow (proportion, skew);
+    }
+
+    [[nodiscard]] double valueAtHeight (const AutomationLaneDrawing& lane, double fromBottom)
+    {
+        const auto held = std::clamp (fromBottom, 0.0, 1.0);
+        const auto skew = skewOf (lane);
+        const auto proportion = skew == 1.0 ? held : std::pow (held, 1.0 / skew);
+
+        return lane.minimumValue + proportion * (lane.maximumValue - lane.minimumValue);
+    }
 } // namespace
 
 double valueAtY (const AutomationLaneDrawing& lane, int y)
 {
-    if (lane.height <= 0)
+    if (lane.height <= 0 || lane.maximumValue <= lane.minimumValue)
         return lane.maximumValue;
 
     const auto fromTop = static_cast<double> (y - lane.y) / static_cast<double> (lane.height);
 
-    return std::clamp (lane.maximumValue - fromTop * (lane.maximumValue - lane.minimumValue),
-                       lane.minimumValue,
-                       lane.maximumValue);
+    return std::clamp (valueAtHeight (lane, 1.0 - fromTop), lane.minimumValue, lane.maximumValue);
 }
 
 int yForValue (const AutomationLaneDrawing& lane, double value)
@@ -47,9 +80,7 @@ int yForValue (const AutomationLaneDrawing& lane, double value)
     if (lane.height <= 0 || lane.maximumValue <= lane.minimumValue)
         return lane.y;
 
-    const auto fromTop =
-        (lane.maximumValue - std::clamp (value, lane.minimumValue, lane.maximumValue))
-        / (lane.maximumValue - lane.minimumValue);
+    const auto fromTop = 1.0 - heightOfValue (lane, value);
 
     return lane.y
            + std::clamp (
@@ -138,6 +169,7 @@ std::vector<AutomationLaneDrawing> AutomationLanes::lanes (duet::model::TrackRef
         drawing.targetName = option.name;
         drawing.minimumValue = option.minimumValue;
         drawing.maximumValue = option.maximumValue;
+        drawing.skew = option.skew;
         drawing.y = y;
         drawing.height = lane.heightPx;
 
@@ -230,7 +262,8 @@ std::vector<AutomationTargetOption> AutomationLanes::targetsFor (duet::model::Tr
                 { duet::model::AutomationTarget::parameterOf (plugin.plugin, parameter.parameterId),
                   plugin.name + ": " + parameter.name,
                   parameter.minValue,
-                  parameter.maxValue });
+                  parameter.maxValue,
+                  parameter.skew });
 
     return options;
 }

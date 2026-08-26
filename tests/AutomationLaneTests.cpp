@@ -68,6 +68,36 @@ struct OpenAutomation
     return {};
 }
 
+/** One of a plugin's parameters, found by what its lane would be called. A test
+    that needs a parameter of a given shape asks for it by name rather than by
+    an id the engine chose.
+*/
+[[nodiscard]] AutomationTarget targetNamed (const AutomationLanes& lanes,
+                                            TrackRef track,
+                                            PluginRef plugin,
+                                            const std::string& parameterId)
+{
+    for (const auto& option : lanes.targetsFor (track))
+        if (option.target.plugin == plugin && option.target.parameterId == parameterId)
+            return option.target;
+
+    return {};
+}
+
+/** The id of the first parameter of a plugin measured in the given unit, and
+    empty where the plugin has none. Criterion two of `3cs2ma` names a frequency
+    in hertz, so a test asks for one by its unit rather than by an id.
+*/
+[[nodiscard]] std::string
+    parameterMeasuredIn (Session& session, PluginRef plugin, const std::string& unit)
+{
+    for (const auto& parameter : session.pluginParameters (plugin))
+        if (parameter.unit == unit)
+            return parameter.parameterId;
+
+    return {};
+}
+
 [[nodiscard]] std::vector<std::string> optionNames (const AutomationLanes& lanes, TrackRef track)
 {
     std::vector<std::string> names;
@@ -172,6 +202,111 @@ TEST_CASE ("a lane's picker offers the track's own fader and every parameter of 
         REQUIRE_THAT (ratioLane.minimumValue, WithinAbs (ratio->minimumValue, 0.001));
         REQUIRE_THAT (ratioLane.maximumValue, WithinAbs (ratio->maximumValue, 0.001));
     }
+}
+
+TEST_CASE ("a compressor ratio lane draws the ratios a producer uses across its height")
+{
+    OpenAutomation open;
+    PluginRef compressor = duet::model::noPlugin;
+
+    open.session.performAction (
+        "Compress it",
+        [&] (auto& ops)
+        { compressor = ops.addPlugin (open.track, duet::model::BuiltinPlugin::compressor, 0); });
+
+    open.automation().setExpanded (open.track, true);
+    open.automation().setLaneTarget (
+        open.track, 0, targetNamed (open.automation(), open.track, compressor, "ratio"));
+
+    const auto lane = open.automation().lanes (open.track).front();
+
+    REQUIRE (lane.target.kind == AutomationTarget::Kind::pluginParameter);
+    REQUIRE (lane.target.parameterId == "ratio");
+
+    // The range is the engine's own, and it has to be: 1000 to one is what its
+    // compressor does at the bottom of its scale.
+    REQUIRE_THAT (lane.minimumValue, WithinAbs (1.0 / 0.95, 0.001));
+    REQUIRE_THAT (lane.maximumValue, WithinAbs (1000.0, 0.001));
+
+    // Four to one is the ratio a producer reaches for first, and it draws at
+    // the middle of the lane. Measured at 3cs2ma: the skew that centres it is
+    // 0.11898, and the 0.12 the table carries puts it at 0.497 of the height.
+    REQUIRE (duet::gui::yForValue (lane, 4.0) == lane.y + lane.height / 2);
+
+    // Two to one through twenty to one is the span a producer works in. Drawn
+    // linearly all of it landed within one pixel of the floor; it now has a
+    // stretch of the lane wide enough to aim inside.
+    const auto atTwo = duet::gui::yForValue (lane, 2.0);
+    const auto atTwenty = duet::gui::yForValue (lane, 20.0);
+
+    REQUIRE (atTwo > duet::gui::yForValue (lane, 4.0));
+    REQUIRE (atTwenty < duet::gui::yForValue (lane, 4.0));
+    REQUIRE (atTwo - atTwenty >= lane.height / 8);
+
+    SECTION ("a drag up the lane walks through those ratios rather than past them")
+    {
+        // What the heights either side of the middle stand for: a drag has to
+        // be able to land on the useful ratios, not step over them.
+        REQUIRE (duet::gui::valueAtY (lane, lane.y + lane.height / 2) > 3.0);
+        REQUIRE (duet::gui::valueAtY (lane, lane.y + lane.height / 2) < 5.0);
+
+        // A quarter of the way down from the top is still a ratio with a name,
+        // not the far end of the scale.
+        REQUIRE (duet::gui::valueAtY (lane, lane.y + lane.height / 4) < 200.0);
+
+        // Every height the lane has maps back to where it was read from, so a
+        // point drawn at a value is grabbed at the same place it was drawn.
+        for (const double ratio : { 1.5, 2.0, 4.0, 8.0, 20.0, 100.0 })
+        {
+            const auto y = duet::gui::yForValue (lane, ratio);
+
+            REQUIRE (std::abs (duet::gui::yForValue (lane, duet::gui::valueAtY (lane, y)) - y)
+                     <= 1);
+        }
+    }
+}
+
+TEST_CASE ("a lane whose range is already linear in the producer's terms draws evenly")
+{
+    OpenAutomation open;
+    PluginRef equaliser = duet::model::noPlugin;
+
+    open.session.performAction (
+        "Shape it",
+        [&] (auto& ops)
+        { equaliser = ops.addPlugin (open.track, duet::model::BuiltinPlugin::eq, 0); });
+
+    open.automation().setExpanded (open.track, true);
+
+    const auto frequency = parameterMeasuredIn (open.session, equaliser, "Hz");
+
+    REQUIRE_FALSE (frequency.empty());
+
+    open.automation().setLaneTarget (
+        open.track, 0, targetNamed (open.automation(), open.track, equaliser, frequency));
+
+    const auto lane = open.automation().lanes (open.track).front();
+
+    // The lane really is bound to that parameter, and not to the 0 to 1 a lane
+    // falls back to when it cannot find its target.
+    REQUIRE (lane.target.kind == AutomationTarget::Kind::pluginParameter);
+    REQUIRE (lane.target.parameterId == frequency);
+    REQUIRE (lane.maximumValue > lane.minimumValue);
+
+    // Hertz on the engine's equaliser are the producer's own number, so the
+    // lane is the plain proportion it has always been: the value a quarter of
+    // the way down is a quarter of the way down the range, and the middle of
+    // the range is the middle of the lane.
+    const auto span = lane.maximumValue - lane.minimumValue;
+
+    REQUIRE_THAT (duet::gui::valueAtY (lane, lane.y + lane.height / 4),
+                  WithinAbs (lane.minimumValue + 0.75 * span, 1e-9));
+    REQUIRE_THAT (duet::gui::valueAtY (lane, lane.y + lane.height / 2),
+                  WithinAbs (lane.minimumValue + 0.5 * span, 1e-9));
+
+    REQUIRE (duet::gui::yForValue (lane, lane.minimumValue + 0.5 * span)
+             == lane.y + lane.height / 2);
+    REQUIRE (duet::gui::yForValue (lane, lane.maximumValue) == lane.y);
 }
 
 TEST_CASE ("adding a point puts it on the grid at the value the height stands for")
