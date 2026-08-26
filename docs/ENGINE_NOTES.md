@@ -605,3 +605,25 @@ Vocabulary.
 string, and only when that number is the value — within a part in a hundred of
 it, since a display rounds. A parameter whose display says something else about
 itself has no unit rather than one that would misdescribe the number beside it.
+
+### The engine's plugin scanner and a hosted VST3 both race under TSan
+
+**The engine.** `linux-tsan` reports 34 ThreadSanitizer warnings from the single
+case that scans a VST3 and inserts it, and none of the memory is Duet's. They are
+of two kinds: data races on the out-of-process scanner's array of pending
+replies, which the main thread reads while the scan thread appends to it with no
+lock between them; and `destroy of a locked mutex` from
+`juce::MessageManagerLock`'s destructor, reached through a hosted VST3's
+parameter read and again from the fixture plugin's own copy of JUCE at teardown.
+
+**Where.** `PluginScanHelpers::PluginScanMasterProcess::findReply` and its
+`OwnedArray<juce::XmlElement>`; `juce::MessageManagerLock`'s destructor reached
+from `VST3PluginInstanceHeadless::VST3Parameter::getText`.
+
+**Proved.** `wyfdjb`, on the dev machine 2026-08-26 under
+`setarch $(uname -m) -R` with `TSAN_OPTIONS=detect_deadlocks=0`.
+
+**Duet.** Nothing. ADR 0006 trusts Tracktion Engine outright and puts only Duet's
+own code under the sanitizers, and neither report is reached from a Duet thread.
+A TSan report from this case is expected noise; one that names Duet memory is
+not.

@@ -1,11 +1,11 @@
 ---
 id: wyfdjb
 title: TSan reports on the engine's plugin scanner and on a hosted VST3's MessageManagerLock
-state: todo
+state: done
 priority: low
 parent: b1j3me
 created: 2026-08-26T15:16:59Z
-updated: 2026-08-26T15:16:59Z
+updated: 2026-08-26T15:30:34Z
 ---
 
 ## What was measured
@@ -45,3 +45,9 @@ which reports are the engine's before they go looking for their own.
       scanner and the `MessageManagerLock` teardown, under the rule the coding
       standards already state: an exact upstream function, a documented false
       positive, and nothing broad enough to hide a violation reached from Duet.
+
+## Notes
+
+**claude** — 2026-08-26T15:30:34Z
+
+Recorded in docs/ENGINE_NOTES.md ('The engine's plugin scanner and a hosted VST3 both race under TSan') and closed. The issue carried no acceptance criteria because there is nothing to build: ADR 0006 puts only Duet's own code under the sanitizers, and neither report is reached from a Duet thread. Per docs/TRACKER.md, a finding whose only record is an issue belongs in docs/ instead, so the fact now lives where a future TSan run will be read against it.
