@@ -18,8 +18,8 @@ using Json = nlohmann::json;
 
 /** The JSON-RPC 2.0 error codes this seam answers with.
 
-    The first five are the specification's own. `sidecarUnavailable` is Duet's,
-    and sits inside the -32099..-32000 range the specification reserves for an
+    The first five are the specification's own. The last two are Duet's, and sit
+    inside the -32099..-32000 range the specification reserves for an
     implementation's own server errors.
 */
 namespace rpcError
@@ -30,6 +30,7 @@ namespace rpcError
     inline constexpr int invalidParams = -32602;
     inline constexpr int internalError = -32603;
     inline constexpr int sidecarUnavailable = -32000;
+    inline constexpr int runAlreadyActive = -32001;
 } // namespace rpcError
 
 /** The error member of a JSON-RPC response. */

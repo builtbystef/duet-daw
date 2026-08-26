@@ -12,6 +12,10 @@
 // The script runs once on connecting, and may leave writes for later, released
 // by a chosen inbound request. Otherwise the double obeys — every request gets
 // an empty result, and `shutdown` gets one and then ends the process.
+//
+// The `run-*` scripts are the Task Run ones: each says what this double does
+// when a `run.start` arrives, which is the only way the lifecycle rules can be
+// driven from the far side of the seam.
 
 #include <nlohmann/json.hpp>
 
@@ -20,6 +24,7 @@
 #include <unistd.h>
 
 #include <chrono>
+#include <cstdlib>
 #include <cstring>
 #include <iostream>
 #include <iterator>
@@ -36,6 +41,15 @@ using Json = nlohmann::json;
 
 constexpr auto connectRetryInterval = std::chrono::milliseconds { 20 };
 constexpr int connectAttempts = 250;
+
+/** How long the `run-slow-hang` script takes to call home, and then to answer
+    anything about a run.
+
+    Both are far longer than a call that waited on them could hide behind, which
+    is what makes "the DAW never blocks on a run" assertable rather than assumed.
+*/
+constexpr auto slowConnectDelay = std::chrono::milliseconds { 600 };
+constexpr auto slowReplyDelay = std::chrono::milliseconds { 500 };
 
 int connectTo (const std::string& path)
 {
@@ -128,9 +142,28 @@ private:
     std::string buffer;
 };
 
+/** The double's own request ids, which nothing on the DAW side reads. */
+int nextReportId()
+{
+    static int next = 900;
+
+    return ++next;
+}
+
 Json request (int id, const std::string& method, const Json& params)
 {
     return Json { { "jsonrpc", "2.0" }, { "id", id }, { "method", method }, { "params", params } };
+}
+
+/** Refuses a request the way a sidecar with no provider configured would. */
+void replyWithError (const Connection& connection, const Json& incoming, const std::string& text)
+{
+    if (! incoming.contains ("id") || incoming["id"].is_null())
+        return;
+
+    connection.send (Json { { "jsonrpc", "2.0" },
+                            { "id", incoming["id"] },
+                            { "error", Json { { "code", -32603 }, { "message", text } } } });
 }
 
 void reply (const Connection& connection, const Json& incoming)
@@ -166,6 +199,143 @@ std::optional<Json> awaitResponse (Connection& connection)
 void report (Connection& connection, int id, const std::string& tag, const Json& payload)
 {
     connection.send (request (id, "test.report", Json { { "tag", tag }, { "payload", payload } }));
+}
+
+/** A notification about a run: no id, so no answer is expected. */
+Json notification (const std::string& method, const Json& params)
+{
+    return Json { { "jsonrpc", "2.0" }, { "method", method }, { "params", params } };
+}
+
+void sendText (const Connection& connection, const std::string& runId, const std::string& delta)
+{
+    connection.send (notification ("run.text", Json { { "runId", runId }, { "delta", delta } }));
+}
+
+void sendToolActivity (const Connection& connection,
+                       const std::string& runId,
+                       const std::string& tool,
+                       const std::string& phase)
+{
+    connection.send (notification (
+        "run.toolActivity", Json { { "runId", runId }, { "tool", tool }, { "phase", phase } }));
+}
+
+void sendFinished (const Connection& connection,
+                   const std::string& runId,
+                   const std::string& status,
+                   const std::string& error = {})
+{
+    Json params { { "runId", runId }, { "status", status } };
+
+    if (! error.empty())
+        params["error"] = error;
+
+    connection.send (notification ("run.finished", params));
+}
+
+/** What this double does when a run starts, which is what each `run-*` script
+    names. `runsSeen` counts the runs before this one, so a script can answer its
+    first run differently from its second.
+*/
+void performRun (Connection& connection,
+                 const std::string& script,
+                 const Json& params,
+                 int runsSeen)
+{
+    const auto runId = params.value ("runId", std::string {});
+
+    if (script == "run-echo")
+    {
+        sendFinished (connection, runId, "completed");
+        return;
+    }
+
+    if (script == "run-stream")
+    {
+        for (const auto& delta : { "Something", " is off", " in the drop." })
+            sendText (connection, runId, delta);
+
+        sendFinished (connection, runId, "completed");
+        return;
+    }
+
+    if (script == "run-tools")
+    {
+        for (const auto& tool : { "list_tracks", "get_arrangement" })
+        {
+            sendToolActivity (connection, runId, tool, "start");
+            sendToolActivity (connection, runId, tool, "end");
+        }
+
+        sendFinished (connection, runId, "completed");
+        return;
+    }
+
+    if (script == "run-slow-finish")
+    {
+        // Long enough that a second run can be asked for while this one is on.
+        std::this_thread::sleep_for (std::chrono::milliseconds { 400 });
+        sendFinished (connection, runId, "completed");
+        return;
+    }
+
+    if (script == "run-hang-once")
+    {
+        // The first run never ends of its own accord, so the only way out of it
+        // is the producer's cancel; the second one behaves.
+        if (runsSeen > 0)
+        {
+            sendText (connection, runId, "the second run");
+            sendFinished (connection, runId, "completed");
+        }
+
+        return;
+    }
+
+    if (script == "run-fail")
+    {
+        // A provider that refused, reported the way a real one would be: the run
+        // ends failed and the sidecar stays alive for the next one.
+        sendFinished (connection, runId, "failed", "the provider refused the request");
+        return;
+    }
+
+    if (script == "run-die")
+    {
+        // A sidecar that dies with a run in progress, without a word about it.
+        std::_Exit (1);
+    }
+
+    if (script == "run-slow-hang")
+    {
+        // Slow at everything and finished with nothing: the run only ever ends
+        // because the producer cancels it.
+        return;
+    }
+
+    if (script == "run-refuse")
+    {
+        // Refused before it began, so nothing here ever runs.
+        return;
+    }
+
+    if (script == "run-noise")
+    {
+        // A run that is not this one, a run that never existed, and words after
+        // the ending — everything the DAW is supposed to throw away, around the
+        // one delta and the one ending it is supposed to keep.
+        sendText (connection, "run-bogus", "about nobody");
+        sendFinished (connection, "run-bogus", "completed");
+        sendText (connection, runId, "the real delta");
+        sendFinished (connection, runId, "completed");
+        sendText (connection, runId, "after the ending");
+        sendFinished (connection, runId, "failed", "a second ending");
+        return;
+    }
+
+    std::cerr << "duet_sidecar_double: script " << script << " has no run behaviour (" << runsSeen
+              << " runs seen)\n";
 }
 
 /** Writes the script left for later: which inbound request releases them, and
@@ -238,6 +408,19 @@ Deferred runScript (Connection& connection, const std::string& script)
         return {};
     }
 
+    if (script == "run-die")
+    {
+        // Which process this is, said before it has any reason to die, so that a
+        // test can tell one sidecar from the one that replaced it.
+        report (connection, nextReportId(), "alive", Json { { "pid", ::getpid() } });
+        return {};
+    }
+
+    // A run script leaves nothing for the connect moment: what it does, it does
+    // when a run starts.
+    if (script.starts_with ("run-"))
+        return {};
+
     std::cerr << "duet_sidecar_double: unknown script " << script << "\n";
 
     return {};
@@ -256,6 +439,11 @@ try
         return 2;
     }
 
+    const auto script = arguments.size() > 2 ? arguments.at (2) : std::string { "obey" };
+
+    if (script == "run-slow-hang")
+        std::this_thread::sleep_for (slowConnectDelay);
+
     const int descriptor = connectTo (arguments.at (1));
 
     if (descriptor < 0)
@@ -265,10 +453,10 @@ try
     }
 
     Connection connection { descriptor };
-    auto deferred =
-        runScript (connection, arguments.size() > 2 ? arguments.at (2) : std::string { "obey" });
+    auto deferred = runScript (connection, script);
 
     int requestsSeen = 0;
+    int runsSeen = 0;
 
     while (true)
     {
@@ -282,8 +470,30 @@ try
         if (message.is_discarded() || ! message.is_object() || ! message.contains ("method"))
             continue;
 
+        const auto method = message.value ("method", std::string {});
+
+        if (script == "run-slow-hang" && (method == "run.start" || method == "run.cancel"))
+            std::this_thread::sleep_for (slowReplyDelay);
+
+        if (script == "run-refuse" && method == "run.start")
+        {
+            replyWithError (connection, message, "no provider is configured");
+            continue;
+        }
+
         ++requestsSeen;
         reply (connection, message);
+
+        // Every run script reports what crossed the seam, so a test can assert on
+        // it and can wait for the moment the sidecar has it.
+        if (script.starts_with ("run-") && (method == "run.start" || method == "run.cancel"))
+            report (connection, nextReportId(), method, message.value ("params", Json::object()));
+
+        if (method == "run.start")
+        {
+            performRun (connection, script, message.value ("params", Json::object()), runsSeen);
+            ++runsSeen;
+        }
 
         if (! deferred.chunks.empty() && requestsSeen >= deferred.afterRequests)
         {
@@ -296,7 +506,7 @@ try
             deferred.chunks.clear();
         }
 
-        if (message.value ("method", std::string {}) == "shutdown")
+        if (method == "shutdown")
             return 0;
     }
 

@@ -50,6 +50,7 @@ add_executable(duet_tests
     ShortcutTests.cpp
     SmartToolTests.cpp
     SuggestionTests.cpp
+    TaskRunTests.cpp
     TimelineGeometryTests.cpp
     TransportBarTests.cpp
     TrackOpsTests.cpp

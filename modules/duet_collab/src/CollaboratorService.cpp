@@ -34,6 +34,22 @@ namespace
 
     constexpr std::size_t readChunkBytes = 4096;
 
+    /** The `openingContext` member of `run.start`, in the shape ADR 0003 names. */
+    Json encodeOpeningContext (const OpeningContext& context)
+    {
+        const auto* kind = "none";
+
+        if (context.selection == SelectionKind::clips)
+            kind = "clips";
+        else if (context.selection == SelectionKind::tracks)
+            kind = "tracks";
+
+        return Json { { "selection", Json { { "kind", kind }, { "ids", context.selectionIds } } },
+                      { "playhead",
+                        Json { { "bar", context.playheadBar }, { "beat", context.playheadBeat } } },
+                      { "transportPlaying", context.transportPlaying } };
+    }
+
     /** The result member, or the error member, of a response the sidecar sent. */
     RpcOutcome outcomeFrom (const Json& message)
     {
@@ -69,6 +85,11 @@ public:
     RpcOutcome configure (const std::string& model, const Json& systemPromptParams);
     RpcOutcome shutdownSidecar();
 
+    void setTaskRunListener (TaskRunListener* newListener);
+    RunStart startRun (const std::string& prompt, const OpeningContext& context);
+    bool cancelRun (const std::string& runId);
+    [[nodiscard]] std::optional<std::string> activeRunId() const;
+
     [[nodiscard]] bool isSidecarRunning() const;
     [[nodiscard]] std::optional<int> sidecarProcessId() const;
     [[nodiscard]] std::thread::id serviceThreadId() const { return worker.get_id(); }
@@ -101,6 +122,21 @@ private:
     void dropConnection();
     void dropSidecar();
 
+    void serviceActiveRun();
+
+    /** Whether that name is the run in progress, which is what decides whether
+        an event about it is worth anything. An unknown id, an id whose run has
+        already ended, and a run the producer has canceled all say no.
+    */
+    [[nodiscard]] bool isRunInProgress (const std::string& runId) const;
+
+    bool handleRunEvent (const std::string& method, const Json& params);
+    void finishActiveRun (RunStatus status, const std::string& error);
+
+    /** Calls the listener, if there is one, from the service thread. */
+    template <typename Call>
+    void tellListener (const Call& call);
+
     std::optional<RpcOutcome> ensureSidecar();
     RpcOutcome sendRequestAndWait (const std::string& method, const Json& params);
     void failPendingLocked (int code, const std::string& message);
@@ -109,6 +145,30 @@ private:
     {
         bool done = false;
         RpcOutcome outcome;
+    };
+
+    /** The one Task Run in progress, from the moment `startRun` accepted it to
+        the moment its terminal event goes out.
+
+        Whether this holds a value is the whole of the one-run-at-a-time rule,
+        and clearing it under the same lock that reads its id is the whole of
+        "no terminal event twice": whatever arrives afterwards finds no run of
+        that name and is ignored.
+    */
+    struct ActiveRun
+    {
+        std::string id;
+        Json request;
+        bool sent = false;
+        bool cancelRequested = false;
+
+        /** The id of this run's `run.start`, so that a refusal of it can be told
+            from the answer to anything else. Nobody waits on that request: the
+            run's answer is its terminal event, and an error here is what makes
+            that event arrive fast rather than never.
+        */
+        int startRequestId = 0;
+        std::chrono::steady_clock::time_point sidecarDeadline;
     };
 
     Configuration config;
@@ -125,6 +185,12 @@ private:
     mutable std::mutex mutex;
     std::condition_variable changed;
 
+    /** Guards the listener alone, and is never held while `mutex` is, so that a
+        listener may call back into the service from inside its own callback.
+    */
+    std::mutex listenerMutex;
+    TaskRunListener* runListener = nullptr;
+
     bool started = false;
     bool stopRequested = false;
     bool spawnRequested = false;
@@ -137,6 +203,8 @@ private:
     std::map<std::string, MethodHandler> handlers;
     std::map<int, Pending> pending;
     int nextRequestId = 1;
+    std::optional<ActiveRun> activeRun;
+    int nextRunNumber = 1;
 };
 
 void CollaboratorService::Impl::start()
@@ -197,6 +265,7 @@ void CollaboratorService::Impl::run()
         if (activity.connectionReadable)
             readFromConnection();
 
+        serviceActiveRun();
         flushOutgoing();
         processCommands();
         reapSidecar();
@@ -386,6 +455,16 @@ void CollaboratorService::Impl::handleRequest (const Json& message)
     const auto method = message.value ("method", std::string {});
     const auto id = message.value ("id", Json());
 
+    // A Task Run's own events are the seam's vocabulary rather than tool
+    // dispatch, so they are answered here and never reach the handler table.
+    if (handleRunEvent (method, message.value ("params", Json::object())))
+    {
+        if (! id.is_null())
+            enqueue (Json { { "jsonrpc", "2.0" }, { "id", id }, { "result", Json::object() } });
+
+        return;
+    }
+
     MethodHandler handler;
 
     {
@@ -436,15 +515,34 @@ void CollaboratorService::Impl::completePending (const Json& message)
     if (! message.contains ("id") || ! message["id"].is_number_integer())
         return;
 
+    const auto id = message["id"].get<int>();
+    const auto outcome = outcomeFrom (message);
+    bool refusedTheRun = false;
+
     {
         const std::lock_guard lock (mutex);
-        const auto found = pending.find (message["id"].get<int>());
 
-        if (found == pending.end())
-            return;
+        // A sidecar that refuses to begin a run has ended it, and said so in the
+        // only place it could: the answer to `run.start`.
+        refusedTheRun = ! outcome.succeeded && activeRun.has_value() && activeRun->sent
+                        && activeRun->startRequestId == id;
 
-        found->second.outcome = outcomeFrom (message);
-        found->second.done = true;
+        if (! refusedTheRun)
+        {
+            const auto found = pending.find (id);
+
+            if (found == pending.end())
+                return;
+
+            found->second.outcome = outcome;
+            found->second.done = true;
+        }
+    }
+
+    if (refusedTheRun)
+    {
+        finishActiveRun (RunStatus::failed, outcome.error.message);
+        return;
     }
 
     changed.notify_all();
@@ -547,6 +645,11 @@ void CollaboratorService::Impl::dropConnection()
     }
 
     changed.notify_all();
+
+    // A run whose sidecar has gone fails now rather than waiting for a word that
+    // will never come. Nothing is queued and nothing is retried: the next run is
+    // the producer's to ask for, and it is what spawns the replacement.
+    finishActiveRun (RunStatus::failed, backendUnavailableMessage);
 }
 
 void CollaboratorService::Impl::dropSidecar()
@@ -650,6 +753,221 @@ RpcOutcome CollaboratorService::Impl::sendRequestAndWait (const std::string& met
     return outcome;
 }
 
+void CollaboratorService::Impl::setTaskRunListener (TaskRunListener* newListener)
+{
+    const std::lock_guard lock (listenerMutex);
+    runListener = newListener;
+}
+
+RunStart CollaboratorService::Impl::startRun (const std::string& prompt,
+                                              const OpeningContext& context)
+{
+    std::string id;
+
+    {
+        const std::lock_guard lock (mutex);
+
+        if (! started)
+            return RunStart::rejected (rpcError::sidecarUnavailable,
+                                       "The Collaborator service is not started.");
+
+        if (activeRun.has_value())
+            return RunStart::rejected (rpcError::runAlreadyActive,
+                                       "A Task Run is already in progress.");
+
+        ActiveRun run;
+        run.id = "run-" + std::to_string (nextRunNumber++);
+        run.request = Json { { "runId", run.id },
+                             { "prompt", prompt },
+                             { "openingContext", encodeOpeningContext (context) } };
+        run.sidecarDeadline = std::chrono::steady_clock::now() + config.sidecarStartTimeout;
+
+        id = run.id;
+        activeRun = std::move (run);
+
+        // The run does not wait for a sidecar here: the service thread spawns
+        // one and sends `run.start` when it has connected.
+        if (! connected)
+        {
+            sidecarStartFailed = false;
+            spawnRequested = true;
+        }
+    }
+
+    wake();
+
+    return RunStart::accepted (std::move (id));
+}
+
+bool CollaboratorService::Impl::cancelRun (const std::string& runId)
+{
+    {
+        const std::lock_guard lock (mutex);
+
+        if (! activeRun.has_value() || activeRun->id != runId || activeRun->cancelRequested)
+            return false;
+
+        activeRun->cancelRequested = true;
+    }
+
+    wake();
+
+    return true;
+}
+
+std::optional<std::string> CollaboratorService::Impl::activeRunId() const
+{
+    const std::lock_guard lock (mutex);
+
+    if (! activeRun.has_value())
+        return std::nullopt;
+
+    return activeRun->id;
+}
+
+template <typename Call>
+void CollaboratorService::Impl::tellListener (const Call& call)
+{
+    // Held for the whole call, and by nothing else the listener could reach, so
+    // that clearing a listener waits for the call in flight instead of racing it.
+    const std::lock_guard lock (listenerMutex);
+
+    if (runListener != nullptr)
+        call (*runListener);
+}
+
+bool CollaboratorService::Impl::isRunInProgress (const std::string& runId) const
+{
+    const std::lock_guard lock (mutex);
+
+    return activeRun.has_value() && activeRun->id == runId && ! activeRun->cancelRequested;
+}
+
+void CollaboratorService::Impl::finishActiveRun (RunStatus status, const std::string& error)
+{
+    std::string id;
+
+    {
+        const std::lock_guard lock (mutex);
+
+        if (! activeRun.has_value())
+            return;
+
+        id = activeRun->id;
+        activeRun.reset();
+    }
+
+    tellListener ([&] (TaskRunListener& target) { target.runFinished (id, status, error); });
+}
+
+void CollaboratorService::Impl::serviceActiveRun()
+{
+    bool canceled = false;
+    bool unreachable = false;
+
+    {
+        const std::lock_guard lock (mutex);
+
+        if (! activeRun.has_value())
+            return;
+
+        auto& run = *activeRun;
+
+        if (run.cancelRequested)
+        {
+            // Cancellation is client-side: the run ends here, and `run.cancel`
+            // goes out only to stop work that has actually been started.
+            if (run.sent)
+            {
+                Json message;
+                message["jsonrpc"] = "2.0";
+                message["id"] = nextRequestId++;
+                message["method"] = "run.cancel";
+                message["params"] = Json { { "runId", run.id } };
+                outgoing += message.dump();
+                outgoing += '\n';
+            }
+
+            canceled = true;
+        }
+        else if (! run.sent)
+        {
+            if (connected)
+            {
+                run.startRequestId = nextRequestId++;
+
+                Json message;
+                message["jsonrpc"] = "2.0";
+                message["id"] = run.startRequestId;
+                message["method"] = "run.start";
+                message["params"] = run.request;
+                outgoing += message.dump();
+                outgoing += '\n';
+                run.sent = true;
+            }
+            else if (sidecarStartFailed || std::chrono::steady_clock::now() > run.sidecarDeadline)
+            {
+                unreachable = true;
+            }
+        }
+    }
+
+    if (canceled)
+        finishActiveRun (RunStatus::canceled, {});
+    else if (unreachable)
+        finishActiveRun (RunStatus::failed, backendUnavailableMessage);
+}
+
+bool CollaboratorService::Impl::handleRunEvent (const std::string& method, const Json& params)
+{
+    const auto runId = params.value ("runId", std::string {});
+
+    if (method == "run.text")
+    {
+        if (isRunInProgress (runId))
+        {
+            const auto delta = params.value ("delta", std::string {});
+            tellListener ([&] (TaskRunListener& target) { target.commentaryDelta (runId, delta); });
+        }
+
+        return true;
+    }
+
+    if (method == "run.toolActivity")
+    {
+        if (isRunInProgress (runId))
+        {
+            const auto tool = params.value ("tool", std::string {});
+            const auto phase =
+                params.value ("phase", std::string {}) == "end" ? ToolPhase::end : ToolPhase::start;
+            tellListener ([&] (TaskRunListener& target)
+                          { target.toolActivity (runId, tool, phase); });
+        }
+
+        return true;
+    }
+
+    if (method != "run.finished")
+        return false;
+
+    const auto status = params.value ("status", std::string {});
+    const auto error = params.value ("error", std::string {});
+
+    if (! isRunInProgress (runId))
+        return true;
+
+    if (status == "completed")
+        finishActiveRun (RunStatus::completed, {});
+    else if (status == "canceled")
+        finishActiveRun (RunStatus::canceled, {});
+    else
+        // Anything a sidecar calls an ending that is not one of the other two is
+        // a failure, which is the reading that fails fast rather than hanging.
+        finishActiveRun (RunStatus::failed, error);
+
+    return true;
+}
+
 void CollaboratorService::Impl::setMethodHandler (std::string method, MethodHandler handler)
 {
     const std::lock_guard lock (mutex);
@@ -747,6 +1065,20 @@ std::optional<int> CollaboratorService::sidecarProcessId() const
 {
     return impl->sidecarProcessId();
 }
+
+void CollaboratorService::setTaskRunListener (TaskRunListener* newListener)
+{
+    impl->setTaskRunListener (newListener);
+}
+
+RunStart CollaboratorService::startRun (const std::string& prompt, const OpeningContext& context)
+{
+    return impl->startRun (prompt, context);
+}
+
+bool CollaboratorService::cancelRun (const std::string& runId) { return impl->cancelRun (runId); }
+
+std::optional<std::string> CollaboratorService::activeRunId() const { return impl->activeRunId(); }
 
 std::thread::id CollaboratorService::serviceThreadId() const { return impl->serviceThreadId(); }
 } // namespace duet::collab

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <duet/collab/JsonRpc.h>
+#include <duet/collab/TaskRun.h>
 
 #include <chrono>
 #include <filesystem>
@@ -37,15 +38,19 @@ struct SidecarLaunch
     Both directions travel over that one connection. `configure` and
     `shutdownSidecar` are requests this side sends; requests the sidecar sends —
     `tool.call` and, later, the rest of the Tool Vocabulary — are answered by the
-    handlers registered through `setMethodHandler`.
+    handlers registered through `setMethodHandler`. A Task Run is the third
+    shape: `startRun` and `cancelRun` are commands rather than questions, and
+    what a run has to say comes back as a `TaskRunListener`'s calls.
 
     Threading: every byte read or written, every line framed, and every fork of
     the sidecar happens on this service's own thread, which `serviceThreadId()`
-    names and which handlers are called on. Nothing here runs on the message
-    thread or the audio thread, and this module links no engine and no JUCE, so
-    it shares no lock with the audio callback by construction. The request calls
-    are the exception a caller can see: they block the calling thread until the
-    answer arrives or the timeout expires.
+    names and which handlers and the listener are called on. Nothing here runs on
+    the message thread or the audio thread, and this module links no engine and
+    no JUCE, so it shares no lock with the audio callback by construction.
+
+    `configure` and `shutdownSidecar` are the only calls that block their caller,
+    and they block until the answer arrives or the timeout expires. Nothing about
+    a Task Run ever does: the DAW is never held up by the Collaborator.
 */
 class CollaboratorService
 {
@@ -91,6 +96,41 @@ public:
         method-not-found.
     */
     void setMethodHandler (std::string method, MethodHandler handler);
+
+    /** The one listener every Task Run reports to, read and never owned. Set it
+        before `start()`, or accept that a run begun first reports to nobody.
+
+        Clearing it waits for the call in flight, so a listener that is cleared
+        before it is destroyed is never called again. Do not call this from
+        inside a listener's own callback.
+    */
+    void setTaskRunListener (TaskRunListener* newListener);
+
+    /** Begins a Task Run, and returns without waiting for anything.
+
+        Nothing here touches the sidecar on the calling thread: the run is handed
+        to the service thread, which spawns a sidecar if none is connected and
+        sends `run.start` when one is. Completion arrives later, and only ever as
+        the listener's terminal event.
+
+        One run at a time: while one is in progress this rejects with
+        `runAlreadyActive` and the run in progress is untouched.
+    */
+    [[nodiscard]] RunStart startRun (const std::string& prompt, const OpeningContext& context);
+
+    /** Ends the named run as canceled, and returns without waiting for anything.
+
+        Cancellation is client-side: the run ends here and the listener is told,
+        while `run.cancel` goes to the sidecar to stop the work. Whatever that
+        sidecar says about the run afterwards is ignored.
+
+        Returns whether this call is the one that ended it, so a second cancel of
+        the same run says false and does nothing.
+    */
+    bool cancelRun (const std::string& runId);
+
+    /** The run in progress, and nothing when none is. */
+    [[nodiscard]] std::optional<std::string> activeRunId() const;
 
     /** The sidecar's `configure`. Spawns the sidecar if none is running. */
     RpcOutcome configure (const std::string& model, const Json& systemPromptParams);
