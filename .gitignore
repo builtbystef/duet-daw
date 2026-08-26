@@ -10,3 +10,6 @@ secrets/
 # Build output
 build/
 CMakeUserPresets.json
+
+# Implement-loop operator state
+.implement-loop/

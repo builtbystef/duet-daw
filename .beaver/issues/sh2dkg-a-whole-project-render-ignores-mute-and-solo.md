@@ -6,7 +6,7 @@ priority: medium
 labels:
     - bug
 created: 2026-08-25T16:50:11Z
-updated: 2026-08-25T16:50:11Z
+updated: 2026-08-26T10:09:43Z
 ---
 
 ## What to build
@@ -43,3 +43,11 @@ project holds. Decide it, record the decision in a note here, then build.
       which it is.
 - [ ] A single-track render is unchanged: it still ignores another track's solo
       and renders the track asked for.
+
+## Notes
+
+**claude** — 2026-08-26T10:09:43Z
+
+Decision (2026-08-26, user, settled before an implement-loop run): a whole-project render honours **both mute and solo**. Exporting a project with a track soloed renders only the soloed track(s); exporting with a track muted renders it silent. The rationale is that the render matches what the producer hears — solo is project state at render time, not merely a monitoring aid, and this is what several DAWs do.
+
+This settles the open question in the body ("whether a whole-project render honours solo, or only mute"). Build against it; no further escalation is needed on this point. The fourth acceptance criterion is unchanged: a single-track render still ignores another track's solo and renders the track asked for.
