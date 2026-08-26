@@ -901,6 +901,10 @@ public:
         place a note: it starts one at the beginning of the block that contains
         it.
 
+        The file is what the producer hears: a muted track is silent in it, and
+        a soloed track is the only thing in it. Mute and solo are the project,
+        and a render of the whole project is the project.
+
         Offline renders belong on a worker thread, and this may be called from
         one as long as the message loop is running, because the engine builds
         the render graph on the message thread and waits for it. The destination

@@ -75,6 +75,48 @@ struct ToneProject
     TrackRef track = duet::model::noTrack;
     ClipRef clip = duet::model::noClip;
 };
+
+/** Two tracks sounding at once, an octave and a half apart, each for the whole
+    two seconds the project lasts.
+
+    What a question about mute or solo needs: the two tones are far enough apart
+    that one frequency's level says which of the tracks reached the file, and
+    neither of them says anything about the other.
+*/
+struct TwoToneProject
+{
+    static constexpr double lowHz = 440.0;
+    static constexpr double highHz = 1760.0;
+
+    TwoToneProject()
+    {
+        const auto low = project.writeTone ("low.wav", 2.0, lowHz);
+        const auto high = project.writeTone ("high.wav", 2.0, highHz);
+
+        session.useNoAudioDevice();
+        session.suppressDeviceRebuild();
+        session.performAction ("Two tones at once",
+                               [&] (auto& ops)
+                               {
+                                   lowTrack = ops.createTrack (TrackKind::audio, "Low");
+                                   ops.insertAudioClip (lowTrack, "low", low, 0.0, 2.0);
+
+                                   highTrack = ops.createTrack (TrackKind::audio, "High");
+                                   ops.insertAudioClip (highTrack, "high", high, 0.0, 2.0);
+                               });
+    }
+
+    TempProject project;
+    Session session { project.editFile() };
+    TrackRef lowTrack = duet::model::noTrack;
+    TrackRef highTrack = duet::model::noTrack;
+};
+
+/** How much quieter a track the render should not hold has to be than the one
+    it should: the criterion sh2dkg asks for, and far more than any leakage
+    between two tones this far apart.
+*/
+constexpr double keptAwayDb = 40.0;
 } // namespace
 
 //==============================================================================
@@ -153,28 +195,10 @@ TEST_CASE ("a MIDI note through a built-in instrument sounds when it was asked t
 
 TEST_CASE ("one track renders on its own out of a project that holds two")
 {
-    const TempProject project;
-    const auto low = project.writeTone ("low.wav", 2.0, 440.0);
-    const auto high = project.writeTone ("high.wav", 2.0, 1760.0);
+    TwoToneProject tones;
 
-    Session session { project.editFile() };
-    session.useNoAudioDevice();
-    session.suppressDeviceRebuild();
-
-    TrackRef lowTrack = duet::model::noTrack;
-
-    session.performAction ("Two tones at once",
-                           [&] (auto& ops)
-                           {
-                               lowTrack = ops.createTrack (TrackKind::audio, "Low");
-                               ops.insertAudioClip (lowTrack, "low", low, 0.0, 2.0);
-
-                               const auto highTrack = ops.createTrack (TrackKind::audio, "High");
-                               ops.insertAudioClip (highTrack, "high", high, 0.0, 2.0);
-                           });
-
-    const auto whole = renderProject (session, project.folder());
-    const auto alone = renderTrack (session, lowTrack, project.folder());
+    const auto whole = renderProject (tones.session, tones.project.folder());
+    const auto alone = renderTrack (tones.session, tones.lowTrack, tones.project.folder());
 
     REQUIRE (whole.readable());
     REQUIRE (alone.readable());
@@ -194,6 +218,97 @@ TEST_CASE ("one track renders on its own out of a project that holds two")
     REQUIRE (alone.toneLevelDbBetween (440.0, 0.1, 1.9) > -20.0);
     REQUIRE (alone.toneLevelDbBetween (1760.0, 0.1, 1.9) < -80.0);
     REQUIRE (alone.pitchHzBetween (0.1, 1.9) == Catch::Approx (440.0).margin (pitchToleranceHz));
+}
+
+TEST_CASE ("a single-track render is the track asked for, whatever else is soloed")
+{
+    // The other half of sh2dkg's decision. A render of the whole project is the
+    // mix the producer set up, so it honours solo; a render of one track is a
+    // measurement of that track, so it does not. Analysis of a track would
+    // otherwise measure silence for as long as some other track was soloed.
+    TwoToneProject tones;
+
+    tones.session.performAction ("Solo the high track",
+                                 [&] (auto& ops) { ops.setTrackSolo (tones.highTrack, true); });
+
+    const auto alone = renderTrack (tones.session, tones.lowTrack, tones.project.folder());
+    REQUIRE (alone.readable());
+
+    const auto asked = alone.toneLevelDbBetween (TwoToneProject::lowHz, 0.1, 1.9);
+    const auto other = alone.toneLevelDbBetween (TwoToneProject::highHz, 0.1, 1.9);
+
+    INFO ("the unsoloed track alone: 440 Hz at " << asked << " dB, 1760 Hz at " << other << " dB");
+    REQUIRE (asked > -20.0);
+    REQUIRE (other < asked - keptAwayDb);
+}
+
+TEST_CASE ("a whole-project render leaves out a muted track")
+{
+    TwoToneProject tones;
+
+    tones.session.performAction ("Mute the low track",
+                                 [&] (auto& ops) { ops.setTrackMute (tones.lowTrack, true); });
+
+    const auto render = renderProject (tones.session, tones.project.folder());
+    REQUIRE (render.readable());
+
+    const auto muted = render.toneLevelDbBetween (TwoToneProject::lowHz, 0.1, 1.9);
+    const auto heard = render.toneLevelDbBetween (TwoToneProject::highHz, 0.1, 1.9);
+
+    INFO ("muted 440 Hz at " << muted << " dB, unmuted 1760 Hz at " << heard << " dB");
+    REQUIRE (heard > -20.0);
+    REQUIRE (muted < heard - keptAwayDb);
+}
+
+TEST_CASE ("undoing a mute puts the track back into the next render")
+{
+    // The render follows the project, and not a state an earlier render left
+    // behind: the engine's own render path takes the mute off every track it is
+    // given and puts it back afterwards, so a render that got this wrong could
+    // just as easily leave the project unmuted for good.
+    TwoToneProject tones;
+
+    tones.session.performAction ("Mute the low track",
+                                 [&] (auto& ops) { ops.setTrackMute (tones.lowTrack, true); });
+
+    const auto muted = renderProject (tones.session, tones.project.folder());
+    REQUIRE (muted.readable());
+    REQUIRE (muted.toneLevelDbBetween (TwoToneProject::lowHz, 0.1, 1.9)
+             < muted.toneLevelDbBetween (TwoToneProject::highHz, 0.1, 1.9) - keptAwayDb);
+
+    REQUIRE (tones.session.undo());
+    REQUIRE_FALSE (tones.session.track (tones.lowTrack).muted);
+
+    const auto restored = renderProject (tones.session, tones.project.folder());
+    REQUIRE (restored.readable());
+
+    INFO ("after the undo: 440 Hz at "
+          << restored.toneLevelDbBetween (TwoToneProject::lowHz, 0.1, 1.9) << " dB, 1760 Hz at "
+          << restored.toneLevelDbBetween (TwoToneProject::highHz, 0.1, 1.9) << " dB");
+    REQUIRE (restored.toneLevelDbBetween (TwoToneProject::lowHz, 0.1, 1.9) > -20.0);
+    REQUIRE (restored.toneLevelDbBetween (TwoToneProject::highHz, 0.1, 1.9) > -20.0);
+}
+
+TEST_CASE ("a whole-project render holds only the soloed track")
+{
+    // The decision recorded on sh2dkg: a render of the whole project honours
+    // solo as well as mute, because the file is the mix the producer set up and
+    // a solo is part of that mix. Exporting the whole project while a track is
+    // soloed therefore gives that track, not the mix it is soloed out of.
+    TwoToneProject tones;
+
+    tones.session.performAction ("Solo the high track",
+                                 [&] (auto& ops) { ops.setTrackSolo (tones.highTrack, true); });
+
+    const auto render = renderProject (tones.session, tones.project.folder());
+    REQUIRE (render.readable());
+
+    const auto soloed = render.toneLevelDbBetween (TwoToneProject::highHz, 0.1, 1.9);
+    const auto silenced = render.toneLevelDbBetween (TwoToneProject::lowHz, 0.1, 1.9);
+
+    INFO ("soloed 1760 Hz at " << soloed << " dB, unsoloed 440 Hz at " << silenced << " dB");
+    REQUIRE (soloed > -20.0);
+    REQUIRE (silenced < soloed - keptAwayDb);
 }
 
 TEST_CASE ("a level change halfway through a render is measured, and an unchanged render is not")

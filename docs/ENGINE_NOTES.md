@@ -514,3 +514,23 @@ repeated A/B did the same when each detached Edit began its allocator again.
 **Duet.** The detached Edit is reused across A/B cycles, and before detached
 state enters the real Edit its item-ID allocator is advanced beyond every ID in
 that state. Accepting then allocates IDs beyond the transient ones.
+
+### The render's solo isolator also unmutes the tracks it is given
+
+**The engine.** `FreezePointPlugin::ScopedTrackSoloIsolator` solo-isolates every
+track in the array it is handed and clears the mute on each one that is muted,
+restoring both in its destructor. A render under it therefore holds each of
+those tracks whatever the project says about them, and `Renderer::renderToFile`
+puts one around every render.
+
+**Where.** `ScopedTrackSoloIsolator` in `tracktion_FreezePoint.cpp`; the
+construction site is `Renderer::renderToFile` in `tracktion_Renderer.cpp`.
+
+**Proved.** `sh2dkg`, and `6zog6s` before it: a whole-project render of a
+two-track edit with the 440 Hz track muted held that tone at −9.02 dB, the same
+level as the render with nothing muted.
+
+**Duet.** `Session::renderToFile` renders without the isolator, so mute and solo
+reach the file — a render of the whole project is what the producer hears.
+`Session::renderTrackToFile` keeps it, because a render of one track is a
+measurement of that track and has to ignore what is soloed elsewhere.

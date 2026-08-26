@@ -64,12 +64,23 @@ namespace
     constexpr bool withMasterPlugins = true;
     constexpr bool withoutMasterPlugins = false;
 
+    constexpr bool ignoringMuteAndSolo = true;
+    constexpr bool honouringMuteAndSolo = false;
+
     /** What the engine's own render puts up around one, and takes down after.
 
-        A render frees the playback context and puts it back, ignores whatever
-        is soloed elsewhere so that the tracks asked for are the tracks rendered,
-        leaves clip slots out of it, and starts from plugins that are not
-        half-way through a playback.
+        A render frees the playback context and puts it back, leaves clip slots
+        out of it, and starts from plugins that are not half-way through a
+        playback.
+
+        One more is optional, and it is the one that decides what mute and solo
+        mean for a render. The engine's solo isolator solo-isolates every track
+        it is given and unmutes it as well, so a render under it holds each of
+        those tracks whatever the project says about them. That is what a render
+        of one track wants: the track asked for, and nothing another track's
+        solo has to say about it. A render of the whole project wants the
+        opposite — mute and solo are the project, and the file is what the
+        producer hears (sh2dkg).
 
         Both ends are the message thread's work — the engine asserts as much,
         and freeing a playback context from anywhere else is why — so both ends
@@ -80,9 +91,10 @@ namespace
     class RenderGuards
     {
     public:
-        RenderGuards (te::Edit& e, te::Track::Array& tracks) : edit (e)
+        RenderGuards (te::Edit& e, te::Track::Array& tracks, bool ignoreMuteAndSolo) : edit (e)
         {
-            te::callBlockingCatching ([&] { guards = std::make_unique<Guards> (edit, tracks); });
+            te::callBlockingCatching (
+                [&] { guards = std::make_unique<Guards> (edit, tracks, ignoreMuteAndSolo); });
         }
 
         ~RenderGuards()
@@ -105,17 +117,25 @@ namespace
     private:
         struct Guards
         {
-            Guards (te::Edit& edit, te::Track::Array& tracks)
-                : renderStatus { edit, true }, soloIsolator { edit, tracks },
-                  slotDisabler { edit, tracks }
+            Guards (te::Edit& edit, te::Track::Array& tracks, bool ignoreMuteAndSolo)
+                : renderStatus { edit, true }, slotDisabler { edit, tracks }
             {
+                if (ignoreMuteAndSolo)
+                    soloIsolator =
+                        std::make_unique<te::FreezePointPlugin::ScopedTrackSoloIsolator> (edit,
+                                                                                          tracks);
+
                 te::TransportControl::stopAllTransports (edit.engine, false, true);
                 te::Renderer::turnOffAllPlugins (edit);
             }
 
             te::Edit::ScopedRenderStatus renderStatus;
-            te::FreezePointPlugin::ScopedTrackSoloIsolator soloIsolator;
             te::Renderer::ScopedClipSlotDisabler slotDisabler;
+
+            // Declared last, so that it is undone first: the isolator gives the
+            // edit back the mute and the solo isolation it took away, and the
+            // edit should be the project again before it stops rendering.
+            std::unique_ptr<te::FreezePointPlugin::ScopedTrackSoloIsolator> soloIsolator;
         };
 
         te::Edit& edit;
@@ -128,8 +148,9 @@ namespace
         size from the audio device, which a headless machine does not have, and
         drives the render through a progress window that has no UI to appear in.
         This is that function with the shape stated instead and the task driven
-        here, and the guards it puts up kept: a render that ignores solo, leaves
-        clip slots alone, and starts from plugins that are not mid-playback.
+        here, and the guards it puts up kept: a render that leaves clip slots
+        alone, starts from plugins that are not mid-playback, and takes mute and
+        solo the way the caller says.
 
         The caller may be a worker thread — offline renders belong on one — as
         long as the message loop is running, because the guards and the render
@@ -139,7 +160,8 @@ namespace
     bool renderTracksToFile (te::Edit& edit,
                              const juce::File& file,
                              const juce::BigInteger& tracksToRender,
-                             bool useMasterPlugins)
+                             bool useMasterPlugins,
+                             bool ignoreMuteAndSolo)
     {
         if (tracksToRender.isZero())
             return false;
@@ -156,7 +178,7 @@ namespace
             if (tracksToRender[index])
                 tracks.add (allTracks[index]);
 
-        const RenderGuards guards { edit, tracks };
+        const RenderGuards guards { edit, tracks, ignoreMuteAndSolo };
 
         if (! guards.areUp())
             return false;
@@ -779,8 +801,11 @@ bool Session::renderToFile (const std::filesystem::path& destination)
     juce::BigInteger everyTrack;
     everyTrack.setRange (0, te::getAllTracks (*impl->edit).size(), true);
 
+    // What the producer hears: a muted track is silent in the file and a soloed
+    // one is the only thing in it, because mute and solo are the project and a
+    // render of the whole project is the project (sh2dkg).
     return renderTracksToFile (
-        *impl->edit, toJuceFile (destination), everyTrack, withMasterPlugins);
+        *impl->edit, toJuceFile (destination), everyTrack, withMasterPlugins, honouringMuteAndSolo);
 }
 
 bool Session::renderTrackToFile (TrackRef track, const std::filesystem::path& destination)
@@ -803,8 +828,13 @@ bool Session::renderTrackToFile (TrackRef track, const std::filesystem::path& de
 
     // Without the master chain: a track rendered on its own is what that track
     // puts out, and the master is what the whole project goes through after it.
-    return renderTracksToFile (
-        *impl->edit, toJuceFile (destination), thisTrack, withoutMasterPlugins);
+    // Ignoring mute and solo for the same reason: the track asked for is the
+    // track rendered, whatever the project has muted or soloed elsewhere.
+    return renderTracksToFile (*impl->edit,
+                               toJuceFile (destination),
+                               thisTrack,
+                               withoutMasterPlugins,
+                               ignoringMuteAndSolo);
 }
 
 //==============================================================================
