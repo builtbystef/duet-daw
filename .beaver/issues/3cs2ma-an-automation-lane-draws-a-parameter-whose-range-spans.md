@@ -4,7 +4,7 @@ title: An automation lane draws a parameter whose range spans orders of magnitud
 state: todo
 priority: low
 created: 2026-08-26T17:03:03Z
-updated: 2026-08-26T17:03:03Z
+updated: 2026-08-26T19:19:19Z
 ---
 
 ## What is wrong
@@ -41,3 +41,27 @@ no plugin parameter.
       and a drag across the lane covers the ratios a producer uses.
 - [ ] A parameter whose range is already linear in the producer's terms — a
       frequency in Hz, a level in dB — draws where it drew before.
+
+## Notes
+
+**claude** — 2026-08-26T19:19:19Z
+
+Decision (2026-08-26, user): **an automation lane carries its target's skew as a number, and the geometry applies it.** This settles the fork in "What to do" — neither branch as worded is taken.
+
+**Not the position.** A position is one sample of the mapping, and a lane needs the mapping in both directions: `valueAtY` must answer "what value is this y?" for any y a drag lands on, not only for the values that already have points.
+
+**Not a conversion function.** A `std::function` across the facade breaks the vocabulary's plain-data character and makes the geometry untestable without an engine, which is exactly what `AutomationLaneTests` relies on today.
+
+**What to build.** `PluginParameterInfo` gains a `skew` (double, default `1.0`), `AutomationLaneDrawing` gains the same, and `valueAtY` / `yForValue` apply it. The vocabulary stays plain data and the pair stays pure geometry, which is what the header in `AutomationLanes.h` promises: a gesture and the paint that follows it read the same lane the same way.
+
+`1.0` means linear and is arithmetically what the code does today. Volume (`Mixer::faderMinimumDb..faderMaximumDb`), pan, and every parameter already linear in the producer's ear pass `1.0` and draw exactly where they drew. Criterion two is then met by construction rather than by inspection.
+
+**The engine's skew is not the one to forward — this is the trap.** `AutomatableParameter::valueRange` describes the engine's *raw* scale. Since v6ac5c a built-in crosses the facade in the producer's units, and for the compressor's ratio those invert the raw scale: the engine holds `1 / ratio` in 0..0.95, so ascending raw is descending ratio. A skew read from the engine and applied to the real-unit range draws the lane upside down, contradicting the header's rule that a lane's top is its target's largest value.
+
+The skew therefore belongs beside the unit conversions in the `EditOps.cpp` table that v6ac5c built. It is Duet's own statement about the producer's scale, derived once per parameter, not a number read through from the engine.
+
+**Choose ratio's skew by measurement, not by guess.** Build a `duet_scratch` probe and pick the skew that puts 4 : 1 near the middle of the lane and keeps roughly 2 : 1 through 20 : 1 — the ratios a producer actually uses — spread across it. Record what was chosen and why in `docs/ENGINE_NOTES.md`.
+
+Where a parameter has no sensible non-linear form, `1.0` is the right answer and needs no justification.
+
+Build against this; no further escalation is needed on the question of how a lane maps value to position.
