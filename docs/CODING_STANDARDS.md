@@ -7,6 +7,11 @@ The conventions that this project holds, beyond what linters and formatters enfo
 - Prefer what the project already has: an installed library, or the standard library, before a new dependency.
 - A new production dependency needs a stated reason, in the issue that adds it. A new dependency is never the default answer to a small problem.
 
+## Text
+
+- Duet's sources are UTF-8, and `juce::String (const char*)` reads 8-bit data as ASCII, because nothing in the bytes says otherwise: a literal holding a character above 127 arrives as one character per byte and trips an assertion in a Debug build. A literal that is not plain ASCII reaches `juce::String` only through `duet::gui::utf8`, in `duet/gui/Text.h`, and a test over the module sources is what keeps that the only crossing.
+- A source that mentions no JUCE keeps such a literal as it is, and needs no crossing: its text reaches an interface as a `std::string`, which `juce::String` already reads as UTF-8.
+
 ## Real-time audio
 
 These rules apply to Duet's audio callbacks and every function they call. Tracktion Engine is trusted outside that boundary; Duet's built-in instruments and effects are not.

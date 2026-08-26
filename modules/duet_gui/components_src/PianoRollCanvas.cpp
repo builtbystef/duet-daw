@@ -2,6 +2,7 @@
 
 #include <duet/gui/GraphiteLookAndFeel.h>
 #include <duet/gui/MainShell.h>
+#include <duet/gui/Text.h>
 #include <duet/gui/Tokens.h>
 #include <duet/gui/Typography.h>
 
@@ -78,8 +79,8 @@ void PianoRollCanvas::paint (juce::Graphics& g)
     g.fillRect (getLocalBounds().removeFromTop (appearance.scaled (controlsHeight)));
     g.setColour (toJuce (appearance.colour (ColourToken::textPrimary)));
     g.setFont (interFont (appearance.scaled (typography::body), true));
-    g.drawText (view.isOpen() ? "Piano Roll — " + juce::String { view.clipName() }
-                              : "Piano Roll — No MIDI clip",
+    g.drawText (view.isOpen() ? utf8 ("Piano Roll — ") + juce::String { view.clipName() }
+                              : utf8 ("Piano Roll — No MIDI clip"),
                 getLocalBounds().removeFromTop (appearance.scaled (controlsHeight)).reduced (8, 0),
                 juce::Justification::centredLeft);
 

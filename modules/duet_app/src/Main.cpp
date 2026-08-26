@@ -13,6 +13,7 @@
 #include <duet/gui/Rendering.h>
 #include <duet/gui/SessionClock.h>
 #include <duet/gui/SettingsWindow.h>
+#include <duet/gui/Text.h>
 #include <duet/gui/ViewState.h>
 #include <duet/gui/WindowGeometry.h>
 
@@ -34,11 +35,6 @@ namespace
     {
         return std::filesystem::path { file.getFullPathName().toStdString() };
     }
-
-    /** juce::String reads 8-bit data as ASCII unless it is told otherwise, and
-        the shell's own text is UTF-8.
-    */
-    juce::String text (const char* utf8) { return juce::String { juce::CharPointer_UTF8 (utf8) }; }
 
     /** The Duet menu's entries that are the host's rather than the shell's.
 
@@ -472,7 +468,7 @@ private:
     [[nodiscard]] juce::String titleText() const
     {
         if (problem.isNotEmpty())
-            return text ("Duet — ") + problem;
+            return duet::gui::utf8 ("Duet — ") + problem;
 
         const auto* project = lifecycle.projectOrNull();
 
@@ -482,7 +478,7 @@ private:
         // The dirty marker: the project has changes that are not on disk. An
         // asterisk because the marker has to survive whatever font the window
         // manager draws its title bar in, and a bullet does not.
-        return text ("Duet — ") + juce::String { lifecycle.projectName() }
+        return duet::gui::utf8 ("Duet — ") + juce::String { lifecycle.projectName() }
                + (project->hasUnsavedChanges() ? juce::String (" *") : juce::String());
     }
 

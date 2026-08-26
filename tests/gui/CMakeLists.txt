@@ -10,6 +10,7 @@ add_executable(duet_gui_tests
     CollaboratorPanelCanvasTests.cpp
     GraphiteLookTests.cpp
     MainShellTests.cpp
+    TextTests.cpp
     TypographyTests.cpp)
 
 target_compile_features(duet_gui_tests PRIVATE cxx_std_20)
