@@ -510,6 +510,24 @@ struct Session::Impl
     */
     std::optional<juce::uint32> lastDeviceChangeMs;
 
+    /** The same moment, counted no earlier than `since`.
+
+        A wait that asked the engine for a rebuild measures its quiet from the
+        ask: an engine that has not answered yet must not read as one that has
+        finished, and each apply that lands afterwards moves the moment on
+        again. Signed on the difference, so the counter's wrap is a difference
+        like any other.
+    */
+    std::uint32_t devicesLastMovedSince (std::uint32_t since) const
+    {
+        if (lastDeviceChangeMs.has_value()
+            && static_cast<std::int32_t> (static_cast<std::uint32_t> (*lastDeviceChangeMs) - since)
+                   > 0)
+            return static_cast<std::uint32_t> (*lastDeviceChangeMs);
+
+        return since;
+    }
+
     /** Listens for the engine saying it has changed its devices, which is the
         only announcement it makes of the rebuilds that end takes.
     */

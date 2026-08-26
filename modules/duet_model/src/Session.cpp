@@ -33,6 +33,48 @@ namespace
     constexpr int playRetryIntervalMs = 100;
     constexpr int playRetryAttempts = 100;
 
+    /** How long the engine has to say nothing about its devices before a
+        commanded rebuild counts as over, and how long the model waits for that
+        at most.
+
+        The engine applies a rescan on a 5 ms timer and schedules the apply that
+        settles its defaults about five milliseconds behind it, so fifty is ten
+        times the gap a machine too busy to deliver a tick on time has to make
+        up — and an apply that does land pushes the window out again, which is
+        what makes the wait a count of the engine's ticks rather than a stretch
+        of wall clock. The bound is under the engine's own four-second rebuild
+        timer, so a rebuild that never lands cannot be answered by that timer
+        instead of by what was asked for.
+    */
+    constexpr std::uint32_t deviceApplyQuietMs = 50;
+    constexpr int deviceRebuildBoundMs = 2000;
+
+    /** How much message loop one look of such a wait is worth: short enough
+        that an answer is seen as it arrives, long enough that a timer on a
+        millisecond gets its tick.
+    */
+    constexpr int msPerLook = 5;
+
+    /** Runs the message loop in short looks until the condition holds, or until
+        the bound runs out.
+    */
+    template <typename Condition>
+    void runTheMessageLoopUntil (const Condition& condition, int boundMs)
+    {
+        const auto startedAt = juce::Time::getMillisecondCounter();
+        const auto bound = static_cast<juce::uint32> (std::max (0, boundMs));
+
+        while (! condition())
+        {
+            // Unsigned throughout, so the counter's wrap is a difference like
+            // any other rather than a wait that never ends.
+            if (juce::Time::getMillisecondCounter() - startedAt >= bound)
+                return;
+
+            juce::MessageManager::getInstance()->runDispatchLoopUntil (msPerLook);
+        }
+    }
+
     /** What playing with no audio device runs at. The rate and the block size
         are ordinary ones and nothing depends on them: they only decide how many
         blocks a stretch of seconds is cut into. The CPU limit is what stops the
@@ -1150,14 +1192,25 @@ void Session::suppressDeviceRebuild()
 
 void Session::rebuildDevices()
 {
+    // The quiet the wait below is looking for starts here: an engine that has
+    // not answered the ask yet must not read as one that has finished.
+    const auto askedAt = impl->nowMs();
     impl->askForTheDeviceList();
 
     // rescanMidiDeviceList applies on a 5 ms timer; checkDefaultDevicesAreValid
     // then settles the defaults and applies again ~5 ms later. Both have to
     // land before this returns, or a caller that asked for the rebuild to be
-    // over would still be waiting on the engine.
-    constexpr int deviceApplyMs = 20;
-    juce::MessageManager::getInstance()->runDispatchLoopUntil (deviceApplyMs);
+    // over would still be waiting on the engine. What says they have is the
+    // list being built and the engine having gone quiet about it — waited for
+    // rather than counted out in milliseconds, so a machine that cannot deliver
+    // two timer ticks in twenty of them still gets both applies.
+    runTheMessageLoopUntil (
+        [this, askedAt]
+        {
+            return impl->deviceListIsBuilt()
+                   && impl->nowMs() - impl->devicesLastMovedSince (askedAt) >= deviceApplyQuietMs;
+        },
+        deviceRebuildBoundMs);
 
     // A second ask does not change the list, so the engine does not free the
     // graphs. The first one does. This is that effect, on command: the

@@ -1079,6 +1079,11 @@ public:
         A test that needs the rebuild to have happened — or to happen to a
         rolling transport — says so here, instead of pumping the message loop
         until the engine's timer lands.
+
+        Returns once the engine has built its list and gone quiet about it, and
+        so promises the same thing on a loaded machine as on an idle one. It
+        gives up after two seconds, which is still well under the engine's own
+        four-second timer.
     */
     void rebuildDevices();
 

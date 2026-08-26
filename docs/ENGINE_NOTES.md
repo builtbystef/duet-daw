@@ -151,7 +151,10 @@ Tests drive the rebuild at the device seam (`2jqmj2`): `suppressDeviceRebuild`
 stops the engine's four-second timer, `rebuildDevices` asks for the list now
 and frees the playback graph, and `setDeviceWait` makes the pre-roll's quiet,
 poll and bound drivable so those cases spend no real seconds. The ask is not
-on the constructor path.
+on the constructor path. `rebuildDevices` waits for both applies rather than
+counting out a stretch of wall clock (`20u1dr`): it returns once the MIDI
+input list is built and the engine has said nothing about its devices for
+50 ms, and gives up after two seconds, still under the engine's own timer.
 
 ### 7. Undo and redo permute ValueTree property order
 
