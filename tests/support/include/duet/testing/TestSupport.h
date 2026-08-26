@@ -3,6 +3,7 @@
 #include <duet/gui/Settings.h>
 
 #include <filesystem>
+#include <functional>
 #include <map>
 #include <optional>
 #include <string>
@@ -78,6 +79,30 @@ private:
     engine's deferred work — the async clip re-sort above all — can land.
 */
 void pumpMessages (int milliseconds);
+
+/** How long pumpUntil runs the message loop before it gives up on a condition.
+
+    Under the four seconds of the engine's own device-list rebuild timer, so
+    that nothing waiting here can be answered by that timer instead of by what
+    it was waiting for — and far enough over what deferred work costs on an idle
+    machine that only a broken condition reaches it.
+*/
+constexpr int pumpUntilTimeoutMs = 2000;
+
+/** Runs the message loop until a condition holds, and says whether it did.
+
+    What an assertion about deferred work is about is the work happening, not
+    the number of milliseconds a machine needed to get there: a pump long enough
+    on an idle machine is a coin toss on a loaded one. This returns as soon as
+    the condition holds, so it costs an idle machine what a short pump costs and
+    still gives a loaded one room.
+
+    It says nothing about how soon the condition held, so an assertion that
+    something must *not* have happened yet stays a separate assertion, made
+    before this one.
+*/
+bool pumpUntil (const std::function<bool()>& condition,
+                int timeoutMilliseconds = pumpUntilTimeoutMs);
 
 /** Starts playback, and runs the message loop until the transport is rolling.
 

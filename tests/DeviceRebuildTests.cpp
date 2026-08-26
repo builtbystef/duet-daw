@@ -117,9 +117,11 @@ TEST_CASE ("a take starts once the engine's devices go still", "[devices]")
     session.startRecording();
     REQUIRE_FALSE (session.isRecording());
 
+    // Settled is what the take was waiting for, so it starts on the next look.
+    // How many milliseconds of message loop that look costs is the machine's
+    // business, not this test's, and a busy machine's answer is not five.
     session.setDeviceWait (0, 1, 1000);
-    duet::testing::pumpMessages (5);
-    REQUIRE (session.isRecording());
+    REQUIRE (duet::testing::pumpUntil ([&] { return session.isRecording(); }));
 
     session.stopRecording();
 }
@@ -137,8 +139,11 @@ TEST_CASE ("a take starts at the bound even if the devices never settle", "[devi
     session.startRecording();
     REQUIRE_FALSE (session.isRecording());
 
-    duet::testing::pumpMessages (5);
-    REQUIRE (session.isRecording());
+    // Not before the bound is the assertion above; at the bound is this one.
+    // The bound is a count of looks and not a stretch of time, so what this
+    // waits for is the look, however long a loaded machine takes to hand it
+    // over.
+    REQUIRE (duet::testing::pumpUntil ([&] { return session.isRecording(); }));
 
     session.stopRecording();
 }

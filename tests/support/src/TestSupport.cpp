@@ -10,6 +10,7 @@
 #include <juce_audio_formats/juce_audio_formats.h>
 #include <juce_events/juce_events.h>
 
+#include <algorithm>
 #include <atomic>
 #include <cmath>
 #include <numbers>
@@ -20,6 +21,13 @@ namespace
 {
     constexpr int playAttempts = 20;
     constexpr int msPerPlayAttempt = 200;
+
+    /** How much message loop one look of pumpUntil is worth: short enough that
+        a condition that holds early is seen early, long enough that a timer on
+        a millisecond gets its tick.
+    */
+    constexpr int msPerPumpUntilLook = 5;
+
     constexpr double toneSampleRate = 44100.0;
     constexpr int toneBitDepth = 16;
     constexpr float toneAmplitude = 0.5F;
@@ -88,6 +96,24 @@ std::filesystem::path TempProject::writeTone (std::string_view fileName,
 void pumpMessages (int milliseconds)
 {
     juce::MessageManager::getInstance()->runDispatchLoopUntil (milliseconds);
+}
+
+bool pumpUntil (const std::function<bool()>& condition, int timeoutMilliseconds)
+{
+    const auto startedAt = juce::Time::getMillisecondCounter();
+    const auto bound = static_cast<juce::uint32> (std::max (0, timeoutMilliseconds));
+
+    while (! condition())
+    {
+        // Unsigned throughout, so the counter's wrap is a difference like any
+        // other rather than a wait that never ends.
+        if (juce::Time::getMillisecondCounter() - startedAt >= bound)
+            return false;
+
+        pumpMessages (msPerPumpUntilLook);
+    }
+
+    return true;
 }
 
 bool playUntilRolling (duet::model::Session& session)
