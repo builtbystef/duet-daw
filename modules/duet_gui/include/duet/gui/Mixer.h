@@ -89,8 +89,10 @@ public:
                                      double peakDb,
                                      double nowSeconds);
 
-    static constexpr double faderMinimumDb = -60.0;
-    static constexpr double faderMaximumDb = 6.0;
+    /** The fader's travel, which is the model's, because what a fader may be
+        set to is a fact about the value and not about the strip drawing it. */
+    static constexpr double faderMinimumDb = duet::model::faderMinimumDb;
+    static constexpr double faderMaximumDb = duet::model::faderMaximumDb;
 
 private:
     enum class GestureKind : std::uint8_t

@@ -67,6 +67,8 @@ namespace toolId
     {
         return refIn (id, pluginPrefix);
     }
+
+    std::optional<model::NoteRef> toNote (std::string_view id) { return refIn (id, notePrefix); }
 } // namespace toolId
 
 namespace

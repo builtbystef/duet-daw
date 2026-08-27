@@ -34,7 +34,8 @@ target_link_libraries(duet_collab PRIVATE Threads::Threads)
 # reads live here and the socket lives there, and the only thing crossing
 # between them is JSON and a function that puts a read on the message thread.
 add_library(duet_collab_tools STATIC
-    src/ProjectTools.cpp)
+    src/ProjectTools.cpp
+    src/SuggestTool.cpp)
 add_library(duet::collab_tools ALIAS duet_collab_tools)
 
 target_compile_features(duet_collab_tools PRIVATE cxx_std_20)

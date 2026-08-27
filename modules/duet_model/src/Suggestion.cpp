@@ -27,7 +27,9 @@ struct Suggestion::Impl
             insertAudioClip,
             insertMidiClip,
             moveClip,
+            moveClipToTrack,
             trimClip,
+            trimClipEdges,
             deleteClip,
             setClipLoop,
             duplicateClip,
@@ -212,11 +214,27 @@ void Suggestion::moveClip (SuggestionTarget clip, double newStartSeconds)
     operation.a = newStartSeconds;
 }
 
+void Suggestion::moveClip (SuggestionTarget clip, SuggestionTarget toTrack, double newStartSeconds)
+{
+    auto& operation = impl->append (Impl::Operation::Kind::moveClipToTrack);
+    operation.first = Impl::referenceOf (clip);
+    operation.second = Impl::referenceOf (toTrack);
+    operation.a = newStartSeconds;
+}
+
 void Suggestion::trimClip (SuggestionTarget clip, double newLengthSeconds)
 {
     auto& operation = impl->append (Impl::Operation::Kind::trimClip);
     operation.first = Impl::referenceOf (clip);
     operation.a = newLengthSeconds;
+}
+
+void Suggestion::trimClip (SuggestionTarget clip, double newStartSeconds, double newLengthSeconds)
+{
+    auto& operation = impl->append (Impl::Operation::Kind::trimClipEdges);
+    operation.first = Impl::referenceOf (clip);
+    operation.a = newStartSeconds;
+    operation.b = newLengthSeconds;
 }
 
 void Suggestion::deleteClip (SuggestionTarget clip)
@@ -634,8 +652,14 @@ void Session::applySuggestion (const Suggestion& suggestion)
                     case Suggestion::Impl::Operation::Kind::moveClip:
                         ops.moveClip (first, operation.a);
                         break;
+                    case Suggestion::Impl::Operation::Kind::moveClipToTrack:
+                        ops.moveClip (first, second, operation.a);
+                        break;
                     case Suggestion::Impl::Operation::Kind::trimClip:
                         ops.trimClip (first, operation.a);
+                        break;
+                    case Suggestion::Impl::Operation::Kind::trimClipEdges:
+                        ops.trimClip (first, operation.a, operation.b);
                         break;
                     case Suggestion::Impl::Operation::Kind::deleteClip:
                         ops.deleteClip (first);

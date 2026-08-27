@@ -77,6 +77,14 @@ inline constexpr InputRef noInput = 0;
 */
 inline constexpr double silentDb = -100.0;
 
+/** The two ends of a fader's travel, in decibels: what the producer can set a
+    track's level or a send's level to, and so what a Suggestion may ask for.
+
+    Below the bottom is not a quieter fader but silence, which mute is for.
+*/
+inline constexpr double faderMinimumDb = -60.0;
+inline constexpr double faderMaximumDb = 6.0;
+
 class Session;
 class Suggestion;
 struct PluginEditorAccess;
@@ -745,7 +753,15 @@ public:
                                   double startSeconds,
                                   double lengthSeconds);
     void moveClip (SuggestionTarget clip, double newStartSeconds);
+
+    /** Moves a clip in time and to another track. */
+    void moveClip (SuggestionTarget clip, SuggestionTarget toTrack, double newStartSeconds);
+
     void trimClip (SuggestionTarget clip, double newLengthSeconds);
+
+    /** Trims either edge while keeping the clip's content fixed to timeline
+        time. */
+    void trimClip (SuggestionTarget clip, double newStartSeconds, double newLengthSeconds);
     void deleteClip (SuggestionTarget clip);
     void setClipLoop (SuggestionTarget clip, bool looped, double loopLengthBeats);
     SuggestionRef
@@ -942,6 +958,22 @@ public:
 
     /** How many beats into the project a moment is, counting from zero. */
     [[nodiscard]] double beatsAtSeconds (double seconds) const;
+
+    /** When a beat falls, in seconds: the exact inverse of beatsAtSeconds.
+
+        The reads publish a time in beats and an edit takes one in seconds, so
+        this is what turns the one back into the other.
+    */
+    [[nodiscard]] double secondsAtBeats (double beats) const;
+
+    /** When a bar falls, in seconds: the inverse of barAtSeconds, and
+        barStartSeconds for a bar that is not a whole one.
+
+        Part of the way through a bar is that proportion of the bar's own
+        length, which is exact for every tempo the project can hold, there
+        being one of them.
+    */
+    [[nodiscard]] double secondsAtBar (double bar) const;
 
     /** The arrangement's named sections, in the order the producer put them. */
     [[nodiscard]] std::vector<SectionInfo> sections() const;

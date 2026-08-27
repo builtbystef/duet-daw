@@ -820,6 +820,20 @@ double Session::beatsAtSeconds (double seconds) const
     return impl->edit->tempoSequence.toBeats (te::TimePosition::fromSeconds (seconds)).inBeats();
 }
 
+double Session::secondsAtBeats (double beats) const
+{
+    return impl->edit->tempoSequence.toTime (tracktion::BeatPosition::fromBeats (beats))
+        .inSeconds();
+}
+
+double Session::secondsAtBar (double bar) const
+{
+    const auto whole = static_cast<int> (std::floor (bar));
+    const auto start = barStartSeconds (whole);
+
+    return start + (bar - whole) * (barStartSeconds (whole + 1) - start);
+}
+
 std::vector<SectionInfo> Session::sections() const
 {
     std::vector<SectionInfo> out;

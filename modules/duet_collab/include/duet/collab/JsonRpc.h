@@ -25,7 +25,7 @@ using Json = nlohmann::ordered_json;
 
 /** The JSON-RPC 2.0 error codes this seam answers with.
 
-    The first five are the specification's own. The last three are Duet's, and
+    The first five are the specification's own. The last four are Duet's, and
     sit inside the -32099..-32000 range the specification reserves for an
     implementation's own server errors.
 */
@@ -39,6 +39,7 @@ namespace rpcError
     inline constexpr int sidecarUnavailable = -32000;
     inline constexpr int runAlreadyActive = -32001;
     inline constexpr int unknownTool = -32002;
+    inline constexpr int suggestionAlreadyMade = -32003;
 } // namespace rpcError
 
 /** The error member of a JSON-RPC response. */

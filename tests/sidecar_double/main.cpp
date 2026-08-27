@@ -17,7 +17,8 @@
 // when a `run.start` arrives, which is the only way the lifecycle rules can be
 // driven from the far side of the seam. `call-tools` is the Tool Vocabulary
 // one: its script argument is a JSON array of the calls to make, each of them
-// `{ tool, args }`, and every answer comes back as a report.
+// `{ tool, args }`, and every answer comes back as a report. An entry that is
+// `{ text }` instead is commentary, streamed where it stands in the list.
 
 #include <nlohmann/json.hpp>
 
@@ -281,6 +282,15 @@ void performRun (Connection& connection,
         {
             for (const auto& call : calls)
             {
+                // An entry that says something rather than asking something:
+                // commentary is plain assistant text, and a run may produce it
+                // alone, beside a Suggestion, or not at all.
+                if (call.contains ("text"))
+                {
+                    sendText (connection, runId, call.value ("text", std::string {}));
+                    continue;
+                }
+
                 const auto id = nextReportId();
 
                 connection.send (

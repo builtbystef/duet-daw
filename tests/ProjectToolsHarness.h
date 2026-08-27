@@ -13,12 +13,14 @@
 #include "CollaboratorHarness.h"
 
 #include <duet/collab/ProjectTools.h>
+#include <duet/collab/SuggestTool.h>
 #include <duet/collab/ToolDispatch.h>
 #include <duet/model/Session.h>
 #include <duet/testing/TestSupport.h>
 
 #include <cstddef>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 #include <utility>
@@ -34,6 +36,37 @@ inline Json toolCall (const std::string& tool, Json arguments = Json::object())
     call["args"] = std::move (arguments);
 
     return call;
+}
+
+/** One entry of that same list that says something rather than asking: what the
+    Collaborator writes in the conversation while it works.
+*/
+inline Json toolCommentary (const std::string& text)
+{
+    Json entry = Json::object();
+    entry["text"] = text;
+
+    return entry;
+}
+
+/** One element of a `suggest` call: what the change is, and what it does. */
+inline Json suggestElement (const std::string& description, Json operations)
+{
+    Json element = Json::object();
+    element["description"] = description;
+    element["operations"] = std::move (operations);
+
+    return element;
+}
+
+/** A `suggest` call carrying a summary and its elements. */
+inline Json suggestCall (const std::string& summary, Json elements)
+{
+    Json arguments = Json::object();
+    arguments["summary"] = summary;
+    arguments["elements"] = std::move (elements);
+
+    return toolCall ("suggest", arguments);
 }
 
 /** A call naming one track, which is what three of the five tools take. */
@@ -54,10 +87,19 @@ inline Json toolCall (const std::string& tool, duet::model::TrackRef track)
 class RunEnding final : public duet::collab::TaskRunListener
 {
 public:
-    void commentaryDelta (const std::string&, const std::string&) override {}
-    void toolActivity (const std::string&, const std::string&, duet::collab::ToolPhase) override {}
+    void commentaryDelta (const std::string& /*runId*/, const std::string& delta) override
+    {
+        const std::lock_guard lock (mutex);
+        said += delta;
+    }
 
-    void runFinished (const std::string&,
+    void toolActivity (const std::string& /*runId*/,
+                       const std::string& /*tool*/,
+                       duet::collab::ToolPhase /*phase*/) override
+    {
+    }
+
+    void runFinished (const std::string& /*runId*/,
                       duet::collab::RunStatus status,
                       const std::string& error) override
     {
@@ -88,11 +130,20 @@ public:
         return why;
     }
 
+    /** Everything the run said, its deltas in the order they arrived. */
+    [[nodiscard]] std::string commentary() const
+    {
+        const std::lock_guard lock (mutex);
+
+        return said;
+    }
+
 private:
     mutable std::mutex mutex;
     bool ended = false;
     duet::collab::RunStatus howItEnded = duet::collab::RunStatus::failed;
     std::string why;
+    std::string said;
 };
 
 /** How long a tool run is given to finish: long enough to spawn a child process
@@ -112,10 +163,11 @@ public:
     ToolRun (duet::model::Session& session,
              const Json& calls,
              duet::collab::ProjectReadMarshal marshal = messageThreadMarshal())
-        : tools (session, std::move (marshal)),
+        : tools (session, marshal), writes (session, std::move (marshal)),
           harness ("call-tools", std::vector<std::string> { calls.dump() })
     {
         tools.addTo (registry);
+        writes.addTo (registry);
 
         harness->setMethodHandler ("tool.call",
                                    [this] (const Json& params) { return registry.call (params); });
@@ -155,6 +207,32 @@ public:
 
     [[nodiscard]] const std::string& id() const { return runId; }
 
+    /** Everything the run said while it worked. */
+    [[nodiscard]] std::string commentary() const { return ending.commentary(); }
+
+    /** The Suggestions this run's calls made, oldest first. */
+    [[nodiscard]] std::vector<duet::collab::Suggestion> suggestions() const
+    {
+        return writes.suggestions();
+    }
+
+    /** The one Suggestion a call answered with, read back from the tool.
+
+        A call that made none reads back as a Suggestion of nothing, whose own
+        id is empty — the shape the model facade already answers an unknown
+        reference in, so an assertion says what it means without unwrapping.
+    */
+    [[nodiscard]] duet::collab::Suggestion suggestion (std::size_t call) const
+    {
+        const auto& answer = result (call);
+
+        if (! answer.contains ("suggestionId"))
+            return { {}, {} };
+
+        return writes.suggestion (answer.at ("suggestionId").get<std::string>())
+            .value_or (duet::collab::Suggestion { {}, {} });
+    }
+
     /** The thread the service answers tool calls on, which is never the thread
         a project read happens on.
     */
@@ -173,6 +251,7 @@ private:
 
     duet::collab::ToolRegistry registry;
     duet::collab::ProjectTools tools;
+    duet::collab::SuggestTool writes;
 
     // Before the harness, so that the service is gone before the listener is.
     RunEnding ending;

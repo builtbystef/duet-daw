@@ -36,6 +36,7 @@ namespace toolId
     [[nodiscard]] std::optional<model::TrackRef> toTrack (std::string_view id);
     [[nodiscard]] std::optional<model::ClipRef> toClip (std::string_view id);
     [[nodiscard]] std::optional<model::PluginRef> toPlugin (std::string_view id);
+    [[nodiscard]] std::optional<model::NoteRef> toNote (std::string_view id);
 } // namespace toolId
 
 /** Runs one project read on the thread that owns the project model, and returns
