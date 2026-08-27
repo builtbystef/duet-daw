@@ -428,8 +428,10 @@ struct Session::Impl
     //==============================================================================
     // Running the audio with no audio device at all.
 
-    /** Puts the session on inputs and outputs that go nowhere, once. */
-    void useHostedAudioDevice() const;
+    /** Puts the session on inputs and outputs that go nowhere, once, and
+        returns with the engine's answer to that switch over.
+    */
+    void useHostedAudioDevice();
 
     /** True once the session is on them. */
     bool onHostedAudioDevice = false;
@@ -465,6 +467,19 @@ struct Session::Impl
         into the session, which is when its own timer would.
     */
     void askForTheDeviceList() const { engine.getDeviceManager().rescanMidiDeviceList(); }
+
+    /** Runs the message loop until the engine has nothing more to say about the
+        devices it was last asked about at `since`.
+
+        The engine answers a device change with more device changes — an apply
+        settles the defaults, and settling them rescans — so one flush of its
+        pending work does not end the answer. What ends it is the engine going
+        quiet: the list built, and no change broadcast for long enough to
+        believe it. Waited for rather than counted out in milliseconds, so a
+        machine that cannot deliver two timer ticks in twenty of them still gets
+        both applies — and bounded, so one that never goes quiet still returns.
+    */
+    void waitForTheDevicesToGoQuiet (std::uint32_t since);
 
     /** Starts the take: from here on the armed tracks take what their inputs
         carry, from the playhead on.

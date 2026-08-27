@@ -1075,12 +1075,26 @@ double Session::trackPeakDb (TrackRef track)
     return meter != impl->trackMeters.end() ? meter->second->readPeakDb() : silentDb;
 }
 
-void Session::Impl::useHostedAudioDevice() const
+void Session::Impl::waitForTheDevicesToGoQuiet (std::uint32_t since)
+{
+    runTheMessageLoopUntil (
+        [this, since] {
+            return deviceListIsBuilt()
+                   && nowMs() - devicesLastMovedSince (since) >= deviceApplyQuietMs;
+        },
+        deviceRebuildBoundMs);
+}
+
+void Session::Impl::useHostedAudioDevice()
 {
     auto& deviceManager = engine.getDeviceManager();
 
     if (deviceManager.isHostedAudioDeviceInterfaceInUse())
         return;
+
+    // The quiet the wait at the end is looking for starts here, before the
+    // switch the engine is about to answer.
+    const auto switchedAt = nowMs();
 
     // Blocks go through as fast as the machine will take them, so the engine's
     // wall-clock measure of how hard it is working means nothing here; left
@@ -1107,6 +1121,20 @@ void Session::Impl::useHostedAudioDevice() const
     // PropertyStorage without restarting this session's timer.
     deviceManager.setMidiDeviceScanIntervalSeconds (0);
     engine.getPropertyStorage().setProperty (te::SettingID::midiScanIntervalSeconds, 4);
+
+    // Giving up the audio device is a device change like any other, and the
+    // session only ever hears about one when the message loop delivers the
+    // engine's broadcast. Nothing has pumped it yet, so say it here: a switch
+    // the session made itself is not a session whose devices have never moved,
+    // and a take asked for straight afterwards takes the pre-roll it would take
+    // on any other moved devices.
+    lastDeviceChangeMs = switchedAt;
+
+    // Then wait the switch out. The flush above ran the engine's pending update
+    // exactly once, and that update settles the defaults, which rescans, which
+    // can post another — so a caller that returned here would leave the rest to
+    // land on whatever pump came next, over a take by then.
+    waitForTheDevicesToGoQuiet (switchedAt);
 }
 
 void Session::Impl::pushBlocks (double seconds, const InputSignal& playedIn) const
@@ -1201,17 +1229,8 @@ void Session::rebuildDevices()
     // rescanMidiDeviceList applies on a 5 ms timer; checkDefaultDevicesAreValid
     // then settles the defaults and applies again ~5 ms later. Both have to
     // land before this returns, or a caller that asked for the rebuild to be
-    // over would still be waiting on the engine. What says they have is the
-    // list being built and the engine having gone quiet about it — waited for
-    // rather than counted out in milliseconds, so a machine that cannot deliver
-    // two timer ticks in twenty of them still gets both applies.
-    runTheMessageLoopUntil (
-        [this, askedAt]
-        {
-            return impl->deviceListIsBuilt()
-                   && impl->nowMs() - impl->devicesLastMovedSince (askedAt) >= deviceApplyQuietMs;
-        },
-        deviceRebuildBoundMs);
+    // over would still be waiting on the engine.
+    impl->waitForTheDevicesToGoQuiet (askedAt);
 
     // A second ask does not change the list, so the engine does not free the
     // graphs. The first one does. This is that effect, on command: the

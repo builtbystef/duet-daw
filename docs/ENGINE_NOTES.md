@@ -234,7 +234,7 @@ are pushed in. The engine's own headless test player
 hosted device and hand it blocks. That is how playback meters and recording
 run in CI (ADR 0006).
 
-### A hosted-device switch leaves one MIDI apply pending
+### A hosted-device switch answers itself, so one flush does not end it
 
 **The engine.** Initialising `HostedAudioDeviceInterface` applies its MIDI
 list synchronously, but settling the default devices schedules another MIDI
@@ -243,18 +243,37 @@ devices and frees its graph. Blocks can be pushed through a recording before
 the message loop delivers the apply, so delivering it afterwards ends the take.
 Hosted MIDI itself cannot change when `Parameters::useMidiDevices` is false.
 
+The MIDI apply is not all the switch leaves behind, and the engine's answer to a
+device change is not one event. `handleAsyncUpdate` ends in
+`checkDefaultDevicesAreValid`, whose `setDefaultWaveOutDevice` /
+`setDefaultWaveInDevice` call `rescanWaveDeviceList` again, and that posts
+another async update. So `dispatchPendingUpdates`, which is one
+`handleUpdateNowIfNeeded`, runs one round of an answer that has more rounds:
+what it leaves lands on whatever turns the message loop next.
+
 **Where.** `HostedAudioDeviceInterface::initialise`;
-`DeviceManager::applyNewMidiDeviceList`; `checkDefaultDevicesAreValid`.
+`DeviceManager::applyNewMidiDeviceList`; `checkDefaultDevicesAreValid`;
+`DeviceManager::handleAsyncUpdate`; `DeviceManager::dispatchPendingUpdates`.
 
 **Proved.** `wdt64u`. The headless undo-during-take case pushed blocks, then
 pumped the message loop to read the playhead; recording changed from true to
 false when the pending MIDI apply landed. Cancelling that scan left recording
-true through the playhead advance and undo.
+true through the playhead advance and undo. `ff6prt` for the rest of the answer:
+after the flush, the log carries a second `Rebuilding Wave Device List` that
+arrives on the first pump afterwards.
 
 **Duet.** `Session::useNoAudioDevice` cancels MIDI scanning for that session
 after the hosted list has been applied, while restoring the production scan
-interval in `PropertyStorage` for later engines. A headless take therefore runs
-until `stopRecording` rather than until the next message-loop pump.
+interval in `PropertyStorage` for later engines. Then it waits the rest of the
+answer out, on the same terms `rebuildDevices` waits on: the list built and the
+engine quiet about its devices for 50 ms, bounded at two seconds. A headless take
+therefore runs until `stopRecording` rather than until the next message-loop
+pump, and no case has to pump by hand after the switch — about nine seconds of
+waiting over the whole suite, measured by `ff6prt`. The session stamps the switch
+as a device change of its own too (`Impl::lastDeviceChangeMs`): it would
+otherwise not hear about a change it caused until the message loop delivered the
+engine's broadcast, and a `startRecording` straight afterwards would read devices
+that have never moved, skip the pre-roll, and start the take inside the churn.
 
 ### The engine builds two different graphs
 

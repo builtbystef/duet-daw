@@ -142,14 +142,6 @@ TEST_CASE ("an undo during a take neither stops it nor moves the playhead")
     Session session { project.editFile() };
     session.useNoAudioDevice();
 
-    // Giving up the audio device is itself a device change, and the engine
-    // answers one with applies that reload the playback context's devices. An
-    // apply that lands on a take frees the graph the take is rolling through
-    // and ends it, which is a device rebuild's doing and not an undo's — so
-    // this case has the rebuild happen, and waits for the engine to go quiet
-    // about it, before there is a take for it to end.
-    session.rebuildDevices();
-
     const auto midiInput = inputOfKind (session, InputKind::midi);
     REQUIRE (midiInput != duet::model::noInput);
 

@@ -91,10 +91,6 @@ TEST_CASE ("a commanded device rebuild ends a take, and the model starts no othe
     Session session { project.editFile() };
     session.useNoAudioDevice();
 
-    // The churn the hosted switch leaves behind, made to happen and waited out,
-    // so that the only rebuild this case meets is the one it asks for.
-    session.rebuildDevices();
-
     REQUIRE (armATrack (session) != duet::model::noTrack);
 
     session.startRecording();
@@ -123,10 +119,6 @@ TEST_CASE ("a take waits while the engine's devices are still churning", "[devic
     session.setDeviceWait (10000, 1, 1000);
     REQUIRE (armATrack (session) != duet::model::noTrack);
 
-    // The hosted switch broadcasts a device change. Let that land so the
-    // settle-wait has something recent to measure against.
-    duet::testing::pumpMessages (10);
-
     session.startRecording();
     REQUIRE_FALSE (session.isRecording());
 
@@ -141,8 +133,6 @@ TEST_CASE ("a take starts once the engine's devices go still", "[devices]")
     session.useNoAudioDevice();
     session.setDeviceWait (10000, 1, 1000);
     REQUIRE (armATrack (session) != duet::model::noTrack);
-
-    duet::testing::pumpMessages (10);
 
     session.startRecording();
     REQUIRE_FALSE (session.isRecording());
@@ -163,8 +153,6 @@ TEST_CASE ("a take starts at the bound even if the devices never settle", "[devi
     session.useNoAudioDevice();
     session.setDeviceWait (10000, 1, 0);
     REQUIRE (armATrack (session) != duet::model::noTrack);
-
-    duet::testing::pumpMessages (10);
 
     session.startRecording();
     REQUIRE_FALSE (session.isRecording());
