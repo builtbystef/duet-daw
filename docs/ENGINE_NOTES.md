@@ -41,7 +41,8 @@ after an undo, it clears the redo stack.
 
 **Duet.** Actions stay open: `performAction` and `stopRecording` begin a
 transaction and deliberately do not seal it, so the re-sort joins the Action
-that caused it. The engine itself suppresses the sort during undo and redo.
+that caused it. The engine itself suppresses the sort during undo and redo. A
+re-sort still owed when an undo closes that Action is hazard 9.
 
 ### 3. `Edit::flushState()` writes parameter blobs through the UndoManager
 
@@ -180,6 +181,37 @@ is stripped. Tests never compare raw XML.
 
 **Duet.** Local builds are `-j 4`. The command is in `AGENTS.md`. CI is a
 different machine and is not bound by this.
+
+### 9. Deferred engine bookkeeping outlives the Action that caused it
+
+**The engine.** A project change makes the engine schedule bookkeeping of its
+own — the Edit's tracks sorted by kind, each track's children sorted, the mute
+and solo statuses re-derived — and it writes that bookkeeping through the Edit's
+`UndoManager` on the next turn of the message loop, not on the 350 ms
+transaction timer of hazard 1. When that turn comes after an undo, the write
+opens a step the producer never asked for: JUCE's `UndoManager::undo` ends with
+`beginNewTransaction`, so the write starts a transaction of its own, lands on
+the undo stack unnamed, and stashes the redo the undo had just offered.
+
+**Where.** `TrackList::handleAsyncUpdate` (`sortTracksByType` through the Edit's
+undo manager, triggered by `newObjectAdded` and never suppressed during undo);
+`ClipOwner`'s `ClipList::handleAsyncUpdate` (hazard 2);
+`Edit::TreeWatcher::TrackStatusUpdater` → `Edit::updateTrackStatuses`.
+
+**Proved.** `77euel`. Five milliseconds of message loop after `Session::undo`
+put an unnamed step on the undo stack and took the redo away, with a MIDI clip
+in the project and without one.
+
+**Duet.** The bookkeeping is done while the Action is still open, so the
+engine's own pass finds nothing to write whenever it gets to run:
+`Session::performAction` and `stopRecording` end with
+`Impl::settleEngineBookkeeping`, and `startUndoHistory` runs it once so that the
+state the first Action builds on is settled too. The rule the clip sort uses is
+private to the engine, so Duet writes it out; the two agreeing is what `the redo
+outlives a re-sort an Action left pending behind it` asserts. Dropping such a
+step afterwards is not an alternative: the engine's sort re-triggers itself on
+every move it makes, so undoing it makes it run again, and the two spin against
+each other without end.
 
 ## Further facts
 
@@ -499,6 +531,23 @@ that follow; two renders inside the same second were identical throughout.
 **Duet.** The determinism canary compares the samples and not the files
 (`Render::isBitIdenticalTo`). ADR 0006's "byte-identical output" is the audio;
 the header is a timestamp and says nothing about the render.
+
+### `PluginList::insertPlugin` always writes through the Edit's UndoManager
+
+**The engine.** `PluginList::insertPlugin` adds the plugin's state with
+`getUndoManager()`, whatever the caller wants. Its third argument reads like an
+undo manager and is a `SelectionManager*`, so passing null there asks for no
+selection, not for an untracked write.
+
+**Where.** `tracktion_PluginList.cpp`, `PluginList::insertPlugin`.
+
+**Proved.** `77euel`. A test-only probe plugin inserted with a null third
+argument still landed on the undo stack, in a step outside any Action.
+
+**Duet.** Every plugin the producer adds goes in through an Action, so the write
+belongs where it lands. A plugin that is not the producer's — the realtime
+probe the tests put at the head of a chain — is added to the track's state
+directly, with a null `UndoManager`.
 
 ### Null ValueTree writes can provoke undo-tracked engine bookkeeping
 

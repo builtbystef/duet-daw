@@ -343,6 +343,7 @@ void Session::stopRecording()
     impl->edit->getTransport().stop (false, false);
 
     impl->pinRecordedSources (clipsBefore, files);
+    impl->settleEngineBookkeeping();
     impl->applyLoopRange();
     impl->announceChange();
 }

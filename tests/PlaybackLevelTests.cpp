@@ -233,17 +233,9 @@ TEST_CASE ("redoing the removal of a sounding MIDI note leaves no voice stuck be
                                note = ops.addNote (clip, 57, 0.0, 0.4, 100);
                            });
     session.performAction ("Remove the note", [note] (auto& ops) { ops.removeNote (note); });
-
-    // After the setup and before the transport, where its three siblings above
-    // put it — and one step ahead of the undo, for a reason this case alone
-    // has. Giving up the audio device runs the message loop, and a turn of the
-    // message loop after an undo takes the redo away (77euel). The redo this
-    // case is about is the one the producer asks for, so the switch happens
-    // before the undo rather than between the undo and the redo.
-    session.useNoAudioDevice();
-
     REQUIRE (session.undo());
 
+    session.useNoAudioDevice();
     session.startPlayback();
     session.runWithoutAudioDevice (0.1);
     REQUIRE (session.outputPeakDb() > audibleDb);

@@ -81,8 +81,22 @@ void addNativeRealtimeProbe (duet::model::Session& session, duet::model::TrackRe
     if (created == nullptr)
         return;
 
-    // The head of the chain, and with no undo manager: the probe is the test's,
-    // not the producer's, and it may not appear in a history a test then undoes.
-    audioTrack->pluginList.insertPlugin (created, 0, nullptr);
+    // The head of the chain, written straight onto the track and with no undo
+    // manager: the probe is the test's, not the producer's, so it may not appear
+    // in the project's history at all, and a plugin added outside an Action
+    // would be a step no producer made. PluginList::insertPlugin cannot do
+    // that — it always writes through the Edit's own UndoManager, and the
+    // argument that reads like one is a SelectionManager.
+    auto& chain = audioTrack->state;
+    int head = chain.getNumChildren();
+
+    for (int index = 0; index < chain.getNumChildren(); ++index)
+        if (chain.getChild (index).hasType (te::IDs::PLUGIN))
+        {
+            head = index;
+            break;
+        }
+
+    chain.addChild (created->state, head, nullptr);
 }
 } // namespace duet::testing

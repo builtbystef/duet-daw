@@ -1,12 +1,13 @@
 ---
 id: 77euel
 title: A turn of the message loop after an undo takes the redo away
-state: todo
+state: done
+assignee: claude
 priority: high
 labels:
     - bug
 created: 2026-08-27T03:04:20Z
-updated: 2026-08-27T03:10:02Z
+updated: 2026-08-27T05:31:49Z
 ---
 
 ## What was found
@@ -71,3 +72,57 @@ do. That workaround comes out when this is fixed.
 **claude** — 2026-08-27T03:10:02Z
 
 A lead, not a conclusion: hazard 1 in docs/ENGINE_NOTES.md already records that an op written while no named transaction is open lands in an unnamed step once the engine's UndoTransactionTimer seals, and Duet's remedy is that every project change goes through Session::performAction (ADR 0004). The unnamed [] transaction here is that shape. What does not fit yet is the timing: hazard 1 puts the timer at 350 ms of quiet message loop, and 5 ms of pump was enough to lose the redo. So either the writer is not that timer, or the timer is not the 350 ms the note says. Start by finding the write, not by assuming which timer sealed it.
+
+**claude** — 2026-08-27T05:31:30Z
+
+Fixed. The writer, the fix, and what a reviewer needs.
+
+**The writer.** Not the 350 ms transaction timer of hazard 1 — the engine's async
+updaters, which fire on the next turn of the message loop. Three of them write
+through the Edit's UndoManager: TrackList::handleAsyncUpdate (sortTracksByType,
+triggered by newObjectAdded and, unlike the clip list's, never suppressed during
+undo), ClipList::handleAsyncUpdate (hazard 2), and Edit's TrackStatusUpdater
+(updateTrackStatuses — sanityCheckTrackNames and updateMuteSoloStatuses). JUCE's
+UndoManager::undo ends with beginNewTransaction, so the first of those writes to
+land after an undo opens a step of its own and stashes the redo. Recorded as
+hazard 9 in docs/ENGINE_NOTES.md.
+
+**The fix.** Session::Impl::settleEngineBookkeeping does that work itself, while
+the Action's transaction is still open: performAction and stopRecording end with
+it, and startUndoHistory runs it once so the state the first Action builds on is
+settled too. The engine's own pass then finds nothing to write whenever the loop
+delivers it, so no step outside an Action is ever created. That keeps ADR 0004
+intact — Actions remain the only transaction boundary — and needs no message loop
+inside undo.
+
+**The alternative that does not work, and why.** Letting the foreign step land
+and then dropping it with UndoManager::undoCurrentTransactionOnly (which restores
+JUCE's stashed redo, the shape Suggestion.cpp already uses) livelocks: the
+engine's clip sort re-triggers itself on every move it makes, so undoing it makes
+it run again, forever. Measured at ~330k rounds in one test before the timeout.
+Do not revisit it.
+
+**What Duet had to copy.** The clip owner's sort rule is private to the engine's
+ClipOwner.cpp, so Session.cpp writes it out (child-kind priority, then start
+order). If the engine's rule ever drifts, `the redo outlives a re-sort an Action
+left pending behind it` goes red — the drift is caught, not silent. The track
+sort uses the engine's own public TrackList::sortTracksByType.
+
+**One test-apparatus bug fixed on the way.** PluginList::insertPlugin always
+writes through the Edit's UndoManager; its third argument reads like an undo
+manager and is a SelectionManager*. The realtime probe passed null there and
+still landed on the undo stack, outside any Action. It now writes its state onto
+the track directly with a null UndoManager, which is what its comment always
+claimed. Recorded as a further fact.
+
+**Seams and cases.** Session, in tests/EditVocabularyTests.cpp: `a turn of the
+message loop after an undo leaves the redo where it was` (the no-clip shape) and
+`the redo outlives a re-sort an Action left pending behind it` (the clip shape).
+Both pump 400 ms — past the 350 ms timer as well — and assert undoNames and
+redoNames exactly, so a step the producer did not make fails them.
+
+The reordering in `redoing the removal of a sounding MIDI note leaves no voice
+stuck behind` is reverted to its pre-ff6prt shape: the undo is back ahead of the
+device switch, and the case passes.
+
+Checks: format clean, lint clean, 337/337 ctest.

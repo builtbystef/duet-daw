@@ -318,7 +318,10 @@ void Session::startUndoHistory()
     // are the ones the VST3 instance must start at.
     impl->refreshParametersFromState();
 
-    // Opening a project is not an Action; the history starts clean.
+    // Opening a project is not an Action; the history starts clean — and the
+    // state it starts from is settled, so that the first Action does not have
+    // to carry the engine's answer to how the project was opened.
+    impl->settleEngineBookkeeping();
     impl->undoManager().clearUndoHistory();
 }
 
@@ -341,6 +344,77 @@ Session::~Session()
 }
 
 //==============================================================================
+namespace
+{
+    /** Puts one track's children in the order the engine's own deferred re-sort
+        puts them: its priority over the kinds of child a track holds, and start
+        order among the clips.
+
+        The engine keeps that rule private to `ClipOwner.cpp`, so this is the
+        rule written out rather than a call to it, and the two agreeing is what
+        `the redo outlives a re-sort an Action left pending behind it` asserts.
+    */
+    void sortTheChildrenOf (juce::ValueTree& owner, juce::UndoManager* undoManager)
+    {
+        struct Sorter
+        {
+            [[nodiscard]] static int priorityOf (const juce::ValueTree& child)
+            {
+                const auto type = child.getType();
+
+                if (type == te::IDs::AUTOMATIONTRACK)
+                    return 0;
+                if (te::Clip::isClipState (child))
+                    return 1;
+                if (type == te::IDs::PLUGIN)
+                    return 2;
+                if (type == te::IDs::OUTPUTDEVICES)
+                    return 3;
+                if (type == te::IDs::LFOS)
+                    return 4;
+
+                return -1;
+            }
+
+            [[nodiscard]] static int compareElements (const juce::ValueTree& first,
+                                                      const juce::ValueTree& second) noexcept
+            {
+                if (const auto byKind = priorityOf (first) - priorityOf (second); byKind != 0)
+                    return byKind;
+
+                if (! te::Clip::isClipState (first) || ! te::Clip::isClipState (second))
+                    return 0;
+
+                const double firstStart = first[te::IDs::start];
+                const double secondStart = second[te::IDs::start];
+
+                if (firstStart < secondStart)
+                    return -1;
+
+                return secondStart < firstStart ? 1 : 0;
+            }
+        };
+
+        Sorter sorter;
+        owner.sort (sorter, undoManager, true);
+    }
+} // namespace
+
+void Session::Impl::settleEngineBookkeeping() const
+{
+    auto* history = &undoManager();
+
+    te::TrackList::sortTracksByType (edit->state, history);
+
+    // The clip tracks and no others: a clip track is what the engine gives a
+    // clip list, and a clip list is what schedules the re-sort.
+    for (auto* track : te::getClipTracks (*edit))
+        sortTheChildrenOf (track->state, history);
+
+    edit->updateMuteSoloStatuses();
+}
+
+//==============================================================================
 void Session::performAction (std::string_view name, const std::function<void (EditOps&)>& ops)
 {
     if (! juce::MessageManager::existsAndIsCurrentThread())
@@ -357,7 +431,10 @@ void Session::performAction (std::string_view name, const std::function<void (Ed
 
     // No sealing call, deliberately: the engine's deferred undo-tracked writes
     // land in the transaction that is still open, which is the Action that
-    // caused them. The next Action opens its own.
+    // caused them. The next Action opens its own — and an undo does not, so
+    // what the engine still owes this Action is done here rather than left to
+    // land after one.
+    impl->settleEngineBookkeeping();
 
     // An Action may have moved the tempo map, and the loop is over the music
     // and not over a stretch of seconds.

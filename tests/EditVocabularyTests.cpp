@@ -225,6 +225,67 @@ TEST_CASE ("the engine's deferred clip re-sort joins the Action that caused it")
     REQUIRE (session.stateDigest() == afterMove);
 }
 
+TEST_CASE ("a turn of the message loop after an undo leaves the redo where it was")
+{
+    const TempProject project;
+    Session session { project.editFile() };
+
+    TrackRef track = duet::model::noTrack;
+
+    session.performAction ("Add a track",
+                           [&] (auto& ops) { track = ops.createTrack (TrackKind::midi, "One"); });
+    session.performAction ("Rename the track", [&] (auto& ops) { ops.renameTrack (track, "Two"); });
+
+    REQUIRE (session.undo());
+    REQUIRE (session.redoNames() == std::vector<std::string> { "Rename the track" });
+
+    // The engine answers an Action with deferred work of its own, and the undo
+    // has closed the Action that work belonged to. Nothing the producer did
+    // happens here, so nothing about their history may change.
+    duet::testing::pumpMessages (400);
+
+    REQUIRE (session.undoNames() == std::vector<std::string> { "Add a track" });
+    REQUIRE (session.redoNames() == std::vector<std::string> { "Rename the track" });
+
+    REQUIRE (session.redo());
+    REQUIRE (session.tracks().back().name == "Two");
+}
+
+TEST_CASE ("the redo outlives a re-sort an Action left pending behind it")
+{
+    const TempProject project;
+    const auto tone = project.writeTone ("tone.wav", 1.0, 440.0);
+    Session session { project.editFile() };
+
+    const auto track = session.tracks().front().track;
+    ClipRef first = duet::model::noClip;
+
+    session.performAction ("Lay out two clips",
+                           [&] (auto& ops)
+                           {
+                               first = ops.insertAudioClip (track, "first", tone, 0.0, 1.0);
+                               ops.insertAudioClip (track, "second", tone, 4.0, 1.0);
+                           });
+    duet::testing::pumpMessages (400);
+
+    // Moving the first clip past the second is what the engine answers with a
+    // re-sort of the clip list, and the Action after the move goes in before the
+    // message loop can deliver that answer — so the re-sort is still owed when
+    // the undo closes the Action it belonged to.
+    session.performAction ("Move the clip", [&] (auto& ops) { ops.moveClip (first, 8.0); });
+    session.performAction ("Rename the track", [&] (auto& ops) { ops.renameTrack (track, "Two"); });
+
+    REQUIRE (session.undo());
+    duet::testing::pumpMessages (400);
+
+    REQUIRE (session.undoNames()
+             == std::vector<std::string> { "Move the clip", "Lay out two clips" });
+    REQUIRE (session.redoNames() == std::vector<std::string> { "Rename the track" });
+
+    REQUIRE (session.redo());
+    REQUIRE (session.tracks().front().name == "Two");
+}
+
 TEST_CASE ("the undo history holds the newest two hundred Actions")
 {
     const TempProject project;

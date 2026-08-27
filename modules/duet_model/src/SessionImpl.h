@@ -281,6 +281,20 @@ struct Session::Impl
 
     juce::UndoManager& undoManager() const { return edit->getUndoManager(); }
 
+    /** Does the bookkeeping the engine would otherwise do on the next turn of
+        the message loop, here, where it belongs (hazard 9).
+
+        The engine answers a project change with writes of its own — the track
+        list sorted by kind, each track's children sorted, the mute and solo
+        statuses re-derived — and it makes them through the Edit's UndoManager,
+        asynchronously. An Action's transaction stays open for exactly that
+        (ADR 0004), but an undo closes it, and an answer that lands after that
+        opens a transaction the producer never asked for and takes their redo
+        with it. Doing the work while the Action is still open leaves the
+        engine's own pass with nothing to write, whenever it gets to run.
+    */
+    void settleEngineBookkeeping() const;
+
     //==============================================================================
     // Keeping an asked-for playback rolling (hazard 6).
 
