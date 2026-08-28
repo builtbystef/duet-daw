@@ -12,7 +12,7 @@ depends_on:
     - u64tso
     - u24m3x
 created: 2026-08-08T08:19:47Z
-updated: 2026-08-08T08:19:47Z
+updated: 2026-08-28T11:48:17Z
 ---
 
 # The Collaborator — milestone-one AI collaboration
@@ -287,3 +287,35 @@ Good tests here assert external behavior only: protocol responses, measured valu
 - **ADRs recorded with this spec**: (1) the Collaborator perceives through deterministic tools, never audio; (2) the agent loop is a bundled pi-SDK sidecar behind a socket protocol. ARCHITECTURE.md gains the AI seam.
 - **Constraint inherited by the panel UX** (u24m3x): estimate-marked output is inspectable and the Collaborator hedges at low confidence.
 - The recommended-default model claim (`gpt-5.6-terra`) rests on a 14-run prototype; it is a default, not a benchmark verdict. Revisit when a wider comparison is worth running.
+
+## Notes
+
+**claude** — 2026-08-28T11:48:17Z
+
+## The measured-analysis render does not stop playback (xbh9qk, 2026-08-28)
+
+This spec says "A multi-second first call is acceptable; playing, editing, and
+recording continue throughout." It was true of editing and false of playing and
+recording: an offline render puts the Edit it renders into the engine's render
+status and stops that Edit's transport for as long as it runs, so a
+`get_track_analysis` call was a gap in playback the length of the render.
+
+The spec's sentence stands, and the implementation was changed to meet it rather
+than the other way round. `get_track_analysis` now renders a **detached copy of
+the project** — `Session::renderDetachedToFile` and
+`renderDetachedTrackToFile` — so the project the producer is playing is never in
+render status. Playing, editing and recording all continue through a
+measurement, and a Task Run stays non-blocking, which the two rejected shapes
+(defer the render until the transport stops; accept the gap and restart
+playback) each gave up one of.
+
+Measured on the dev machine 2026-08-28: playback rolled through every one of 133
+samples taken from the message thread during a detached render, and through 142
+with a hosted VST3 in the chain, against none of 131 when the same render was
+made off the project. The copy cost 15 ms of the 736 ms that copy and render
+took together.
+
+A render the producer *asked for* and is waiting on — the export and bounce path
+— still stops the transport, and that is the correct trade there. What changed
+for it is only that a render longer than the model's ten-second play retry no
+longer leaves the transport stopped for good.

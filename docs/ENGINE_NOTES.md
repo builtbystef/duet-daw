@@ -810,7 +810,9 @@ digests, which is what lets a measured analysis be cached: without it a track
 would read as changed because it had been measured, and no second call would
 ever be answered out of the cache. Neither property says anything about what a
 track renders anyway — a per-track render ignores mute and solo outright, and
-milestone one has no clip slots.
+milestone one has no clip slots. Since `xbh9qk` a measurement renders a detached
+copy and leaves them on that, so what still writes them onto the project is the
+export and bounce path; the digest strips them whichever render made them.
 
 ### An offline render stops the transport for as long as it runs
 
@@ -828,9 +830,59 @@ that started playback, rendered one track on a worker thread, and sampled
 `isPlaying()` from the message thread every five milliseconds throughout — 131
 samples, none of them rolling, with and without that line.
 
-**Duet.** Nothing yet. `Session::startPlayback`'s own retry brings playback back
-afterwards, because it keeps asking for ten seconds (hazard 6's remedy), so a
-render shorter than that reads as an interruption and a longer one leaves the
-transport stopped. What that means for the Collaborator's measured analysis —
-which renders on demand while the producer is working — is open as issue
-`xbh9qk`.
+**Duet.** Two answers, both in `xbh9qk`. A render nobody is waiting for — the
+Collaborator's measured analysis — goes through `Session::renderDetachedToFile`
+and `renderDetachedTrackToFile`, which put a copy of the project under the render
+so the project itself is never in render status and the producer goes on playing
+and recording. A render the producer asked for and is waiting on still takes the
+transport with it, and `Session::Impl::keepPlaybackRolling` no longer spends its
+retry window on an Edit that is rendering: nothing is counted while the render
+runs, so a render longer than the window no longer leaves the transport stopped
+with nothing asking it to roll.
+
+### A detached Edit renders its copy while the original plays
+
+**The engine.** Two Edits of one Engine are independent for playback and for
+rendering: `Edit::ScopedRenderStatus` frees the playback context of the Edit it
+is given and no other, and an Edit opened `Edit::EditRole::forRendering` has no
+playback context to free and never asks the device manager for one. The one
+engine-wide part of a render's setup is `TransportControl::stopAllTransports`,
+which the caller chooses to make.
+
+**Where.** `Edit::ScopedRenderStatus`; `Edit::EditRole`; `Edit::shouldPlay`;
+`RenderGuards` in `Session.cpp`.
+
+**Proved.** `xbh9qk`, on the dev machine 2026-08-28, by a `duet_scratch` probe
+that started playback, rendered a detached copy of the project on a worker
+thread, and sampled `isPlaying()` from the message thread every five
+milliseconds throughout — 133 samples with no plugin and 142 with a hosted VST3
+in the chain, every one of them rolling, against the 131 samples none of which
+were rolling when the same render was made off the project itself. The copy cost
+15 ms of the 736 ms that copy and render took together, with the plugin
+instantiated a second time; the same render off the project took 721 ms.
+
+**Duet.** `Session::renderDetachedToFile` and `renderDetachedTrackToFile` build
+the copy, and `RenderGuards` takes `stopEveryTransport` so only a render of the
+project itself stops the transports.
+
+### A detached Edit must be given its file retriever as it is built
+
+**The engine.** A clip resolves its source file while the Edit loads, through
+the Edit's `filePathResolver`, which falls back to the `editFileRetriever`. An
+Edit loaded from state with `loadEditFromState` is given neither, so a clip
+whose source is stored relative to the edit file resolves against nothing, and
+the render that follows fails with "Didn't find any audio to render". Assigning
+`editFileRetriever` to the Edit afterwards is too late: the clips have already
+resolved.
+
+**Where.** `loadEditFromState`, which passes an empty retriever to `createEdit`;
+`Edit::Options::editFileRetriever`.
+
+**Proved.** `xbh9qk`, on the dev machine 2026-08-28, by a `duet_scratch` probe.
+The render of the copy failed with that message until the Edit was built through
+`Edit::createEdit` with the retriever in its `Options`, and rendered 734 blocks
+of audio after.
+
+**Duet.** `DetachedProject` in `Session.cpp` builds its copy through
+`Edit::createEdit`, with the project item ID read off the copied state and the
+retriever pointing at the project's own edit file.

@@ -22,17 +22,6 @@ namespace
     /** ADR 0004: undo goes 200 Actions deep, in memory, for the session. */
     constexpr int undoDepth = 200;
 
-    /** How often the model asks a transport that is not rolling to play, and
-        how many of those asks it makes before it accepts the answer.
-
-        Hazard 6 costs one ask, a few seconds into the first playback of a
-        session; ten seconds of asking covers that with room to spare. The
-        asking ends because a machine with no working output would otherwise be
-        asked forever, and every ask allocates a playback context.
-    */
-    constexpr int playRetryIntervalMs = 100;
-    constexpr int playRetryAttempts = 100;
-
     /** How long the engine has to say nothing about its devices before a
         commanded rebuild counts as over, and how long the model waits for that
         at most.
@@ -110,6 +99,17 @@ namespace
     constexpr bool ignoringMuteAndSolo = true;
     constexpr bool honouringMuteAndSolo = false;
 
+    /** Whether a render stops every transport the engine is running, or only
+        takes the Edit it renders out of playback.
+
+        The engine's own render stops them all, and a render of the project the
+        producer is playing is a render of the Edit that transport belongs to
+        anyway. A render of a detached copy is not: the copy has no transport,
+        and the project's own must go on rolling.
+    */
+    constexpr bool stoppingEveryTransport = true;
+    constexpr bool leavingOtherTransportsRolling = false;
+
     /** What the engine's own render puts up around one, and takes down after.
 
         A render frees the playback context and puts it back, leaves clip slots
@@ -134,10 +134,17 @@ namespace
     class RenderGuards
     {
     public:
-        RenderGuards (te::Edit& e, te::Track::Array& tracks, bool ignoreMuteAndSolo) : edit (e)
+        RenderGuards (te::Edit& e,
+                      te::Track::Array& tracks,
+                      bool ignoreMuteAndSolo,
+                      bool stopEveryTransport)
+            : edit (e)
         {
             te::callBlockingCatching (
-                [&] { guards = std::make_unique<Guards> (edit, tracks, ignoreMuteAndSolo); });
+                [&] {
+                    guards = std::make_unique<Guards> (
+                        edit, tracks, ignoreMuteAndSolo, stopEveryTransport);
+                });
         }
 
         ~RenderGuards()
@@ -160,7 +167,10 @@ namespace
     private:
         struct Guards
         {
-            Guards (te::Edit& edit, te::Track::Array& tracks, bool ignoreMuteAndSolo)
+            Guards (te::Edit& edit,
+                    te::Track::Array& tracks,
+                    bool ignoreMuteAndSolo,
+                    bool stopEveryTransport)
                 : renderStatus { edit, true }, slotDisabler { edit, tracks }
             {
                 if (ignoreMuteAndSolo)
@@ -168,7 +178,11 @@ namespace
                         std::make_unique<te::FreezePointPlugin::ScopedTrackSoloIsolator> (edit,
                                                                                           tracks);
 
-                te::TransportControl::stopAllTransports (edit.engine, false, true);
+                // Engine-wide, so it is asked for only where every transport is
+                // this render's to stop.
+                if (stopEveryTransport)
+                    te::TransportControl::stopAllTransports (edit.engine, false, true);
+
                 te::Renderer::turnOffAllPlugins (edit);
             }
 
@@ -205,6 +219,7 @@ namespace
                              const juce::BigInteger& tracksToRender,
                              bool useMasterPlugins,
                              bool ignoreMuteAndSolo,
+                             bool stopEveryTransport,
                              const std::function<bool()>& keepGoing)
     {
         if (tracksToRender.isZero())
@@ -222,7 +237,7 @@ namespace
             if (tracksToRender[index])
                 tracks.add (allTracks[index]);
 
-        const RenderGuards guards { edit, tracks, ignoreMuteAndSolo };
+        const RenderGuards guards { edit, tracks, ignoreMuteAndSolo, stopEveryTransport };
 
         if (! guards.areUp())
             return false;
@@ -258,6 +273,102 @@ namespace
 
         return file.existsAsFile();
     }
+
+    /** Every track of an edit, as the bit set a render is asked for. */
+    juce::BigInteger allTracksOf (te::Edit& edit)
+    {
+        juce::BigInteger everyTrack;
+        everyTrack.setRange (0, te::getAllTracks (edit).size(), true);
+
+        return everyTrack;
+    }
+
+    /** One track of an edit, the same way, and nothing at all when the edit
+        holds no such track.
+
+        The bit is set by hand: the engine's own toBitSet answers with every
+        track whatever it is asked about, which is why the whole-edit set above
+        is the only thing it was ever right for.
+    */
+    juce::BigInteger oneTrackOf (te::Edit& edit, TrackRef track)
+    {
+        juce::BigInteger thisTrack;
+        auto* audioTrack =
+            dynamic_cast<te::AudioTrack*> (te::findTrackForID (edit, toItemID (track)));
+
+        if (audioTrack == nullptr)
+            return thisTrack;
+
+        const auto index = te::getAllTracks (edit).indexOf (audioTrack);
+
+        if (index >= 0)
+            thisTrack.setBit (index);
+
+        return thisTrack;
+    }
+
+    /** A copy of the project, made so that a render need not be a gap in what
+        the producer is hearing.
+
+        An offline render frees the playback context of the Edit it renders and
+        keeps it freed until the render ends (engine notes), so one Edit cannot
+        render and play at the same time. Two can: the engine renders the copy
+        while the producer plays the project, and neither knows about the other.
+        The copy is opened `forRendering`, which is the engine's own word for an
+        Edit that never asks for an output device, so it has no playback context
+        to free and no transport to stop.
+
+        It shares this session's Engine, the way the Audition's detached Edit
+        does, because a second Engine would be a second owner of the app-global
+        settings store. Built and destroyed on the message thread — an Edit is
+        the message thread's to make and to take down — so a worker thread may
+        own one for as long as the message loop is running.
+    */
+    class DetachedProject
+    {
+    public:
+        DetachedProject (te::Engine& engine, te::Edit& project, const juce::File& editFile)
+        {
+            te::callBlockingCatching (
+                [&]
+                {
+                    // The Edit is built with the retriever already in it, and
+                    // not given one afterwards: a clip resolves its source file
+                    // as the Edit loads, and one that resolved against nothing
+                    // renders as nothing.
+                    auto state = project.state.createCopy();
+                    auto id = te::ProjectItemID::fromProperty (state, te::IDs::projectID);
+
+                    if (! id.isValid())
+                        id = te::ProjectItemID::createNewID (te::ProjectID {});
+
+                    copy = te::Edit::createEdit (
+                        te::Edit::Options { engine,
+                                            state,
+                                            id,
+                                            te::Edit::EditRole::forRendering,
+                                            nullptr,
+                                            te::Edit::getDefaultNumUndoLevels(),
+                                            [editFile] { return editFile; },
+                                            {} });
+                });
+        }
+
+        ~DetachedProject()
+        {
+            te::callBlockingCatching ([this] { copy.reset(); });
+        }
+
+        DetachedProject (const DetachedProject&) = delete;
+        DetachedProject (DetachedProject&&) = delete;
+        DetachedProject& operator= (const DetachedProject&) = delete;
+        DetachedProject& operator= (DetachedProject&&) = delete;
+
+        [[nodiscard]] te::Edit* get() const { return copy.get(); }
+
+    private:
+        std::unique_ptr<te::Edit> copy;
+    };
 } // namespace
 
 //==============================================================================
@@ -1093,17 +1204,15 @@ std::string Session::trackStateDigest (TrackRef track) const
 bool Session::renderToFile (const std::filesystem::path& destination,
                             const std::function<bool()>& keepGoing)
 {
-    juce::BigInteger everyTrack;
-    everyTrack.setRange (0, te::getAllTracks (*impl->edit).size(), true);
-
     // What the producer hears: a muted track is silent in the file and a soloed
     // one is the only thing in it, because mute and solo are the project and a
     // render of the whole project is the project (sh2dkg).
     return renderTracksToFile (*impl->edit,
                                toJuceFile (destination),
-                               everyTrack,
+                               allTracksOf (*impl->edit),
                                withMasterPlugins,
                                honouringMuteAndSolo,
+                               stoppingEveryTransport,
                                keepGoing);
 }
 
@@ -1111,31 +1220,51 @@ bool Session::renderTrackToFile (TrackRef track,
                                  const std::filesystem::path& destination,
                                  const std::function<bool()>& keepGoing)
 {
-    auto* audioTrack = impl->trackFor (track);
-
-    if (audioTrack == nullptr)
-        return false;
-
-    const auto index = te::getAllTracks (*impl->edit).indexOf (audioTrack);
-
-    if (index < 0)
-        return false;
-
-    // The bit is set by hand: the engine's own toBitSet answers with every track
-    // whatever it is asked about, which is why the whole-edit render above is
-    // the only thing it was ever used for.
-    juce::BigInteger thisTrack;
-    thisTrack.setBit (index);
-
     // Without the master chain: a track rendered on its own is what that track
     // puts out, and the master is what the whole project goes through after it.
     // Ignoring mute and solo for the same reason: the track asked for is the
     // track rendered, whatever the project has muted or soloed elsewhere.
     return renderTracksToFile (*impl->edit,
                                toJuceFile (destination),
-                               thisTrack,
+                               oneTrackOf (*impl->edit, track),
                                withoutMasterPlugins,
                                ignoringMuteAndSolo,
+                               stoppingEveryTransport,
+                               keepGoing);
+}
+
+bool Session::renderDetachedToFile (const std::filesystem::path& destination,
+                                    const std::function<bool()>& keepGoing)
+{
+    const DetachedProject copy { impl->engine, *impl->edit, toJuceFile (impl->editFile) };
+
+    if (copy.get() == nullptr)
+        return false;
+
+    return renderTracksToFile (*copy.get(),
+                               toJuceFile (destination),
+                               allTracksOf (*copy.get()),
+                               withMasterPlugins,
+                               honouringMuteAndSolo,
+                               leavingOtherTransportsRolling,
+                               keepGoing);
+}
+
+bool Session::renderDetachedTrackToFile (TrackRef track,
+                                         const std::filesystem::path& destination,
+                                         const std::function<bool()>& keepGoing)
+{
+    const DetachedProject copy { impl->engine, *impl->edit, toJuceFile (impl->editFile) };
+
+    if (copy.get() == nullptr)
+        return false;
+
+    return renderTracksToFile (*copy.get(),
+                               toJuceFile (destination),
+                               oneTrackOf (*copy.get(), track),
+                               withoutMasterPlugins,
+                               ignoringMuteAndSolo,
+                               leavingOtherTransportsRolling,
                                keepGoing);
 }
 
@@ -1426,6 +1555,12 @@ void Session::setDeviceWait (int quietMilliseconds, int pollMilliseconds, int at
     impl->deviceWaitAttempts = std::max (0, attempts);
 }
 
+void Session::setPlayRetry (int intervalMilliseconds, int attempts)
+{
+    impl->playRetryIntervalMs = std::max (1, intervalMilliseconds);
+    impl->playRetryAttempts = std::max (0, attempts);
+}
+
 void Session::runWithoutAudioDevice (double seconds, const InputSignal& playedIn)
 {
     impl->useHostedAudioDevice();
@@ -1547,6 +1682,15 @@ void Session::Impl::keepPlaybackRolling()
         return;
     }
 
+    // An offline render of this Edit keeps its playback context freed for as
+    // long as it runs (engine notes), so an ask made now cannot be answered.
+    // The render is waited out rather than asked through: nothing is counted
+    // while it runs, and the first tick after it ends asks with the whole
+    // window still in hand. That is what keeps a render longer than the window
+    // from leaving the transport stopped with nothing asking it to roll.
+    if (edit->isRendering())
+        return;
+
     if (++askedWithoutRolling > playRetryAttempts)
     {
         playbackKeeper.stopTimer();
@@ -1571,7 +1715,7 @@ void Session::startPlayback()
     // every caller of startPlayback has this problem.
     impl->askedWithoutRolling = 0;
     impl->askTransportToPlay();
-    impl->playbackKeeper.startTimer (playRetryIntervalMs);
+    impl->playbackKeeper.startTimer (impl->playRetryIntervalMs);
 }
 
 void Session::stopPlayback()

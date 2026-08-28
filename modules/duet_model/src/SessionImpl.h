@@ -298,6 +298,17 @@ struct Session::Impl
     //==============================================================================
     // Keeping an asked-for playback rolling (hazard 6).
 
+    /** How often the model asks a transport that is not rolling to play, and
+        how many of those asks it makes before it accepts the answer.
+
+        Hazard 6 costs one ask, a few seconds into the first playback of a
+        session; ten seconds of asking covers that with room to spare. The
+        asking ends because a machine with no working output would otherwise be
+        asked forever, and every ask allocates a playback context.
+    */
+    int playRetryIntervalMs = 100;
+    int playRetryAttempts = 100;
+
     /** How many times running the transport has been asked to play without it
         rolling. Reset by every tick that finds it rolling, so the rebuild —
         which arrives after playback has started — gets the whole window again.

@@ -483,7 +483,66 @@ TEST_CASE ("the band edges the model is told are the edges the routine measures"
     }
 }
 
-TEST_CASE ("a measurement leaves the transport where it found it", "[collab]")
+/** The input of a kind that a session running without audio hardware offers. */
+duet::model::InputRef inputOfKind (const Session& session, duet::model::InputKind kind)
+{
+    for (const auto& input : session.availableInputs())
+        if (input.kind == kind)
+            return input.input;
+
+    return duet::model::noInput;
+}
+
+TEST_CASE ("a take rolling when a measurement starts is not cut by it", "[collab]")
+{
+    ToneProject fixture;
+
+    const auto midiInput = inputOfKind (fixture.session, duet::model::InputKind::midi);
+    REQUIRE (midiInput != duet::model::noInput);
+
+    fixture.session.setTrackInput (fixture.other, midiInput);
+    fixture.session.setTrackRecordArmed (fixture.other, true);
+
+    fixture.session.startRecording();
+    REQUIRE (duet::testing::pumpUntil ([&] { return fixture.session.isRecording(); }));
+
+    // Something played into the take before the measurement, so that what stops
+    // at the end of it is a take with something in it.
+    fixture.session.runWithoutAudioDevice (0.2, { { { 0.05, 0.1, 60, 100 } } });
+
+    int sampled = 0;
+    int recording = 0;
+
+    auto options = fixture.options();
+    options.meanwhile = [&]
+    {
+        // The blocks the take is made of, pushed from here because there is no
+        // audio device to push them: a take with nothing going through it is
+        // not a take that could be cut.
+        fixture.session.runWithoutAudioDevice (0.005);
+        ++sampled;
+
+        if (fixture.session.isRecording())
+            ++recording;
+    };
+
+    const ToolRun run { fixture.session, Json::array ({ analysisCall (fixture.track) }), options };
+
+    REQUIRE (run.finished());
+    REQUIRE (fixture.renders.load() == 1);
+
+    // Asked from the message thread throughout the call and not after it: a
+    // take the measurement ended and one it never touched read the same once it
+    // is over.
+    REQUIRE (sampled > 20);
+    REQUIRE (recording == sampled);
+
+    fixture.session.stopRecording();
+    REQUIRE_FALSE (fixture.session.isRecording());
+    REQUIRE (fixture.session.track (fixture.other).clips.size() == 1);
+}
+
+TEST_CASE ("a measurement never stops the transport", "[collab]")
 {
     ToneProject fixture { 0.0, 4.0, false };
 
@@ -500,19 +559,32 @@ TEST_CASE ("a measurement leaves the transport where it found it", "[collab]")
 
     const auto before = fixture.session.playbackPositionSeconds();
 
-    const ToolRun run { fixture.session,
-                        Json::array ({ analysisCall (fixture.track) }),
-                        fixture.options() };
+    // Sampled from the message thread while the call is in flight, and not
+    // after it: what the spec promises is that playback continues *through* a
+    // measurement, and a transport that stopped and was started again would
+    // read the same afterwards.
+    int sampled = 0;
+    int rolling = 0;
+
+    auto options = fixture.options();
+    options.meanwhile = [&]
+    {
+        ++sampled;
+
+        if (fixture.session.isPlaying())
+            ++rolling;
+    };
+
+    const ToolRun run { fixture.session, Json::array ({ analysisCall (fixture.track) }), options };
 
     REQUIRE (run.finished());
+    REQUIRE (fixture.renders.load() == 1);
 
-    // Leaves and not keeps, deliberately. An offline render stops the transport
-    // for as long as it runs — the engine's own render status, not anything
-    // Duet asks for (engine notes) — so playback does not survive a
-    // measurement, it comes back after one, through the model's own play retry.
-    // Spec js437t asks for the first and gets the second; that is issue xbh9qk,
-    // and what this case pins is only that a measurement does not leave the
-    // producer's transport stopped.
+    // Enough looks that a render's worth of gap could not have fallen between
+    // two of them.
+    REQUIRE (sampled > 20);
+    REQUIRE (rolling == sampled);
+
     REQUIRE (fixture.session.isPlaying());
     REQUIRE (duet::testing::pumpUntil (
         [&] { return fixture.session.playbackPositionSeconds() > before; }));

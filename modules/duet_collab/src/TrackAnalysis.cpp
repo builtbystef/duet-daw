@@ -193,11 +193,16 @@ TrackRenderer offlineTrackRenderer (model::Session& session)
                        const std::filesystem::path& destination,
                        const std::function<bool()>& keepGoing)
     {
+        // Off a detached copy of the project, so that the producer goes on
+        // playing and recording through a measurement that costs seconds: an
+        // Edit that is rendering is an Edit that is not playing, and this
+        // render is one nobody asked to wait for.
+        //
         // The master is the whole project through the master chain, which is
         // exactly what a whole-project render is.
         return track == model::masterChannel
-                   ? session.renderToFile (destination, keepGoing)
-                   : session.renderTrackToFile (track, destination, keepGoing);
+                   ? session.renderDetachedToFile (destination, keepGoing)
+                   : session.renderDetachedTrackToFile (track, destination, keepGoing);
     };
 }
 

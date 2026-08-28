@@ -1,5 +1,6 @@
 #include <duet/model/Session.h>
 
+#include <duet/testing/RenderHarness.h>
 #include <duet/testing/TestSupport.h>
 
 #include <catch2/catch_test_macros.hpp>
@@ -247,6 +248,36 @@ TEST_CASE ("one call to start playback is enough, and it survives the device reb
     session.startPlayback();
     session.rebuildDevices();
     REQUIRE (duet::testing::playUntilRolling (session));
+}
+
+TEST_CASE ("a render longer than the play retry does not leave the transport stopped")
+{
+    const TempProject project;
+    Session session { project.editFile() };
+    session.loadDemoContent();
+
+    if (session.audioDeviceDescription().empty())
+        SKIP ("this machine has no audio device to play through");
+
+    REQUIRE (duet::testing::playUntilRolling (session));
+
+    // Hazard 6 out of the way first, so a stop it caused cannot read as one the
+    // render caused.
+    session.rebuildDevices();
+    REQUIRE (duet::testing::playUntilRolling (session));
+
+    // The retry window, shrunk to three asks so the case spends milliseconds on
+    // it instead of the production ten seconds. Every render outlasts three
+    // asks, which is exactly the shape of the bug: a render that outlasts the
+    // window used to spend it and leave the transport stopped for good.
+    session.setPlayRetry (10, 3);
+
+    const auto before = session.playbackPositionSeconds();
+    const auto rendered = duet::testing::renderProject (session, project.folder());
+
+    REQUIRE (rendered.readable());
+    REQUIRE (duet::testing::pumpUntil ([&] { return session.isPlaying(); }));
+    REQUIRE (duet::testing::pumpUntil ([&] { return session.playbackPositionSeconds() > before; }));
 }
 
 TEST_CASE ("a stopped transport is not asked to play again")

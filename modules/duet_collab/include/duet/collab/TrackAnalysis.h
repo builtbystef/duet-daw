@@ -28,6 +28,10 @@ using TrackRenderer = std::function<bool (model::TrackRef track,
 /** The project's own offline render path, as the tool calls it: one track on
     its own, and for the master the whole project through the master chain,
     because that is what the master is.
+
+    Off a detached copy of the project, because a measurement is asked for while
+    the producer works: an Edit that is rendering is an Edit that is not
+    playing, and the project is the Edit the producer is playing.
 */
 [[nodiscard]] TrackRenderer offlineTrackRenderer (model::Session& session);
 

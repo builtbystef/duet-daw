@@ -1085,6 +1085,32 @@ public:
                             const std::filesystem::path& destination,
                             const std::function<bool()>& keepGoing = {});
 
+    /** The same two renders, made off a detached copy of the project, so that
+        the project itself never stops.
+
+        An offline render frees the playback context of the Edit it renders and
+        keeps it freed until the render ends, so an Edit that is rendering is an
+        Edit that is not playing — and a render costs seconds. These two put a
+        copy of the project under the render instead: the producer goes on
+        playing and recording the project throughout, and the file is the same
+        file, because the copy is the project's own state.
+
+        The copy costs what it costs to build — every plugin the render reaches
+        is instantiated a second time — so this is the render for a measurement
+        made while the producer works, and `renderToFile` above is still the
+        render for one they asked for and are waiting on.
+
+        The same thread rules as above: called from a worker thread, with the
+        message loop running, because the copy is made and taken down on the
+        message thread. False when the copy could not be made.
+    */
+    bool renderDetachedToFile (const std::filesystem::path& destination,
+                               const std::function<bool()>& keepGoing = {});
+
+    bool renderDetachedTrackToFile (TrackRef track,
+                                    const std::filesystem::path& destination,
+                                    const std::function<bool()>& keepGoing = {});
+
     //==============================================================================
     // External plugins.
 
@@ -1182,6 +1208,15 @@ public:
         seconds on them.
     */
     void setDeviceWait (int quietMilliseconds, int pollMilliseconds, int attempts);
+
+    /** How often the model asks a transport that is not rolling to play, and
+        how many of those asks it makes before it accepts the answer.
+
+        The production defaults are 100 ms and 100 attempts, which is the ten
+        seconds hazard 6 needs. A test that is about what happens when that
+        window runs out drives these so it spends no real seconds on them.
+    */
+    void setPlayRetry (int intervalMilliseconds, int attempts);
 
     /** Runs a stretch of the project's audio with no audio device, as fast as
         the machine will go, playing a signal into its inputs.
