@@ -18,6 +18,16 @@ runs:
           libxi-dev libxinerama-dev libxrandr-dev libxrender-dev \
           libglu1-mesa-dev mesa-common-dev
 
+    # bun builds the sidecar (ADR 0003). Pinned to the version the prototype
+    # measured and this repository's lockfile was written by, and to a full
+    # action SHA like every other action here. Without it the sidecar target
+    # does not exist and its tests skip themselves, which would make the gate
+    # quietly stop checking half the AI seam.
+    - name: Install bun
+      uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+      with:
+        bun-version: 1.3.10
+
     # A Tracktion translation unit peaks near 2 GB, so the runner's memory caps
     # the build long before its core count does — the same reason AGENTS.md
     # pins -j 4 on the dev machine. GitHub's standard runners come in two sizes

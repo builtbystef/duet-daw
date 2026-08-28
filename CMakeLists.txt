@@ -140,6 +140,10 @@ add_subdirectory(modules/duet_collab)
 add_subdirectory(modules/duet_model)
 add_subdirectory(modules/duet_persistence)
 add_subdirectory(modules/duet_gui)
+# Before the application, which copies the sidecar beside itself and so needs
+# the target to exist by the time it is declared.
+add_subdirectory(sidecar)
+
 add_subdirectory(modules/duet_app)
 
 include(CTest)

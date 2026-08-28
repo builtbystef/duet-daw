@@ -50,6 +50,8 @@ add_executable(duet_tests
     RenderingTests.cpp
     SessionTests.cpp
     ShortcutTests.cpp
+    SidecarLiveTests.cpp
+    SidecarTests.cpp
     SmartToolTests.cpp
     SuggestToolTests.cpp
     SuggestionViewTests.cpp
@@ -97,6 +99,14 @@ target_compile_definitions(duet_tests PRIVATE
     DUET_GOOD_VST3_FIXTURE="$<GENEX_EVAL:$<TARGET_PROPERTY:duet_good_vst3_fixture_VST3,JUCE_PLUGIN_ARTEFACT_FILE>>"
     DUET_CRASHING_VST3_FIXTURE="$<GENEX_EVAL:$<TARGET_PROPERTY:duet_crashing_vst3_fixture_VST3,JUCE_PLUGIN_ARTEFACT_FILE>>"
     DUET_REALTIME_PROBE_VST3="$<GENEX_EVAL:$<TARGET_PROPERTY:duet_realtime_probe_vst3_VST3,JUCE_PLUGIN_ARTEFACT_FILE>>")
+
+# The real sidecar, when the machine has bun to build it with. Without it the
+# suite still builds and the sidecar cases skip themselves: the protocol is
+# verified against the double either way, and this is the other half of it.
+if(TARGET duet_sidecar)
+    add_dependencies(duet_tests duet_sidecar)
+    target_compile_definitions(duet_tests PRIVATE DUET_SIDECAR_BINARY="${DUET_SIDECAR_BINARY}")
+endif()
 
 list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
 include(Catch)
