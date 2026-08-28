@@ -29,6 +29,50 @@ void Mixer::setSession (duet::model::Session* openProject)
     sampledChannels.clear();
 }
 
+void Mixer::setSuggestions (Suggestions* pendingSuggestions) { suggestions = pendingSuggestions; }
+
+std::optional<GhostFaderDrawing> Mixer::ghostFader (duet::model::TrackRef channel) const
+{
+    if (suggestions == nullptr)
+        return {};
+
+    for (const auto& card : suggestions->cards())
+        for (std::size_t element = 0; element < card.elements.size(); ++element)
+            for (const auto& ghost : card.elements[element].faders)
+                if (ghost.channel == channel)
+                    return GhostFaderDrawing { ghost.db,
+                                               suggestions->intensityOf (card.id, element),
+                                               suggestions->isAuditioning (card.id) };
+
+    return {};
+}
+
+AuditionChip Mixer::auditionChip (duet::model::TrackRef channel) const
+{
+    if (suggestions == nullptr)
+        return {};
+
+    const auto live = suggestions->auditioning();
+
+    if (! live.has_value())
+        return {};
+
+    const auto* card = suggestions->card (*live);
+
+    if (card == nullptr)
+        return {};
+
+    // Only the strips the Audition would change say anything: a chip on a strip
+    // the Suggestion never mentions would be asking the producer to compare two
+    // identical things.
+    for (const auto& element : card->elements)
+        for (const auto& ghost : element.faders)
+            if (ghost.channel == channel)
+                return { true, suggestions->hearingProposed() };
+
+    return {};
+}
+
 std::vector<MixerStrip> Mixer::strips() const
 {
     if (session == nullptr)

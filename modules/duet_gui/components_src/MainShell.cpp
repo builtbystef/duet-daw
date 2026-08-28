@@ -466,10 +466,22 @@ MainShell::MainShell (Appearance& lookAndScale, ViewState& projectView)
                                                            perform (Command::showPianoRoll);
                                                        });
     browser = std::make_unique<Dock> (appearance, surfaceId::browser, "Browser");
+
+    // A Suggestion is made in the conversation it was asked for, shown as ghosts
+    // on the surfaces it would change, and read from one place by all of them.
+    scriptedSuggestions.onSuggestionMade (
+        [this] (std::string id, std::string summary)
+        { collaboratorPanel.showSuggestion (std::move (id), std::move (summary)); });
+    scriptedCollaborator.onSuggestion ([this] { return scriptedSuggestions.fabricate(); });
+    suggestions.setSource (&scriptedSuggestions);
+    arrangementView.setSuggestions (&suggestions);
+    mixer.setSuggestions (&suggestions);
+
     collaboratorPanel.setSource (&scriptedCollaborator);
     collaborator = std::make_unique<CollaboratorPanelCanvas> (appearance, collaboratorPanel);
     collaborator->setComponentID (surfaceId::collaborator);
     collaborator->setSelectionContextSource ([this] { return currentSelectionContext(); });
+    collaborator->setSuggestions (&suggestions);
     bottom = std::make_unique<BottomPanel> (
         appearance,
         view,
@@ -682,6 +694,12 @@ void MainShell::setSession (duet::model::Session* openProject)
     pianoRoll.setSession (openProject);
     mixer.setSession (openProject);
     transport.setSession (openProject);
+
+    // Whatever was pending goes with the project it was made against, so the
+    // surfaces are told there is nothing to draw before they are laid out.
+    scriptedSuggestions.setSession (openProject);
+    suggestions.refresh();
+
     viewStateChanged();
 }
 

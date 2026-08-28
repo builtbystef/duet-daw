@@ -131,7 +131,12 @@ void CollaboratorPanel::useQuickPrompt (std::size_t index)
 
 void CollaboratorPanel::say (std::string commentary)
 {
-    entries.push_back ({ EntryKind::commentary, std::move (commentary), {} });
+    entries.push_back ({ EntryKind::commentary, std::move (commentary), {}, {} });
+}
+
+void CollaboratorPanel::showSuggestion (std::string id, std::string summary)
+{
+    entries.push_back ({ EntryKind::suggestion, std::move (summary), {}, std::move (id) });
 }
 
 //==============================================================================
@@ -212,6 +217,11 @@ void ScriptedCollaborator::producerSent (CollaboratorPanel& panel, const std::st
     panel.beginTaskRun();
 }
 
+void ScriptedCollaborator::onSuggestion (std::function<bool()> makeSuggestion)
+{
+    suggest = std::move (makeSuggestion);
+}
+
 void ScriptedCollaborator::taskRunCanceled (CollaboratorPanel& panel)
 {
     static_cast<void> (panel);
@@ -243,6 +253,13 @@ void ScriptedCollaborator::advance (CollaboratorPanel& panel, double seconds)
     }
 
     panel.say (scriptedCommentary.at ((runsSoFar / 2) % scriptedCommentary.size()));
+
+    // A Suggestion is what the Duet Loop is for, so the run that succeeds comes
+    // back with one whenever there is a project to make it over. The card goes
+    // in under the commentary, which is the order the producer reads them in.
+    if (suggest)
+        static_cast<void> (suggest());
+
     panel.finishTaskRun();
 }
 } // namespace duet::gui

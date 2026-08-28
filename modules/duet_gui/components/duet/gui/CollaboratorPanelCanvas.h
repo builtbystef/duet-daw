@@ -2,11 +2,14 @@
 
 #include <duet/gui/Appearance.h>
 #include <duet/gui/CollaboratorPanel.h>
+#include <duet/gui/Suggestions.h>
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include <functional>
 #include <memory>
+#include <string>
+#include <vector>
 
 namespace duet::gui
 {
@@ -19,6 +22,14 @@ namespace collaboratorId
     inline constexpr const char* quickPrompts = "collaboratorQuickPrompts";
     inline constexpr const char* send = "collaboratorSend";
     inline constexpr const char* cancel = "collaboratorCancel";
+
+    /** The Suggestion card in the conversation, and the four gestures on it. */
+    inline constexpr const char* suggestionCard = "collaboratorSuggestionCard";
+    inline constexpr const char* suggestionElement = "collaboratorSuggestionElement";
+    inline constexpr const char* suggestionAudition = "collaboratorSuggestionAudition";
+    inline constexpr const char* suggestionCompare = "collaboratorSuggestionCompare";
+    inline constexpr const char* suggestionAccept = "collaboratorSuggestionAccept";
+    inline constexpr const char* suggestionReject = "collaboratorSuggestionReject";
 } // namespace collaboratorId
 
 /** The right dock: the surface the Collaborator speaks from.
@@ -48,6 +59,11 @@ public:
         selection without the shell pushing it.
     */
     void setSelectionContextSource (std::function<SelectionContext()> currentSelection);
+
+    /** The pending Suggestions whose cards sit in this conversation, or none for
+        a panel with no cards in it. They are read and never owned.
+    */
+    void setSuggestions (Suggestions* pendingSuggestions);
 
     /** Takes the panel's own state onto the screen: the conversation, the chips
         and the card. Called whenever any of them can have changed.
@@ -79,6 +95,13 @@ public:
     static constexpr int quickPromptRowHeight = 26;
     static constexpr int composerHeight = 66;
 
+    /** The Suggestion card's own chrome, in logical units: the summary row, one
+        row per Element, and the row the three buttons sit on.
+    */
+    static constexpr int suggestionHeaderHeight = 20;
+    static constexpr int suggestionElementHeight = 22;
+    static constexpr int suggestionButtonRowHeight = 24;
+
     /** How often the panel looks at itself: fast enough for the Task Run card's
         spinner while a run is on, and no faster than a selection poll needs
         when none is.
@@ -88,6 +111,7 @@ public:
 
 private:
     class Conversation;
+    class SuggestionCard;
     class TaskRunCard;
 
     void timerCallback() override;
@@ -102,8 +126,14 @@ private:
     void sendComposer();
     void layOutQuickPrompts();
 
+    /** Everything the cards draw differently, in one string: what is compared
+        to know whether the conversation has to be laid out again.
+    */
+    [[nodiscard]] std::string cardShape() const;
+
     Appearance& appearance;
     CollaboratorPanel& panel;
+    Suggestions* suggestions = nullptr;
     std::function<SelectionContext()> selectionSource;
 
     juce::Viewport scroller;
@@ -115,6 +145,7 @@ private:
 
     juce::Component::SafePointer<juce::Component> lastFocused;
     std::vector<std::string> shownPrompts;
+    std::string shownCards;
     std::size_t shownEntries = 0;
     bool shownRunning = false;
 

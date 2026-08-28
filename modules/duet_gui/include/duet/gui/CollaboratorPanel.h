@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -51,7 +52,13 @@ enum class EntryKind : std::uint8_t
     producer,
     commentary,
     notice,
-    failure
+    failure,
+
+    /** A Suggestion the Collaborator has made: the card the producer ticks,
+        auditions, accepts or rejects, in the conversation where it was asked
+        for.
+    */
+    suggestion
 };
 
 struct ConversationEntry
@@ -63,6 +70,11 @@ struct ConversationEntry
         but a producer message sent with something selected.
     */
     std::string context;
+
+    /** Which Suggestion this entry is the card of. Empty on every other kind of
+        entry.
+    */
+    std::string suggestion;
 };
 
 /** The Collaborator panel, without the painting.
@@ -134,6 +146,12 @@ public:
 
     /** The Collaborator's commentary. */
     void say (std::string commentary);
+
+    /** Puts a Suggestion's card in the conversation, where the producer asked
+        for it. What the card then shows is the Suggestion's, not the panel's:
+        this is the place it sits in and nothing more.
+    */
+    void showSuggestion (std::string id, std::string summary);
 
     //==============================================================================
     /** The chips above the composer: the openings that are worth offering for
@@ -226,12 +244,21 @@ public:
     void taskRunCanceled (CollaboratorPanel& panel) override;
     void advance (CollaboratorPanel& panel, double seconds) override;
 
+    /** What a run that succeeds comes back with besides its commentary: a
+        Suggestion, made over the project as it stands. False when there is
+        nothing to make one over, which leaves the run ending in commentary
+        alone. The development-only `ScriptedSuggestions` is what implements it,
+        and the shell is what puts the two together.
+    */
+    void onSuggestion (std::function<bool()> makeSuggestion);
+
     /** How long a scripted Task Run lasts: long enough to read the card and to
         cancel it, short enough that a reviewer is not kept waiting.
     */
     static constexpr double taskRunSeconds = 6.0;
 
 private:
+    std::function<bool()> suggest;
     double remaining = 0.0;
     bool running = false;
     std::size_t runsSoFar = 0;

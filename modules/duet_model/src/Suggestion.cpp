@@ -866,6 +866,10 @@ bool Session::auditionSuggestion (const Suggestion& suggestion)
     impl->refreshParametersFromState();
     impl->applyLoopRange();
     impl->auditionedSuggestion = &suggestion;
+
+    // The surfaces have to draw the state the Audition put there, and none of
+    // it is the producer's to save.
+    impl->announceRedraw();
     return true;
 }
 
@@ -879,6 +883,10 @@ void Session::stopAudition()
     impl->applyLoopRange();
     impl->stateBeforeAudition = {};
     impl->auditionedSuggestion = nullptr;
+
+    // And they have to take it down again: a surface that caches on the
+    // revision would otherwise go on showing what the producer stopped hearing.
+    impl->announceRedraw();
 }
 
 bool Session::isAuditioning() const { return impl->auditionedSuggestion != nullptr; }

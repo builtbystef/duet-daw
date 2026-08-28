@@ -1,5 +1,7 @@
 #pragma once
 
+#include <duet/gui/Suggestions.h>
+
 #include <duet/model/Session.h>
 
 #include <cstddef>
@@ -32,6 +34,30 @@ struct RoutingDestination
     std::string name;
 };
 
+/** A level a pending Suggestion would set a strip to, drawn as a translucent
+    handle beside the one the producer's own fader is at.
+*/
+struct GhostFaderDrawing
+{
+    double db = 0.0;
+
+    /** As it is, or the excluded intensity when the producer has unticked the
+        Element that proposes it.
+    */
+    double intensity = 1.0;
+
+    bool auditioning = false;
+};
+
+/** The A/B chip a strip carries while a Suggestion that changes it is being
+    auditioned: `A: CURRENT / B: PROPOSED`, with the heard side marked.
+*/
+struct AuditionChip
+{
+    bool visible = false;
+    bool proposedHeard = false;
+};
+
 /** The paintless Mixer seam. Gesture previews are audible but do not enter the
     project; completion restores the preview and commits its final value as one
     Action. Meter time is supplied by the caller, making hold and decay fully
@@ -41,6 +67,21 @@ class Mixer
 {
 public:
     void setSession (duet::model::Session* openProject);
+
+    /** The pending Suggestions this mixer draws ghosts of, or none for a mixer
+        with no ghosts on it. They are read and never owned.
+    */
+    void setSuggestions (Suggestions* pendingSuggestions);
+
+    /** What a pending Suggestion would set a channel's fader to, and nothing
+        when none proposes anything for it.
+    */
+    [[nodiscard]] std::optional<GhostFaderDrawing> ghostFader (duet::model::TrackRef channel) const;
+
+    /** The A/B chip this channel carries, which is only while a Suggestion that
+        would change it is being auditioned.
+    */
+    [[nodiscard]] AuditionChip auditionChip (duet::model::TrackRef channel) const;
 
     [[nodiscard]] std::vector<MixerStrip> strips() const;
     [[nodiscard]] MixerStrip strip (duet::model::TrackRef channel) const;
@@ -126,6 +167,7 @@ private:
     void observePeak (duet::model::TrackRef channel, double peakDb, double nowSeconds);
 
     duet::model::Session* session = nullptr;
+    Suggestions* suggestions = nullptr;
     Gesture gesture;
     std::unordered_map<duet::model::TrackRef, MeterState> meters;
     mutable std::uint64_t cachedRevision = UINT64_MAX;

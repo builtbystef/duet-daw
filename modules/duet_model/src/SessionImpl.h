@@ -352,9 +352,19 @@ struct Session::Impl
     /** Puts the engine's loop range back in step with the musical one. */
     void applyLoopRange() const;
 
+    /** Moves the cache key every view reads the project through, without saying
+        the project has changed.
+
+        An Audition is the one thing that puts a different state in front of the
+        producer without being an edit: every surface has to draw what it put
+        there and take it down again, and none of it is theirs to save. So it
+        moves the revision and leaves `projectChanged` alone.
+    */
+    void announceRedraw() const { ++revision; }
+
     void announceChange() const
     {
-        ++revision;
+        announceRedraw();
         if (projectChanged)
             projectChanged();
     }

@@ -1,5 +1,6 @@
 #include <duet/gui/MixerCanvas.h>
 
+#include <duet/gui/CollaboratorPainting.h>
 #include <duet/gui/GraphiteLookAndFeel.h>
 #include <duet/gui/Tokens.h>
 #include <duet/gui/Typography.h>
@@ -29,6 +30,17 @@ namespace
             return "-inf dB";
         return juce::String { db, 1 } + " dB";
     }
+
+    /** Where a level sits along a fader's track, in pixels across it. */
+    [[nodiscard]] float alongTrack (double db, juce::Rectangle<int> track)
+    {
+        const auto along = static_cast<float> (
+            (std::clamp (db, Mixer::faderMinimumDb, Mixer::faderMaximumDb) - Mixer::faderMinimumDb)
+            / (Mixer::faderMaximumDb - Mixer::faderMinimumDb));
+
+        return juce::jmap (
+            along, static_cast<float> (track.getX()), static_cast<float> (track.getRight()));
+    }
 } // namespace
 
 MixerCanvas::MixerCanvas (Appearance& lookAndScale,
@@ -53,6 +65,26 @@ juce::Rectangle<int> MixerCanvas::stripBounds (int index) const
 int MixerCanvas::stripIndexAt (juce::Point<int> position) const
 {
     return (position.x + horizontalOffsetPx) / std::max (1, stripWidthPx());
+}
+
+void MixerCanvas::paintSuggestion (juce::Graphics& g,
+                                   duet::model::TrackRef channel,
+                                   juce::Rectangle<int> track,
+                                   juce::Rectangle<int> row,
+                                   juce::Rectangle<int> chip)
+{
+    if (const auto ghost = mixer.ghostFader (channel); ghost.has_value())
+    {
+        // The mark is a line the height of the whole row rather than a second
+        // handle beside the producer's own: a Suggestion of -3.0 dB over a
+        // fader at -6.0 puts the two within a few pixels of each other, and
+        // they still have to be tellable apart.
+        const auto x = juce::roundToInt (alongTrack (ghost->db, track));
+
+        paintGhostFader (g, appearance, *ghost, { x - 1, row.getY(), 3, row.getHeight() });
+    }
+
+    paintAuditionChip (g, appearance, mixer.auditionChip (channel), chip);
 }
 
 void MixerCanvas::paint (juce::Graphics& g)
@@ -132,6 +164,12 @@ void MixerCanvas::paint (juce::Graphics& g)
         g.setColour (toJuce (appearance.colour (ColourToken::textPrimary)));
         g.fillRect (juce::Rectangle<float> {
             handleX - 3.0F, static_cast<float> (track.getCentreY() - 8), 6.0F, 16.0F });
+
+        // What a pending Suggestion would set this fader to, beside where the
+        // producer's own fader is: the real one has not moved. The A/B chip
+        // stands where the pan control is, because an Audition is a moment the
+        // producer spends comparing rather than panning.
+        paintSuggestion (g, strip.channel, track, fader, panArea);
 
         const auto meter = fader.removeFromRight (appearance.scaled (8));
         g.setColour (toJuce (appearance.colour (ColourToken::meterTrack)));

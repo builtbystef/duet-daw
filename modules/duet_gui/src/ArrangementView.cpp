@@ -145,6 +145,78 @@ std::vector<TrackDrawing> ArrangementView::tracks()
     return drawings;
 }
 
+//==============================================================================
+void ArrangementView::setSuggestions (Suggestions* pendingSuggestions)
+{
+    suggestions = pendingSuggestions;
+}
+
+std::vector<GhostClipDrawing> ArrangementView::ghosts()
+{
+    std::vector<GhostClipDrawing> drawings;
+
+    if (suggestions == nullptr || session == nullptr)
+        return drawings;
+
+    const auto rows = tracks();
+    const auto beatsPerSecond = std::max (1.0, session->tempoBpm()) / 60.0;
+
+    for (const auto& card : suggestions->cards())
+    {
+        const auto auditioning = suggestions->isAuditioning (card.id);
+        const auto fillAlpha = suggestions->fillAlphaOf (card.id);
+
+        for (std::size_t element = 0; element < card.elements.size(); ++element)
+            for (const auto& ghost : card.elements[element].clips)
+            {
+                const auto row = std::find_if (rows.begin(),
+                                               rows.end(),
+                                               [&ghost] (const auto& candidate)
+                                               { return candidate.track == ghost.track; });
+
+                // A ghost of a change to a track that is no longer there is a
+                // ghost of nothing, and has nowhere to be drawn.
+                if (row == rows.end())
+                    continue;
+
+                GhostClipDrawing drawing;
+
+                drawing.suggestion = card.id;
+                drawing.element = element;
+                drawing.name = ghost.name;
+                drawing.x = timeline.beatsToX (ghost.startSeconds * beatsPerSecond);
+                drawing.width = std::max (
+                    1,
+                    timeline.beatsToX ((ghost.startSeconds + ghost.lengthSeconds) * beatsPerSecond)
+                        - drawing.x);
+                drawing.y = row->y;
+                drawing.height = row->height;
+                drawing.holdsMidi = ghost.holdsMidi;
+                drawing.auditioning = auditioning;
+                drawing.stale = card.stale;
+                drawing.intensity = suggestions->intensityOf (card.id, element);
+                drawing.fillAlpha = fillAlpha;
+
+                drawings.push_back (std::move (drawing));
+            }
+    }
+
+    return drawings;
+}
+
+bool ArrangementView::ghostAt (int x, int y)
+{
+    const auto drawn = ghosts();
+
+    return std::ranges::any_of (drawn,
+                                [x, y] (const auto& ghost)
+                                {
+                                    return x >= ghost.x && x < ghost.x + ghost.width && y >= ghost.y
+                                           && y < ghost.y + ghost.height;
+                                });
+}
+
+//==============================================================================
 int ArrangementView::contentHeightPx() const
 {
     if (session == nullptr)

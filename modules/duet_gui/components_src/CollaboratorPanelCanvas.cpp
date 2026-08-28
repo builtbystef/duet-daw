@@ -1,10 +1,12 @@
 #include <duet/gui/CollaboratorPanelCanvas.h>
 
+#include <duet/gui/CollaboratorPainting.h>
 #include <duet/gui/GraphiteLookAndFeel.h>
 #include <duet/gui/Tokens.h>
 #include <duet/gui/Typography.h>
 
 #include <cmath>
+#include <string>
 #include <utility>
 
 namespace duet::gui
@@ -23,33 +25,6 @@ namespace
     constexpr int sendButtonWidth = 58;
     constexpr float spinnerTurnsPerSecond = 0.6F;
 
-    /** The ✦ badge, drawn rather than typed: the four-pointed star is not a
-        glyph every copy of the typeface has, and the badge has to read the same
-        wherever Duet runs. It is the Collaborator's mark and appears nowhere
-        else in the interface.
-    */
-    void paintCollaboratorBadge (juce::Graphics& g, juce::Rectangle<float> area, juce::Colour ink)
-    {
-        const auto centre = area.getCentre();
-        const auto arm = area.getWidth() / 2.0F;
-        const auto waist = arm * 0.24F;
-
-        juce::Path star;
-
-        star.startNewSubPath (centre.x, centre.y - arm);
-        star.lineTo (centre.x + waist, centre.y - waist);
-        star.lineTo (centre.x + arm, centre.y);
-        star.lineTo (centre.x + waist, centre.y + waist);
-        star.lineTo (centre.x, centre.y + arm);
-        star.lineTo (centre.x - waist, centre.y + waist);
-        star.lineTo (centre.x - arm, centre.y);
-        star.lineTo (centre.x - waist, centre.y - waist);
-        star.closeSubPath();
-
-        g.setColour (ink);
-        g.fillPath (star);
-    }
-
     /** How tall a run of text is when it is wrapped to a width. */
     [[nodiscard]] int wrappedHeight (const juce::String& text, const juce::Font& font, int width)
     {
@@ -62,6 +37,262 @@ namespace
         return static_cast<int> (std::ceil (layout.getHeight()));
     }
 } // namespace
+
+//==============================================================================
+/** One Suggestion, as a card in the conversation.
+
+    A teal glow border round the whole of it, the summary and the stale mark
+    across the top, one ticked row per Element, and the three things the producer
+    can do with it. The card decides nothing: every gesture on it goes to the
+    Suggestions view-model, and what it draws is what that says.
+*/
+class CollaboratorPanelCanvas::SuggestionCard final : public juce::Component
+{
+public:
+    SuggestionCard (Appearance& lookAndScale,
+                    Suggestions& pending,
+                    std::string suggestionId,
+                    std::string suggestionSummary)
+        : appearance (lookAndScale), suggestions (pending), id (std::move (suggestionId)),
+          summary (std::move (suggestionSummary))
+    {
+        setComponentID (collaboratorId::suggestionCard);
+
+        auditionButton.setComponentID (collaboratorId::suggestionAudition);
+        compareButton.setComponentID (collaboratorId::suggestionCompare);
+        acceptButton.setComponentID (collaboratorId::suggestionAccept);
+        rejectButton.setComponentID (collaboratorId::suggestionReject);
+
+        auditionButton.setButtonText (Suggestions::auditionLabel);
+        compareButton.setButtonText ("A/B");
+        acceptButton.setButtonText (Suggestions::acceptLabel);
+        rejectButton.setButtonText (Suggestions::rejectLabel);
+
+        // Audition is a place the producer goes and comes back from, so the
+        // button that takes them in is the one that brings them out.
+        auditionButton.onClick = [this]
+        {
+            if (suggestions.isAuditioning (id))
+                suggestions.stopAudition();
+            else
+                suggestions.audition (id);
+
+            refresh();
+        };
+
+        compareButton.onClick = [this]
+        {
+            suggestions.toggleAB();
+            refresh();
+        };
+
+        acceptButton.onClick = [this]
+        {
+            suggestions.accept (id);
+            refresh();
+        };
+
+        rejectButton.onClick = [this]
+        {
+            suggestions.reject (id);
+            refresh();
+        };
+
+        addAndMakeVisible (auditionButton);
+        addChildComponent (compareButton);
+        addAndMakeVisible (acceptButton);
+        addAndMakeVisible (rejectButton);
+        refresh();
+    }
+
+    ~SuggestionCard() override = default;
+
+    /** How tall this card is at the width the panel has, which is what the
+        conversation lays the entries out with.
+    */
+    [[nodiscard]] int heightFor() const
+    {
+        const auto* view = suggestions.card (id);
+
+        // A Suggestion the producer has resolved keeps its place in the
+        // conversation and nothing else: the summary line stays as the record of
+        // what was offered, and the card around it goes.
+        if (view == nullptr)
+            return appearance.scaled (suggestionHeaderHeight + (2 * bubblePadding));
+
+        return appearance.scaled (suggestionHeaderHeight + suggestionButtonRowHeight
+                                  + (2 * bubblePadding))
+               + (static_cast<int> (view->elements.size())
+                  * appearance.scaled (suggestionElementHeight));
+    }
+
+    /** Takes what the Suggestion says now onto the card: the rows it still has,
+        the ticks the producer has made, and whether it is being heard.
+    */
+    void refresh()
+    {
+        const auto* view = suggestions.card (id);
+
+        if (view == nullptr)
+        {
+            ticks.clear();
+
+            for (auto* button : std::initializer_list<juce::Button*> {
+                     &auditionButton, &compareButton, &acceptButton, &rejectButton })
+                button->setVisible (false);
+
+            repaint();
+            return;
+        }
+
+        auditionButton.setVisible (true);
+        acceptButton.setVisible (true);
+        rejectButton.setVisible (true);
+
+        while (ticks.size() > static_cast<int> (view->elements.size()))
+            ticks.removeLast();
+
+        while (ticks.size() < static_cast<int> (view->elements.size()))
+        {
+            auto* tick = ticks.add (new juce::ToggleButton {});
+            const auto element = static_cast<std::size_t> (ticks.size() - 1);
+
+            tick->setComponentID (collaboratorId::suggestionElement);
+            tick->onClick = [this, element]
+            {
+                suggestions.setChecked (
+                    id, element, ticks[static_cast<int> (element)]->getToggleState());
+                refresh();
+            };
+            addAndMakeVisible (*tick);
+        }
+
+        for (auto element = 0; element < ticks.size(); ++element)
+        {
+            const auto index = static_cast<std::size_t> (element);
+
+            ticks[element]->setToggleState (suggestions.isChecked (id, index),
+                                            juce::dontSendNotification);
+            ticks[element]->setButtonText (view->elements[index].description);
+
+            // An Element the producer has unticked reads at the excluded
+            // intensity, the whole row of it: the box and the words alike, and
+            // the same weight its ghosts are drawn at.
+            ticks[element]->setAlpha (static_cast<float> (suggestions.intensityOf (id, index)));
+        }
+
+        compareButton.setVisible (suggestions.isAuditioning (id));
+        resized();
+        repaint();
+    }
+
+    void resized() override
+    {
+        auto area = getLocalBounds().reduced (appearance.scaled (bubblePadding));
+
+        area.removeFromTop (appearance.scaled (suggestionHeaderHeight));
+
+        for (auto* tick : ticks)
+            tick->setBounds (area.removeFromTop (appearance.scaled (suggestionElementHeight)));
+
+        auto buttons = area.removeFromTop (appearance.scaled (suggestionButtonRowHeight));
+        const auto each = juce::jmax (1, buttons.getWidth() / (compareButton.isVisible() ? 4 : 3));
+
+        auditionButton.setBounds (buttons.removeFromLeft (each).reduced (appearance.scaled (1)));
+
+        if (compareButton.isVisible())
+            compareButton.setBounds (buttons.removeFromLeft (each).reduced (appearance.scaled (1)));
+
+        acceptButton.setBounds (buttons.removeFromLeft (each).reduced (appearance.scaled (1)));
+        rejectButton.setBounds (buttons.reduced (appearance.scaled (1)));
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        const auto* view = suggestions.card (id);
+        const auto teal = toJuce (appearance.colour (ColourToken::collaborator));
+        const auto radius = static_cast<float> (appearance.scaled (metrics::radiusLarge));
+        const auto bounds = getLocalBounds().toFloat().reduced (1.0F);
+
+        if (view == nullptr)
+        {
+            paintResolved (g, teal);
+            return;
+        }
+
+        g.setColour (teal.withAlpha (0.08F));
+        g.fillRoundedRectangle (bounds, radius);
+
+        for (auto ring = Suggestions::glowRings; ring > 0; --ring)
+        {
+            g.setColour (teal.withAlpha (0.10F / static_cast<float> (ring)));
+            g.drawRoundedRectangle (
+                bounds.reduced (static_cast<float> (ring) - 1.0F), radius, 1.0F);
+        }
+
+        g.setColour (teal.withAlpha (0.65F));
+        g.drawRoundedRectangle (bounds, radius, 1.0F);
+
+        auto header = getLocalBounds()
+                          .reduced (appearance.scaled (bubblePadding))
+                          .removeFromTop (appearance.scaled (suggestionHeaderHeight));
+        const auto badge = header.removeFromLeft (appearance.scaled (badgeSize)).toFloat();
+
+        paintCollaboratorBadge (
+            g, badge.withSizeKeepingCentre (badge.getWidth(), badge.getWidth()), teal);
+        header.removeFromLeft (appearance.scaled (metrics::rowGap));
+
+        if (view->stale)
+        {
+            // Stale keeps the warning hue: it is a fact about the Suggestion and
+            // not a second meaning for the Collaborator's own.
+            auto mark = header.removeFromRight (appearance.scaled (34));
+
+            g.setColour (toJuce (appearance.colour (ColourToken::semanticWarning)));
+            g.setFont (interFont (appearance.scaled (typography::eyebrow), true));
+            g.drawText (Suggestions::staleLabel, mark, juce::Justification::centredRight);
+        }
+
+        g.setColour (toJuce (appearance.colour (ColourToken::textPrimary)));
+        g.setFont (interFont (appearance.scaled (typography::body), true));
+        g.drawText (view->summary, header, juce::Justification::centredLeft, true);
+    }
+
+private:
+    /** What is left of a Suggestion the producer has resolved: the badge and the
+        summary it was offered under, in the muted ink the conversation gives
+        anything that is no longer live. Where it went — accepted, and into which
+        Elements — is the History section's, which is spec js437t's.
+    */
+    void paintResolved (juce::Graphics& g, juce::Colour teal)
+    {
+        auto line = getLocalBounds()
+                        .reduced (appearance.scaled (bubblePadding))
+                        .removeFromTop (appearance.scaled (suggestionHeaderHeight));
+        const auto badge = line.removeFromLeft (appearance.scaled (badgeSize)).toFloat();
+
+        paintCollaboratorBadge (g,
+                                badge.withSizeKeepingCentre (badge.getWidth(), badge.getWidth()),
+                                teal.withAlpha (0.4F));
+        line.removeFromLeft (appearance.scaled (metrics::rowGap));
+
+        g.setColour (toJuce (appearance.colour (ColourToken::textMuted)));
+        g.setFont (interFont (appearance.scaled (typography::body)));
+        g.drawText (summary, line, juce::Justification::centredLeft, true);
+    }
+
+    Appearance& appearance;
+    Suggestions& suggestions;
+    std::string id;
+    std::string summary;
+    juce::OwnedArray<juce::ToggleButton> ticks;
+    juce::TextButton auditionButton;
+    juce::TextButton compareButton;
+    juce::TextButton acceptButton;
+    juce::TextButton rejectButton;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SuggestionCard)
+};
 
 //==============================================================================
 /** The scrolling conversation: every entry, laid out top to bottom.
@@ -78,10 +309,23 @@ public:
         : appearance (lookAndScale), panel (panelModel)
     {
         setComponentID (collaboratorId::conversation);
-        setInterceptsMouseClicks (false, false);
+
+        // The conversation itself is a painting and takes no click; the
+        // Suggestion cards in it are the one thing here that does.
+        setInterceptsMouseClicks (false, true);
     }
 
     ~Conversation() override = default;
+
+    /** The pending Suggestions the cards in this conversation are of. */
+    void setSuggestions (Suggestions* pending) { suggestions = pending; }
+
+    /** Takes what every card's Suggestion says now onto that card. */
+    void refreshCards()
+    {
+        for (auto* suggestionCard : cards)
+            suggestionCard->refresh();
+    }
 
     /** Measures every entry at the width the panel has now and takes the height
         they need. The viewport is what scrolls the result.
@@ -89,15 +333,33 @@ public:
     void layOutEntries (int width)
     {
         laidOut.clear();
+        syncCards();
 
         const auto padding = appearance.scaled (bubblePadding);
         const auto gap = appearance.scaled (bubbleGap);
         const auto font = interFont (appearance.scaled (typography::body));
         const auto chipFont = interFont (appearance.scaled (typography::eyebrow));
         auto y = gap;
+        auto cardIndex = 0;
 
         for (const auto& entry : panel.conversation())
         {
+            if (entry.kind == EntryKind::suggestion)
+            {
+                // A card is a component and not a drawing, because the producer
+                // ticks and presses things on it.
+                if (cardIndex < cards.size())
+                {
+                    auto* suggestionCard = cards[cardIndex++];
+                    const auto height = suggestionCard->heightFor();
+
+                    suggestionCard->setBounds (0, y, width, height);
+                    y += height + gap;
+                }
+
+                continue;
+            }
+
             const auto textWidth = width - (2 * padding) - appearance.scaled (accentRuleWidth);
             const auto chip = juce::String { entry.context };
             const auto chipRoom =
@@ -186,6 +448,34 @@ private:
         juce::Rectangle<int> bounds;
     };
 
+    /** One card per Suggestion entry, made when the entry arrives and kept for
+        as long as it is in the conversation.
+    */
+    void syncCards()
+    {
+        std::vector<std::pair<std::string, std::string>> wanted;
+
+        for (const auto& entry : panel.conversation())
+            if (entry.kind == EntryKind::suggestion)
+                wanted.emplace_back (entry.suggestion, entry.text);
+
+        if (wanted == shown)
+            return;
+
+        cards.clear();
+        shown = wanted;
+
+        if (suggestions == nullptr)
+        {
+            shown.clear();
+            return;
+        }
+
+        for (const auto& [id, summary] : shown)
+            addAndMakeVisible (
+                cards.add (new SuggestionCard { appearance, *suggestions, id, summary }));
+    }
+
     [[nodiscard]] static ColourToken inkFor (EntryKind kind)
     {
         switch (kind)
@@ -198,6 +488,10 @@ private:
 
             case EntryKind::producer:
             case EntryKind::commentary:
+
+            // A Suggestion is a card rather than a run of text, and paints
+            // itself; there is no ink for the conversation to give it.
+            case EntryKind::suggestion:
                 break;
         }
 
@@ -206,6 +500,9 @@ private:
 
     Appearance& appearance;
     CollaboratorPanel& panel;
+    Suggestions* suggestions = nullptr;
+    juce::OwnedArray<SuggestionCard> cards;
+    std::vector<std::pair<std::string, std::string>> shown;
     std::vector<EntryLayout> laidOut;
     juce::Font chipTypeface { juce::FontOptions {} };
     juce::Font bodyTypeface { juce::FontOptions {} };
@@ -303,6 +600,7 @@ CollaboratorPanelCanvas::CollaboratorPanelCanvas (Appearance& lookAndScale,
     : appearance (lookAndScale), panel (panelModel)
 {
     conversation = std::make_unique<Conversation> (appearance, panel);
+    conversation->setSuggestions (suggestions);
     card = std::make_unique<TaskRunCard> (appearance, panel);
 
     scroller.setViewedComponent (conversation.get(), false);
@@ -351,6 +649,14 @@ void CollaboratorPanelCanvas::setSelectionContextSource (
     refresh();
 }
 
+void CollaboratorPanelCanvas::setSuggestions (Suggestions* pendingSuggestions)
+{
+    suggestions = pendingSuggestions;
+    conversation->setSuggestions (suggestions);
+    shownCards.clear();
+    refresh();
+}
+
 void CollaboratorPanelCanvas::refresh()
 {
     // The composer's text lives in the editor, and the panel is told what it
@@ -361,6 +667,12 @@ void CollaboratorPanelCanvas::refresh()
 
     if (selectionSource)
         panel.setSelectionContext (selectionSource());
+
+    // The panel is the one surface that polls, so it is where the Suggestions
+    // are taken again — which is what makes a Suggestion the producer has edited
+    // under go stale on its card and on its ghosts without either being asked.
+    if (suggestions != nullptr)
+        suggestions->refresh();
 
     auto changed = false;
 
@@ -396,6 +708,17 @@ void CollaboratorPanelCanvas::refresh()
         // The newest message is the one the producer is waiting for, so the
         // conversation is always scrolled to the end of itself.
         scroller.setViewPositionProportionately (0.0, 1.0);
+        changed = true;
+    }
+
+    // A card grows and shrinks with the Suggestion under it — an accepted
+    // Element leaves a row behind — so what the cards are worth is measured and
+    // the conversation is laid out again when the answer changes.
+    if (auto shape = cardShape(); shape != shownCards)
+    {
+        shownCards = std::move (shape);
+        conversation->refreshCards();
+        conversation->layOutEntries (scroller.getMaximumVisibleWidth());
         changed = true;
     }
 
@@ -492,6 +815,35 @@ void CollaboratorPanelCanvas::timerCallback()
     }
 
     refresh();
+}
+
+std::string CollaboratorPanelCanvas::cardShape() const
+{
+    if (suggestions == nullptr)
+        return {};
+
+    // Everything a card draws differently, in one string: which Suggestions are
+    // pending, how many Elements each has left, which are ticked, whether it is
+    // stale, and whether it is the one being heard.
+    std::string shape;
+
+    for (const auto& pending : suggestions->cards())
+    {
+        shape += pending.id;
+        shape += pending.stale ? '!' : '.';
+
+        if (! suggestions->isAuditioning (pending.id))
+            shape += '-';
+        else
+            shape += suggestions->hearingProposed() ? 'B' : 'A';
+
+        for (std::size_t element = 0; element < pending.elements.size(); ++element)
+            shape += suggestions->isChecked (pending.id, element) ? 'x' : 'o';
+
+        shape += ';';
+    }
+
+    return shape;
 }
 
 void CollaboratorPanelCanvas::sendComposer()

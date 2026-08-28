@@ -47,6 +47,9 @@ public:
     void mouseUp (const juce::MouseEvent& event) override;
     void perform (Command command);
 
+    [[nodiscard]] ArrangementView& model() noexcept { return view; }
+    [[nodiscard]] const ArrangementView& model() const noexcept { return view; }
+
     //==============================================================================
     /** The chrome's measurements, in logical units. */
     static constexpr int rulerHeight = 24;

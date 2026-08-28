@@ -1,8 +1,10 @@
 #include "GuiTestSupport.h"
 
 #include <duet/gui/Appearance.h>
+#include <duet/gui/ArrangementCanvas.h>
 #include <duet/gui/CollaboratorPanelCanvas.h>
 #include <duet/gui/MainShell.h>
+#include <duet/gui/MixerCanvas.h>
 #include <duet/gui/ViewState.h>
 #include <duet/model/Session.h>
 
@@ -10,6 +12,7 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include <algorithm>
 #include <filesystem>
 #include <string>
 
@@ -302,4 +305,65 @@ TEST_CASE ("a quick prompt fills the composer and sends nothing")
     REQUIRE (open.composer().getText()
              == juce::String { open.panel->model().quickPrompts().front() });
     REQUIRE (open.panel->model().conversation().empty());
+}
+
+TEST_CASE ("a run that succeeds comes back with a Suggestion, and every surface shows it")
+{
+    OpenShell open;
+    const auto file = editFile ("collaborator-suggestion");
+    duet::model::Session session { file };
+    duet::model::TrackRef track = duet::model::noTrack;
+
+    session.performAction ("Something to suggest over",
+                           [&] (auto& ops)
+                           {
+                               track = ops.createTrack (duet::model::TrackKind::midi, "Keys");
+                               ops.insertMidiClip (track, "Verse", 0.0, 4.0);
+                           });
+    open.shell.setSession (&session);
+
+    // The development source alternates its endings, so the first run is the
+    // one that succeeds — and a run that succeeds makes a Suggestion.
+    open.type ("Rework the intro");
+    open.click (duet::gui::collaboratorId::send);
+    open.panel->model().advance (ScriptedCollaborator::taskRunSeconds);
+    open.panel->refresh();
+
+    const auto& conversation = open.panel->model().conversation();
+    const auto entry =
+        std::find_if (conversation.begin(),
+                      conversation.end(),
+                      [] (const auto& said) { return said.kind == EntryKind::suggestion; });
+
+    REQUIRE (entry != conversation.end());
+    REQUIRE_FALSE (entry->suggestion.empty());
+
+    // The card is in the conversation, the ghosts are on the timeline, and the
+    // suggested level is beside the fader: all three read the one Suggestion the
+    // shell hands them.
+    REQUIRE (surfaceOf (*open.panel, duet::gui::collaboratorId::suggestionCard) != nullptr);
+
+    auto* arrangement = dynamic_cast<duet::gui::ArrangementCanvas*> (
+        open.shell.findChildWithID (duet::gui::surfaceId::arrangement));
+    REQUIRE (arrangement != nullptr);
+    REQUIRE_FALSE (arrangement->model().ghosts().empty());
+
+    open.shell.perform (Command::showMixer);
+
+    auto* mixer =
+        dynamic_cast<duet::gui::MixerCanvas*> (surfaceOf (open.shell, duet::gui::surfaceId::mixer));
+    REQUIRE (mixer != nullptr);
+    REQUIRE (mixer->model().ghostFader (track).has_value());
+
+    // Accepting from the card lands on the project as one Action, and takes the
+    // ghosts down with it.
+    const auto undoBefore = session.undoNames().size();
+
+    open.click (duet::gui::collaboratorId::suggestionAccept);
+    open.panel->refresh();
+
+    REQUIRE (session.undoNames().size() == undoBefore + 1);
+    REQUIRE (arrangement->model().ghosts().empty());
+    REQUIRE_FALSE (mixer->model().ghostFader (track).has_value());
+    std::filesystem::remove (file);
 }

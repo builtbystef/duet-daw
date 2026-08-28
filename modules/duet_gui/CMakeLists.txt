@@ -22,6 +22,7 @@ add_library(duet_gui STATIC
     src/SessionClock.cpp
     src/Shortcuts.cpp
     src/Snap.cpp
+    src/Suggestions.cpp
     src/TimelineGeometry.cpp
     src/TransportBar.cpp
     src/Tokens.cpp
@@ -58,6 +59,7 @@ set_target_properties(duet_gui_fonts PROPERTIES
 add_library(duet_gui_components STATIC
     components_src/AcceleratedSurface.cpp
     components_src/ArrangementCanvas.cpp
+    components_src/CollaboratorPainting.cpp
     components_src/CollaboratorPanelCanvas.cpp
     components_src/GraphiteLookAndFeel.cpp
     components_src/InterTypeface.cpp

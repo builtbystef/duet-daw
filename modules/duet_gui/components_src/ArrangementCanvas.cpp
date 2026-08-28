@@ -1,5 +1,6 @@
 #include <duet/gui/ArrangementCanvas.h>
 
+#include <duet/gui/CollaboratorPainting.h>
 #include <duet/gui/GraphiteLookAndFeel.h>
 #include <duet/gui/MainShell.h>
 #include <duet/gui/TimelineGeometry.h>
@@ -344,6 +345,20 @@ void ArrangementCanvas::paint (juce::Graphics& g)
         paintAutomation (g, track, timelineTop);
     }
 
+    // The Suggestions' ghosts go over the clips they would land among, and
+    // under everything the producer's own gestures draw.
+    for (const auto& ghost : view.ghosts())
+    {
+        const juce::Rectangle<int> ghostArea { headerWidth + ghost.x,
+                                               timelineTop + ghost.y + appearance.scaled (6),
+                                               ghost.width,
+                                               std::max (1,
+                                                         ghost.height - appearance.scaled (12)) };
+
+        if (ghostArea.intersects (timeline))
+            paintGhostClip (g, appearance, ghost, ghostArea);
+    }
+
     const juce::Rectangle<int> addRow {
         0, timelineTop + view.addTrackRowY(), headerWidth, ArrangementView::addTrackRowHeightPx
     };
@@ -469,6 +484,12 @@ void ArrangementCanvas::mouseWheelMove (const juce::MouseEvent& event,
 void ArrangementCanvas::mouseDown (const juce::MouseEvent& event)
 {
     const auto timelineY = event.y - timelineArea().getY();
+
+    // A ghost is a drawing of what a Suggestion would do, so the pointer goes
+    // straight through everything it could otherwise start here: nothing is
+    // dragged, and the selection the producer has stays theirs.
+    if (view.ghostAt (event.x - appearance.scaled (trackHeaderWidth), timelineY))
+        return;
 
     if (const auto lane = laneAt (event.x, timelineY); lane.has_value())
     {
@@ -613,6 +634,9 @@ void ArrangementCanvas::mouseDownOnTrackHeader (const juce::MouseEvent& event,
 void ArrangementCanvas::mouseDoubleClick (const juce::MouseEvent& event)
 {
     const auto timelineY = event.y - timelineArea().getY();
+
+    if (view.ghostAt (event.x - appearance.scaled (trackHeaderWidth), timelineY))
+        return;
 
     if (const auto lane = laneAt (event.x, timelineY); lane.has_value())
     {

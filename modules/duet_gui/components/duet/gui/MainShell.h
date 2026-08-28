@@ -6,6 +6,7 @@
 #include <duet/gui/Mixer.h>
 #include <duet/gui/PianoRoll.h>
 #include <duet/gui/Shortcuts.h>
+#include <duet/gui/Suggestions.h>
 #include <duet/gui/TransportBar.h>
 #include <duet/gui/ViewState.h>
 
@@ -183,6 +184,14 @@ private:
     */
     CollaboratorPanel collaboratorPanel;
     ScriptedCollaborator scriptedCollaborator;
+
+    /** The pending Suggestions, and the development-only source that makes them.
+        The shell owns them because all three surfaces that show a Suggestion —
+        the panel's card, the timeline's ghosts and the mixer's ghost handles —
+        have to be reading the same one.
+    */
+    Suggestions suggestions;
+    ScriptedSuggestions scriptedSuggestions;
 
     juce::TextButton duetButton { "Duet" };
     std::unique_ptr<TransportStrip> transportStrip;

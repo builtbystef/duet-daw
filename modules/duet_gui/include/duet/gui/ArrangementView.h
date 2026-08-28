@@ -3,6 +3,7 @@
 #include <duet/gui/AutomationLanes.h>
 #include <duet/gui/Selection.h>
 #include <duet/gui/Shortcuts.h>
+#include <duet/gui/Suggestions.h>
 #include <duet/gui/TimelineGeometry.h>
 
 #include <duet/model/Session.h>
@@ -63,6 +64,49 @@ struct TrackDrawing
     int automationHeight = 0;
 
     std::vector<ClipDrawing> clips;
+};
+
+/** A clip a pending Suggestion would put on the timeline, laid out in the same
+    coordinates as the clips it sits among.
+
+    It is drawn and it is nothing else: a ghost is in no selection, answers to no
+    gesture, and leaves with the Suggestion that proposed it.
+*/
+struct GhostClipDrawing
+{
+    /** Which Suggestion proposed it, and which Element of that Suggestion — the
+        Element being what the producer ticks, and therefore what decides how
+        strongly this is drawn.
+    */
+    std::string suggestion;
+    std::size_t element = 0;
+
+    /** The clip's name as the Suggestion gives it. The Collaborator's badge
+        before it on screen belongs to the surface that paints it.
+    */
+    std::string name;
+
+    int x = 0;
+    int width = 0;
+    int y = 0;
+    int height = 0;
+    bool holdsMidi = false;
+
+    /** True while the Suggestion is being auditioned, which is what takes the
+        ghost to the heavier treatment.
+    */
+    bool auditioning = false;
+
+    /** True when the project has moved under the Suggestion this belongs to. */
+    bool stale = false;
+
+    /** How strongly to draw it: as it is, or at the excluded intensity when the
+        producer has unticked its Element.
+    */
+    double intensity = 1.0;
+
+    /** How much of the reserved teal the fill carries. */
+    double fillAlpha = Suggestions::pendingFillAlpha;
 };
 
 struct SelectionRect
@@ -147,6 +191,23 @@ public:
 
     /** Track rows and clips in canvas coordinates, freshly read from the model. */
     [[nodiscard]] std::vector<TrackDrawing> tracks();
+
+    //==============================================================================
+    /** The pending Suggestions this surface draws ghosts of, or none for a
+        surface with no ghosts on it. They are read and never owned.
+    */
+    void setSuggestions (Suggestions* pendingSuggestions);
+
+    /** Every pending Suggestion's clip changes, in this surface's coordinates:
+        what the timeline would look like if the producer accepted them.
+    */
+    [[nodiscard]] std::vector<GhostClipDrawing> ghosts();
+
+    /** Whether a ghost is under a point. It is what the surface asks before it
+        does anything with a click, because a click on a ghost is a click on
+        nothing: it moves nothing and it leaves the selection alone.
+    */
+    [[nodiscard]] bool ghostAt (int x, int y);
 
     [[nodiscard]] int contentHeightPx() const;
     [[nodiscard]] int addTrackRowY() const;
@@ -288,6 +349,7 @@ private:
     std::optional<Gesture> gesture;
     std::vector<ClipboardClip> clipboard;
     duet::model::TrackRef focusedTrackRef = duet::model::noTrack;
+    Suggestions* suggestions = nullptr;
     int heightPx = 0;
 };
 } // namespace duet::gui

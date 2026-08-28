@@ -51,6 +51,16 @@ private:
     void showRoutingMenu (duet::model::TrackRef channel, juce::Component* target);
     void showInsertMenu (const MixerStrip& strip, juce::Component* target);
 
+    /** What a pending Suggestion puts on one strip: the level it proposes, as a
+        line down the fader's row at the place it would sit, and the A/B chip
+        while it is heard.
+    */
+    void paintSuggestion (juce::Graphics& g,
+                          duet::model::TrackRef channel,
+                          juce::Rectangle<int> track,
+                          juce::Rectangle<int> row,
+                          juce::Rectangle<int> chip);
+
     Appearance& appearance;
     Mixer& mixer;
     std::function<void (duet::model::PluginRef)> openEditor;
