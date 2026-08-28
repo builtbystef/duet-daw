@@ -801,6 +801,16 @@ public:
     void setTempo (double bpm);
     void setTimeSignature (int numerator, int denominator);
 
+    /** Appends a copy of another Suggestion's operations to this one, renaming
+        that one's placeholders so that neither list can resolve the other's.
+
+        This is what cherry-picking is made of. An Element of a Suggestion is
+        applicable on its own, so any set of Elements is one operation list, and
+        the Action that applies it is one Action however many Elements went into
+        it.
+    */
+    void append (const Suggestion& other);
+
 private:
     friend class Session;
 

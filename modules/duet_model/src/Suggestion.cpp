@@ -420,6 +420,39 @@ void Suggestion::removeAutomationPoints (SuggestionAutomationTarget target,
     operation.b = toSeconds;
 }
 
+void Suggestion::append (const Suggestion& other)
+{
+    // A list appended to itself would be read while it grew, and doubling a
+    // Suggestion is not something anything asks for.
+    if (&other == this)
+        return;
+
+    // Placeholders are positions in a resolution map built afresh at apply
+    // time, so two lists written apart both start at one. Shifting the appended
+    // list past everything this one has ever handed out is what keeps the two
+    // sets of creations distinct.
+    const auto offset = impl->nextPlaceholderValue - 1;
+
+    const auto renumber = [offset] (Impl::Reference& reference)
+    {
+        if (reference.isPlaceholder)
+            reference.value += offset;
+    };
+
+    for (auto operation : other.impl->operations)
+    {
+        renumber (operation.first);
+        renumber (operation.second);
+
+        if (operation.result.value != 0)
+            operation.result.value += offset;
+
+        impl->operations.push_back (std::move (operation));
+    }
+
+    impl->nextPlaceholderValue += other.impl->nextPlaceholderValue - 1;
+}
+
 void Suggestion::setTempo (double bpm) { impl->append (Impl::Operation::Kind::setTempo).a = bpm; }
 
 void Suggestion::setTimeSignature (int numerator, int denominator)
