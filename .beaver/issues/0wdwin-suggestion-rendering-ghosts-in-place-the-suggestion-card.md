@@ -1,7 +1,7 @@
 ---
 id: 0wdwin
 title: 'Suggestion rendering: ghosts in place, the Suggestion card, and Audition'
-state: in-progress
+state: done
 assignee: claude
 priority: high
 depends_on:
@@ -11,7 +11,7 @@ depends_on:
     - aw5t9l
 parent: 535bbo
 created: 2026-08-12T03:51:44Z
-updated: 2026-08-28T07:38:35Z
+updated: 2026-08-28T07:40:20Z
 ---
 
 ## What to build
@@ -35,7 +35,7 @@ The buttons drive the foundation's Suggestion and Audition mechanism; this slice
 - [x] A stale Suggestion is visibly marked in its card and on its ghosts, and stays auditionable.
 - [x] The audition button is labelled "Audition", and the card's language uses the glossary's terms throughout.
 - [x] Every state above is reachable from a fabricated Suggestion with no AI backend, no socket and no network.
-- [ ] Closure waits for user review.
+- [x] Closure waits for user review.
 
 ## Notes
 
@@ -83,3 +83,9 @@ Both design decisions taken at review (2026-08-28), and the model fix stays in t
 
 - An auditioned ghost carries no wash. `Suggestions::auditionFillAlpha` is 0.0, and the ghost drops its name as well: the Audition puts the suggested clip into the project, so the real clip is under the ghost drawing itself in its own colour and printing its own name. What marks it while it is heard is the solid teal border, the glow and the badge. Confirmed by eye in both palettes — the clip reads as itself, bracketed.
 - A suggested level is a line, not a second handle. It is drawn down the whole height of the fader row with a head on it, so that -3.0 dB over a fader at -6.0 reads as two distinct marks where two handles merged into one blob.
+
+**claude** — 2026-08-28T07:40:20Z
+
+Reviewed and approved by the Target Producer (2026-08-28), on the painted states of every ghost, card, chip and mixer mark in both palettes. Closing.
+
+One criterion was signed off on the pictures rather than by ear: the Audition being audible and the A/B swapping under a rolling transport were never heard, only asserted — the paintless tests cover the model's apply-and-revert and that A/B never stops the transport, and the screenshots cover the look. If the sound is wrong when someone next runs it, that is where to look, and it is not a rendering fault.
