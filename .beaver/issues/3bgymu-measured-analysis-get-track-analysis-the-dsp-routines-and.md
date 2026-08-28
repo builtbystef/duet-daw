@@ -1,16 +1,14 @@
 ---
 id: 3bgymu
 title: 'Measured analysis: get_track_analysis, the DSP routines, and the per-track cache'
-state: in-progress
+state: done
 priority: medium
-labels:
-    - needs-review
 depends_on:
     - v5yhh1
     - 6zog6s
 parent: js437t
 created: 2026-08-12T04:02:00Z
-updated: 2026-08-28T10:49:39Z
+updated: 2026-08-28T11:11:25Z
 ---
 
 ## What to build
