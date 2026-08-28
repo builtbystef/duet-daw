@@ -96,13 +96,12 @@ namespace
         ADR 0006 asserts a render's measured features, and a feature is only
         measurable against a known shape: the rate the samples are in, the block
         the engine cuts the timeline into — which is also how early a note may
-        start — and a bit depth deep enough that nothing is rounded on the way
-        out. Dithering is the noise a shallower depth would need, and it is off
-        because it is noise and because it would make a render differ from
+        start, and which the public header states because what measures a render
+        needs it — and a bit depth deep enough that nothing is rounded on the
+        way out. Dithering is the noise a shallower depth would need, and it is
+        off because it is noise and because it would make a render differ from
         itself.
     */
-    constexpr double renderSampleRate = 44100.0;
-    constexpr int renderBlockSize = 512;
     constexpr int renderBitDepth = 32;
 
     constexpr bool withMasterPlugins = true;
@@ -205,7 +204,8 @@ namespace
                              const juce::File& file,
                              const juce::BigInteger& tracksToRender,
                              bool useMasterPlugins,
-                             bool ignoreMuteAndSolo)
+                             bool ignoreMuteAndSolo,
+                             const std::function<bool()>& keepGoing)
     {
         if (tracksToRender.isZero())
             return false;
@@ -244,6 +244,16 @@ namespace
 
         while (task.runJob() == juce::ThreadPoolJob::jobNeedsRunningAgain)
         {
+            // Asked between blocks, so that a render nobody is waiting for any
+            // more stops rather than finishes. What it leaves behind is nothing:
+            // a half-written file would be read as a whole one.
+            if (keepGoing && ! keepGoing())
+            {
+                task.signalJobShouldExit();
+                file.deleteFile();
+
+                return false;
+            }
         }
 
         return file.existsAsFile();
@@ -921,6 +931,35 @@ namespace
         track's differently-shaped children comes first means nothing, and the
         engine writes those in one order and reads them back in another.
     */
+    /** Takes off what an offline render leaves behind.
+
+        The engine's render guards write `soloIsolate` and `playSlotClips` onto
+        every track they render and then put back what was there before, which
+        for a track that had neither is the property present and set to its
+        default. Neither says anything about what the track renders — a track
+        render ignores mute and solo outright — so a digest that counted them
+        would say a track had changed because it had been measured, and nothing
+        would ever be answered out of a cache twice (engine notes).
+    */
+    void forgetRenderLeftovers (const juce::ValueTree& tree)
+    {
+        static const juce::Identifier playSlotClips { "playSlotClips" };
+
+        std::vector<juce::ValueTree> remaining { tree };
+
+        while (! remaining.empty())
+        {
+            auto node = remaining.back();
+            remaining.pop_back();
+
+            node.removeProperty (te::IDs::soloIsolate, nullptr);
+            node.removeProperty (playSlotClips, nullptr);
+
+            for (const auto& child : node)
+                remaining.push_back (child);
+        }
+    }
+
     void appendCanonicalised (const juce::ValueTree& tree, std::string& out)
     {
         struct Pending
@@ -1009,7 +1048,50 @@ std::string Session::stateDigest() const
 
 std::uint64_t Session::revision() const noexcept { return impl->revision; }
 
-bool Session::renderToFile (const std::filesystem::path& destination)
+std::string Session::trackStateDigest (TrackRef track) const
+{
+    juce::ValueTree state;
+
+    if (track == masterChannel)
+    {
+        // The master is the whole project through the master chain, so what it
+        // renders is whatever anything in the project renders.
+        state = impl->edit->state.createCopy();
+        state.removeChild (state.getChildWithName (te::IDs::TRANSPORT), nullptr);
+        state.removeProperty ("lastSignificantChange", nullptr);
+        state.removeProperty ("modifiedBy", nullptr);
+        state.removeProperty (te::IDs::projectID, nullptr);
+    }
+    else if (auto* audioTrack = impl->trackFor (track))
+    {
+        state = audioTrack->state.createCopy();
+    }
+    else
+    {
+        return {};
+    }
+
+    forgetRenderLeftovers (state);
+
+    std::string canonical;
+    appendCanonicalised (state, canonical);
+
+    // The tempo map with it: the track's own state says where a clip is in
+    // beats, and the tempo is what turns that into a moment. Read off the
+    // edit's tree, the sequence keeping its own copy to itself.
+    if (track != masterChannel)
+        appendCanonicalised (impl->edit->state.getChildWithName (te::IDs::TEMPOSEQUENCE),
+                             canonical);
+
+    std::ostringstream digest;
+    digest << std::hex << std::hash<std::string> {}(canonical) << "/" << std::dec
+           << canonical.size() << "B";
+
+    return std::move (digest).str();
+}
+
+bool Session::renderToFile (const std::filesystem::path& destination,
+                            const std::function<bool()>& keepGoing)
 {
     juce::BigInteger everyTrack;
     everyTrack.setRange (0, te::getAllTracks (*impl->edit).size(), true);
@@ -1017,11 +1099,17 @@ bool Session::renderToFile (const std::filesystem::path& destination)
     // What the producer hears: a muted track is silent in the file and a soloed
     // one is the only thing in it, because mute and solo are the project and a
     // render of the whole project is the project (sh2dkg).
-    return renderTracksToFile (
-        *impl->edit, toJuceFile (destination), everyTrack, withMasterPlugins, honouringMuteAndSolo);
+    return renderTracksToFile (*impl->edit,
+                               toJuceFile (destination),
+                               everyTrack,
+                               withMasterPlugins,
+                               honouringMuteAndSolo,
+                               keepGoing);
 }
 
-bool Session::renderTrackToFile (TrackRef track, const std::filesystem::path& destination)
+bool Session::renderTrackToFile (TrackRef track,
+                                 const std::filesystem::path& destination,
+                                 const std::function<bool()>& keepGoing)
 {
     auto* audioTrack = impl->trackFor (track);
 
@@ -1047,7 +1135,8 @@ bool Session::renderTrackToFile (TrackRef track, const std::filesystem::path& de
                                toJuceFile (destination),
                                thisTrack,
                                withoutMasterPlugins,
-                               ignoringMuteAndSolo);
+                               ignoringMuteAndSolo,
+                               keepGoing);
 }
 
 //==============================================================================

@@ -5,6 +5,7 @@
 # would stop compiling in the tests, which link this target and nothing else.
 add_library(duet_model STATIC
     src/AppSettings.cpp
+    src/AudioFile.cpp
     src/EditOps.cpp
     src/Recording.cpp
     src/Session.cpp

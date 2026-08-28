@@ -132,6 +132,17 @@ public:
     /** The run in progress, and nothing when none is. */
     [[nodiscard]] std::optional<std::string> activeRunId() const;
 
+    /** Whether the named run is the one in progress and nobody has asked for it
+        to stop.
+
+        What a tool that takes seconds asks before it goes on working. A cancel
+        lands here the moment it is asked for, under this object's own lock,
+        while the service thread may still be inside the tool that would like to
+        know — so this and not `activeRunId` is what tells a long tool call that
+        nobody is waiting for it any more.
+    */
+    [[nodiscard]] bool isRunInProgress (const std::string& runId) const;
+
     /** The sidecar's `configure`. Spawns the sidecar if none is running. */
     RpcOutcome configure (const std::string& model, const Json& systemPromptParams);
 

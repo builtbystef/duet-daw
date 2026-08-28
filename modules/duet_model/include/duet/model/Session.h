@@ -77,6 +77,18 @@ inline constexpr InputRef noInput = 0;
 */
 inline constexpr double silentDb = -100.0;
 
+/** The shape every offline render has, whatever machine it runs on: the rate
+    its samples are in, and the block the engine cuts the timeline into.
+
+    Both are stated here because what measures a render needs them. The block is
+    also how early a rendered sound may begin — the engine starts a sound at the
+    beginning of the block that contains it — so it is the tolerance any
+    statement about *when* something happened in a render carries (ADR 0006).
+*/
+inline constexpr double renderSampleRate = 44100.0;
+inline constexpr int renderBlockSize = 512;
+inline constexpr double renderBlockSeconds = renderBlockSize / renderSampleRate;
+
 /** The two ends of a fader's travel, in decibels: what the producer can set a
     track's level or a send's level to, and so what a Suggestion may ask for.
 
@@ -1022,6 +1034,17 @@ public:
     /** A message-thread revision advanced by each Action, undo, and redo. */
     [[nodiscard]] std::uint64_t revision() const noexcept;
 
+    /** A digest of everything about one track that decides what it renders: its
+        own state, and the tempo map its clips are placed against.
+
+        What a measurement of a track can be cached against, in other words. An
+        edit to another track leaves it where it was, which is the point: what a
+        track puts out on its own does not change because a neighbour did. The
+        master's digest is the whole project's, because the master is the whole
+        project. An empty string for a track that is not there.
+    */
+    [[nodiscard]] std::string trackStateDigest (TrackRef track) const;
+
     /** Renders the whole project to an audio file, offline and synchronously.
         False when nothing could be written.
 
@@ -1043,7 +1066,8 @@ public:
         audio-file cache, keyed on the destination, so a render that must be a
         render asks for a file of its own.
     */
-    bool renderToFile (const std::filesystem::path& destination);
+    bool renderToFile (const std::filesystem::path& destination,
+                       const std::function<bool()>& keepGoing = {});
 
     /** Renders one track of the project to an audio file, the same way, and
         without the master chain: what a track puts out on its own, whatever
@@ -1051,8 +1075,15 @@ public:
 
         This is what measured analysis of a track is made of, so it isolates:
         no other track reaches the file, and neither does another track's solo.
+
+        `keepGoing` is asked between blocks, and a render it says no to stops
+        where it is and writes nothing: an analysis nobody is waiting for any
+        more is work worth abandoning. The same holds of the whole-project
+        render above.
     */
-    bool renderTrackToFile (TrackRef track, const std::filesystem::path& destination);
+    bool renderTrackToFile (TrackRef track,
+                            const std::filesystem::path& destination,
+                            const std::function<bool()>& keepGoing = {});
 
     //==============================================================================
     // External plugins.

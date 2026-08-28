@@ -318,9 +318,11 @@ export const vocabulary: ToolDeclaration[] = [
         description:
             "Measurements of what a track actually puts out, computed over its rendered audio by documented " +
             "routines, so every value is a fact and not a guess. Loudness (peak, true peak, RMS, integrated and " +
-            "short-term LUFS per ITU-R BS.1770, crest factor), spectrum (energy in seven fixed bands — sub " +
-            "20-60 Hz, low 60-250 Hz, low-mid 250-500 Hz, mid 500 Hz-2 kHz, high-mid 2-4 kHz, high 4-10 kHz, air " +
-            "10-20 kHz — plus centroid and flatness), stereo correlation and width, and onset times in beats. " +
+            "short-term LUFS per ITU-R BS.1770, crest factor), spectrum, stereo correlation and width, and " +
+            "onset times in beats. The spectrum is the energy in seven fixed bands — " +
+            "sub 20-60 Hz, low 60-250 Hz, low-mid 250-500 Hz, mid 500-2000 Hz, " +
+            "high-mid 2000-4000 Hz, high 4000-10000 Hz, air 10000-20000 Hz — plus its centroid and its " +
+            "flatness. " +
             "The first call on a track can take a few seconds; the producer keeps working while it does.",
         parameters: Type.Object({ trackId, barRange }),
     },

@@ -90,6 +90,13 @@ public:
     bool cancelRun (const std::string& runId);
     [[nodiscard]] std::optional<std::string> activeRunId() const;
 
+    /** Whether that name is the run in progress, which is what decides whether
+        an event about it is worth anything, and what a tool call that takes
+        seconds asks before it goes on working. An unknown id, an id whose run
+        has already ended, and a run the producer has canceled all say no.
+    */
+    [[nodiscard]] bool isRunInProgress (const std::string& runId) const;
+
     [[nodiscard]] bool isSidecarRunning() const;
     [[nodiscard]] std::optional<int> sidecarProcessId() const;
     [[nodiscard]] std::thread::id serviceThreadId() const { return worker.get_id(); }
@@ -123,12 +130,6 @@ private:
     void dropSidecar();
 
     void serviceActiveRun();
-
-    /** Whether that name is the run in progress, which is what decides whether
-        an event about it is worth anything. An unknown id, an id whose run has
-        already ended, and a run the producer has canceled all say no.
-    */
-    [[nodiscard]] bool isRunInProgress (const std::string& runId) const;
 
     bool handleRunEvent (const std::string& method, const Json& params);
     void finishActiveRun (RunStatus status, const std::string& error);
@@ -1077,6 +1078,11 @@ RunStart CollaboratorService::startRun (const std::string& prompt, const Opening
 }
 
 bool CollaboratorService::cancelRun (const std::string& runId) { return impl->cancelRun (runId); }
+
+bool CollaboratorService::isRunInProgress (const std::string& runId) const
+{
+    return impl->isRunInProgress (runId);
+}
 
 std::optional<std::string> CollaboratorService::activeRunId() const { return impl->activeRunId(); }
 

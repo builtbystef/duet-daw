@@ -788,3 +788,49 @@ the engine: `AutomatableParameter::valueRange` carries a skew for the *raw*
 number, and the ratio's conversion is a reciprocal, so that skew describes a
 scale running the other way. Applied to the real-unit range it would draw the
 lane upside down.
+
+### An offline render leaves two properties behind on every track it rendered
+
+**The engine.** After a render, each rendered track's state carries
+`soloIsolate="0"` and `playSlotClips="0"` whether or not it carried them before.
+The render's guards write both and then put back what was there, and what was
+there for a track that had neither is the property absent — so restoring writes
+the default rather than removing the property.
+
+**Where.** `FreezePointPlugin::ScopedTrackSoloIsolator` and
+`Renderer::ScopedClipSlotDisabler`, both raised in `RenderGuards` in
+`Session.cpp`.
+
+**Proved.** `3bgymu`, on the dev machine 2026-08-28, by a `duet_scratch` probe
+that canonicalised one track's state before and after `renderTrackToFile` and
+diffed the two.
+
+**Duet.** `Session::trackStateDigest` takes both properties off before it
+digests, which is what lets a measured analysis be cached: without it a track
+would read as changed because it had been measured, and no second call would
+ever be answered out of the cache. Neither property says anything about what a
+track renders anyway — a per-track render ignores mute and solo outright, and
+milestone one has no clip slots.
+
+### An offline render stops the transport for as long as it runs
+
+**The engine.** An Edit cannot render offline and play at the same time. The
+transport stops when a render starts and stays stopped until it ends, so a
+render of any length is a gap in playback of that length.
+
+**Where.** `Edit::ScopedRenderStatus`, raised in `RenderGuards` in
+`Session.cpp`. It is not Duet's own `TransportControl::stopAllTransports` call
+beside it: with that line taken out the transport still stops for every block of
+the render.
+
+**Proved.** `3bgymu`, on the dev machine 2026-08-28, by a `duet_scratch` probe
+that started playback, rendered one track on a worker thread, and sampled
+`isPlaying()` from the message thread every five milliseconds throughout — 131
+samples, none of them rolling, with and without that line.
+
+**Duet.** Nothing yet. `Session::startPlayback`'s own retry brings playback back
+afterwards, because it keeps asking for ten seconds (hazard 6's remedy), so a
+render shorter than that reads as an interruption and a longer one leaves the
+transport stopped. What that means for the Collaborator's measured analysis —
+which renders on demand while the producer is working — is open as issue
+`xbh9qk`.

@@ -14,6 +14,7 @@ add_subdirectory(vst3_fixtures)
 
 add_executable(duet_tests
     TestMain.cpp
+    AnalysisRoutinesTests.cpp
     AppSettingsTests.cpp
     AppearanceTests.cpp
     ArrangementTrackTests.cpp
@@ -62,6 +63,7 @@ add_executable(duet_tests
     TimelineGeometryTests.cpp
     ToolFixtureTests.cpp
     TransportBarTests.cpp
+    TrackAnalysisTests.cpp
     TrackOpsTests.cpp
     ViewStateTests.cpp
     WindowGeometryTests.cpp)
@@ -70,6 +72,7 @@ target_compile_features(duet_tests PRIVATE cxx_std_20)
 target_link_libraries(duet_tests PRIVATE
     duet::app_core
     duet::collab
+    duet::collab_analysis
     duet::collab_tools
     duet::gui
     duet::model
@@ -93,6 +96,9 @@ target_compile_definitions(duet_tests PRIVATE DUET_MODULES_DIR="${CMAKE_SOURCE_D
 # The golden-file guard reads the test tree for the same reason: the rule it
 # checks is about the whole suite rather than about any one render.
 target_compile_definitions(duet_tests PRIVATE DUET_TESTS_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+# The measured-analysis tool's own description is the sidecar's, and what it
+# tells the model about the spectral bands has to be what the routine measures.
+target_compile_definitions(duet_tests PRIVATE DUET_SIDECAR_DIR="${CMAKE_SOURCE_DIR}/sidecar")
 
 target_compile_definitions(duet_tests PRIVATE
     DUET_SIDECAR_DOUBLE="$<TARGET_FILE:duet_sidecar_double>"

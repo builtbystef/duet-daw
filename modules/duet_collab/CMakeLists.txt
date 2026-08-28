@@ -25,6 +25,25 @@ target_link_libraries(duet_collab PUBLIC nlohmann_json::nlohmann_json)
 find_package(Threads REQUIRED)
 target_link_libraries(duet_collab PRIVATE Threads::Threads)
 
+# duet_collab_analysis — the measured analysis routines, as pure functions.
+#
+# The tier-2 DSP of spec js437t: peak, loudness, spectrum, stereo, onsets and
+# pitch, each a pure function of a waveform. It links nothing at all — not the
+# engine, not JUCE, not even the JSON the seam speaks — because a routine that
+# can name none of those cannot share a lock with the audio callback and cannot
+# be measured against anything but the signal it was handed. That is also what
+# makes the spec's second test seam a plain function call.
+add_library(duet_collab_analysis STATIC
+    src/Analysis.cpp
+    src/Loudness.cpp
+    src/Onsets.cpp
+    src/Pitch.cpp
+    src/Spectrum.cpp)
+add_library(duet::collab_analysis ALIAS duet_collab_analysis)
+
+target_include_directories(duet_collab_analysis PUBLIC include)
+target_compile_features(duet_collab_analysis PRIVATE cxx_std_20)
+
 # duet_collab_tools — the Tool Vocabulary answered from the live project model.
 #
 # A second target rather than more of the first, and the split is the same one
@@ -36,8 +55,9 @@ target_link_libraries(duet_collab PRIVATE Threads::Threads)
 add_library(duet_collab_tools STATIC
     src/ProjectTools.cpp
     src/SuggestTool.cpp
-    src/SuggestionManager.cpp)
+    src/SuggestionManager.cpp
+    src/TrackAnalysis.cpp)
 add_library(duet::collab_tools ALIAS duet_collab_tools)
 
 target_compile_features(duet_collab_tools PRIVATE cxx_std_20)
-target_link_libraries(duet_collab_tools PUBLIC duet::collab duet::model)
+target_link_libraries(duet_collab_tools PUBLIC duet::collab duet::collab_analysis duet::model)

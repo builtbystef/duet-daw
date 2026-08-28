@@ -185,7 +185,15 @@ TEST_CASE ("cancel ends the run once, and cancelling again is harmless", "[colla
     REQUIRE (harness.waitForReports (1));
     REQUIRE (harness.reports().at (0).at ("tag") == "run.start");
 
+    REQUIRE (harness->isRunInProgress (start.runId));
     REQUIRE (harness->cancelRun (start.runId));
+
+    // Asked before anything waits: a cancel lands under the service's own lock
+    // at once, so a tool call that is still running inside the service thread
+    // learns about it here rather than after the thread comes back to itself.
+    // That is what makes a measurement that takes seconds cancelable.
+    REQUIRE_FALSE (harness->isRunInProgress (start.runId));
+
     REQUIRE (listener.waitForTerminals (1));
 
     const auto terminals = listener.of (RecordingListener::Kind::terminal);

@@ -15,10 +15,12 @@
 #include <duet/collab/ProjectTools.h>
 #include <duet/collab/SuggestTool.h>
 #include <duet/collab/ToolDispatch.h>
+#include <duet/collab/TrackAnalysis.h>
 #include <duet/model/Session.h>
 #include <duet/testing/TestSupport.h>
 
 #include <cstddef>
+#include <functional>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -151,6 +153,27 @@ private:
 */
 inline constexpr int toolRunTimeoutMs = 20000;
 
+/** What a tool run may be given besides the calls to make. */
+struct ToolRunOptions
+{
+    duet::collab::ProjectReadMarshal marshal = messageThreadMarshal();
+
+    /** The measured-analysis tool this run answers `get_track_analysis` with,
+        and nothing when the run is about the read tools alone.
+
+        The run borrows it rather than making one, because what that tool keeps
+        between calls — the render of each track — is the thing a test about
+        caching is about, and a tool that died with the run would have nothing
+        to keep.
+    */
+    duet::collab::TrackAnalysis* measured = nullptr;
+
+    /** Run on the message thread each time the wait for the run pumps it: what
+        a producer does while a call is in flight.
+    */
+    std::function<void()> meanwhile;
+};
+
 class ToolRun
 {
 public:
@@ -163,11 +186,19 @@ public:
     ToolRun (duet::model::Session& session,
              const Json& calls,
              duet::collab::ProjectReadMarshal marshal = messageThreadMarshal())
-        : tools (session, marshal), writes (session, std::move (marshal)),
+        : ToolRun (session, calls, ToolRunOptions { std::move (marshal), nullptr, {} })
+    {
+    }
+
+    ToolRun (duet::model::Session& session, const Json& calls, ToolRunOptions options)
+        : tools (session, options.marshal), writes (session, options.marshal),
           harness ("call-tools", std::vector<std::string> { calls.dump() })
     {
         tools.addTo (registry);
         writes.addTo (registry);
+
+        if (options.measured != nullptr)
+            options.measured->addTo (registry);
 
         harness->setMethodHandler ("tool.call",
                                    [this] (const Json& params) { return registry.call (params); });
@@ -178,7 +209,15 @@ public:
         runId = start.runId;
         accepted = start.started;
 
-        ran = pumpUntil ([this] { return ending.hasEnded(); }, toolRunTimeoutMs);
+        ran = pumpUntil (
+            [&]
+            {
+                if (options.meanwhile)
+                    options.meanwhile();
+
+                return ending.hasEnded();
+            },
+            toolRunTimeoutMs);
 
         for (const auto& report : harness.reports())
             if (report.at ("tag") == "tool")

@@ -40,6 +40,7 @@ namespace rpcError
     inline constexpr int runAlreadyActive = -32001;
     inline constexpr int unknownTool = -32002;
     inline constexpr int suggestionAlreadyMade = -32003;
+    inline constexpr int runAbandoned = -32004;
 } // namespace rpcError
 
 /** The error member of a JSON-RPC response. */
