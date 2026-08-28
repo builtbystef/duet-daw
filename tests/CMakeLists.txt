@@ -25,6 +25,7 @@ add_executable(duet_tests
     ClipOpsTests.cpp
     CollaboratorPanelTests.cpp
     CollaboratorServiceTests.cpp
+    CollaboratorTests.cpp
     ContentEstimateTests.cpp
     DemoWalkthroughTests.cpp
     DeviceRebuildTests.cpp

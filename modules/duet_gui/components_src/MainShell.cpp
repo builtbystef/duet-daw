@@ -12,6 +12,7 @@
 #include <array>
 #include <initializer_list>
 #include <utility>
+#include <vector>
 
 namespace duet::gui
 {
@@ -472,16 +473,14 @@ MainShell::MainShell (Appearance& lookAndScale, ViewState& projectView)
     scriptedSuggestions.onSuggestionMade (
         [this] (std::string id, std::string summary)
         { collaboratorPanel.showSuggestion (std::move (id), std::move (summary)); });
-    scriptedCollaborator.onSuggestion ([this] { return scriptedSuggestions.fabricate(); });
     suggestions.setSource (&scriptedSuggestions);
     arrangementView.setSuggestions (&suggestions);
     mixer.setSuggestions (&suggestions);
 
-    collaboratorPanel.setSource (&scriptedCollaborator);
-    collaborator = std::make_unique<CollaboratorPanelCanvas> (appearance, collaboratorPanel);
-    collaborator->setComponentID (surfaceId::collaborator);
-    collaborator->setSelectionContextSource ([this] { return currentSelectionContext(); });
-    collaborator->setSuggestions (&suggestions);
+    collaboratorDock = std::make_unique<CollaboratorPanelCanvas> (appearance, collaboratorPanel);
+    collaboratorDock->setComponentID (surfaceId::collaborator);
+    collaboratorDock->setSelectionContextSource ([this] { return currentSelectionContext(); });
+    collaboratorDock->setSuggestions (&suggestions);
     bottom = std::make_unique<BottomPanel> (
         appearance,
         view,
@@ -504,7 +503,7 @@ MainShell::MainShell (Appearance& lookAndScale, ViewState& projectView)
     for (auto* child : std::initializer_list<juce::Component*> { transportStrip.get(),
                                                                  arrangement.get(),
                                                                  browser.get(),
-                                                                 collaborator.get(),
+                                                                 collaboratorDock.get(),
                                                                  bottom.get(),
                                                                  browserDivider.get(),
                                                                  collaboratorDivider.get(),
@@ -563,14 +562,15 @@ void MainShell::resized()
 
     if (view.collaboratorVisible())
     {
-        collaborator->setBounds (area.removeFromRight (view.collaboratorWidthPx()));
-        collaboratorDivider->setBounds (juce::Rectangle<int> { collaborator->getX() - divider / 2,
-                                                               collaborator->getY(),
-                                                               divider,
-                                                               collaborator->getHeight() });
+        collaboratorDock->setBounds (area.removeFromRight (view.collaboratorWidthPx()));
+        collaboratorDivider->setBounds (
+            juce::Rectangle<int> { collaboratorDock->getX() - divider / 2,
+                                   collaboratorDock->getY(),
+                                   divider,
+                                   collaboratorDock->getHeight() });
     }
 
-    collaborator->setVisible (view.collaboratorVisible());
+    collaboratorDock->setVisible (view.collaboratorVisible());
     collaboratorDivider->setVisible (view.collaboratorVisible());
 
     arrangement->setBounds (area);
@@ -717,6 +717,23 @@ SelectionContext MainShell::currentSelectionContext() const
 
     return noSelection();
 }
+
+std::vector<duet::model::ClipRef> MainShell::selectedClips() const
+{
+    const auto& selected = arrangementView.selection();
+
+    if (selected.empty() || selected.focusedKind() != SelectionKind::clip)
+        return {};
+
+    std::vector<duet::model::ClipRef> clips;
+
+    for (const auto& item : selected.items())
+        clips.push_back (item.ref);
+
+    return clips;
+}
+
+duet::model::TrackRef MainShell::focusedTrack() const { return arrangementView.focusedTrack(); }
 
 void MainShell::setPluginEditorAction (std::function<void (duet::model::PluginRef)> openEditor)
 {

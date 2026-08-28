@@ -23,6 +23,11 @@ namespace collaboratorId
     inline constexpr const char* send = "collaboratorSend";
     inline constexpr const char* cancel = "collaboratorCancel";
 
+    /** The estimate mark on a piece of commentary, which opens onto the ledger
+        behind it.
+    */
+    inline constexpr const char* estimateMark = "collaboratorEstimateMark";
+
     /** The Suggestion card in the conversation, and the four gestures on it. */
     inline constexpr const char* suggestionCard = "collaboratorSuggestionCard";
     inline constexpr const char* suggestionElement = "collaboratorSuggestionElement";
@@ -102,6 +107,16 @@ public:
     static constexpr int suggestionElementHeight = 22;
     static constexpr int suggestionButtonRowHeight = 24;
 
+    /** The estimate mark's own row, and one line of the ledger it opens onto. */
+    static constexpr int estimateMarkHeight = 16;
+    static constexpr int estimateLineHeight = 14;
+
+    /** The two sections under the conversation — History, and the development
+        trace — and what one line of either is worth.
+    */
+    static constexpr int sectionHeaderHeight = 18;
+    static constexpr int sectionLineHeight = 14;
+
     /** How often the panel looks at itself: fast enough for the Task Run card's
         spinner while a run is on, and no faster than a selection poll needs
         when none is.
@@ -126,10 +141,14 @@ private:
     void sendComposer();
     void layOutQuickPrompts();
 
-    /** Everything the cards draw differently, in one string: what is compared
-        to know whether the conversation has to be laid out again.
+    /** Everything the conversation draws differently, in one string: what is
+        compared to know whether it has to be laid out again.
+
+        Commentary streams, so the newest entry grows without the conversation
+        growing, and a mark the producer opens changes a height without changing
+        anything else. Counting entries would see neither.
     */
-    [[nodiscard]] std::string cardShape() const;
+    [[nodiscard]] std::string conversationShape() const;
 
     Appearance& appearance;
     CollaboratorPanel& panel;
@@ -145,7 +164,7 @@ private:
 
     juce::Component::SafePointer<juce::Component> lastFocused;
     std::vector<std::string> shownPrompts;
-    std::string shownCards;
+    std::string shownShape;
     std::size_t shownEntries = 0;
     bool shownRunning = false;
 

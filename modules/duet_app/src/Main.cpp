@@ -1,3 +1,4 @@
+#include <duet/app/Collaborator.h>
 #include <duet/app/ProjectLifecycle.h>
 #include <duet/app/PropertyStorageSettings.h>
 #include <duet/model/Session.h>
@@ -18,17 +19,29 @@
 
 #include <juce_gui_extra/juce_gui_extra.h>
 
+#include <unistd.h>
+
+#include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <memory>
+#include <string>
+#include <system_error>
 #include <utility>
+#include <vector>
 
 namespace duet::app
 {
 namespace
 {
     constexpr int titleRefreshMs = 400;
+
+    /** How long the Collaborator service's thread waits for the message thread
+        to answer a project read.
+    */
+    constexpr int marshalTimeoutMs = 5000;
 
     std::filesystem::path toPath (const juce::File& file)
     {
@@ -56,6 +69,71 @@ namespace
     {
         return toPath (juce::File::getSpecialLocation (juce::File::userHomeDirectory)) / "Music"
                / "Duet Projects";
+    }
+
+    /** How the Collaborator service is configured for this launch.
+
+        The socket goes in a folder of its own under the system temp directory,
+        named for this process so that two Duets never share one, and the path
+        is kept short because `sun_path` is 108 bytes. The sidecar is the one
+        that ships beside the application (ADR 0003).
+    */
+    duet::collab::CollaboratorService::Configuration collaboratorConfiguration()
+    {
+        const auto temporary = toPath (juce::File::getSpecialLocation (juce::File::tempDirectory));
+        const auto folder = temporary / ("duet-" + std::to_string (::getpid()));
+
+        std::error_code ignored;
+        std::filesystem::create_directories (folder, ignored);
+
+        duet::collab::CollaboratorService::Configuration configuration;
+        configuration.socketPath = folder / "collab.sock";
+        configuration.sidecar.executable =
+            toPath (juce::File::getSpecialLocation (juce::File::currentExecutableFile)
+                        .getParentDirectory()
+                        .getChildFile ("duet-sidecar"));
+
+        return configuration;
+    }
+
+    /** Where the renders a measured or estimated answer is read off are kept:
+        beside the socket rather than in the producer's project folder, since
+        nothing about them belongs to the project.
+    */
+    std::filesystem::path renderFolderFor (const std::filesystem::path& socketPath)
+    {
+        const auto folder = socketPath.parent_path() / "renders";
+
+        std::error_code ignored;
+        std::filesystem::create_directories (folder, ignored);
+
+        return folder;
+    }
+
+    /** Runs one piece of work on the message thread and waits for it to have
+        run: what the Collaborator service's thread reads the project through.
+    */
+    void runOnMessageThread (const std::function<void()>& work)
+    {
+        if (juce::MessageManager::getInstance()->isThisTheMessageThread())
+        {
+            work();
+            return;
+        }
+
+        juce::WaitableEvent done;
+
+        juce::MessageManager::callAsync (
+            [&work, &done]
+            {
+                work();
+                done.signal();
+            });
+
+        // Bounded, because the caller is the service thread and a tool read
+        // that never comes back is a run that never ends. What a read that did
+        // not run answers is that the project could not be read.
+        done.wait (marshalTimeoutMs);
     }
 } // namespace
 
@@ -96,6 +174,8 @@ public:
         // answer from the last launch (spec 535bbo).
         shell.setHardwareAccelerated (duet::gui::hardwareAccelerationEnabled (settings));
 
+        startCollaborator();
+
         addAndMakeVisible (shell);
         launchInitialProject();
         refreshTitle();
@@ -104,6 +184,17 @@ public:
 
     ~ShellHost() override
     {
+        // The service's thread is what calls into the Collaborator, and nothing
+        // waits for a call already inside a tool, so the service stops before
+        // the Collaborator that answers it goes.
+        collaboratorService.stop();
+        collaborator.setSession (nullptr, {});
+
+        // The socket is the service's to remove; the folder it stood in, and
+        // the renders beside it, are this launch's and go with it.
+        std::error_code ignored;
+        std::filesystem::remove_all (collaboration.socketPath.parent_path(), ignored);
+
         // The shell and plugin windows stop reading the session before it goes.
         pluginEditors.setSession (nullptr);
         shell.setTimelineClock (nullptr);
@@ -412,6 +503,7 @@ private:
 
     void detachProject()
     {
+        collaborator.setSession (nullptr, {});
         pluginEditors.setSession (nullptr);
         shell.setTimelineClock (nullptr);
         shell.setSession (nullptr);
@@ -436,10 +528,70 @@ private:
 
         clock = std::make_unique<duet::gui::SessionClock> (project->session());
         pluginEditors.setSession (&project->session());
+        collaborator.setSession (&project->session(), renderFolder);
         shell.setSession (&project->session());
         shell.setTimelineClock (clock.get());
         shell.viewStateChanged();
         refreshTitle();
+    }
+
+    /** Puts the socket in place and the Collaborator on the panel.
+
+        A service that cannot start is not a reason to keep the producer out of
+        their project: what it costs is that every run fails with one line, and
+        the rest of the DAW is untouched (spec js437t).
+    */
+    void startCollaborator()
+    {
+        shell.collaborator().setSource (&collaborator);
+
+        try
+        {
+            collaboratorService.start();
+        }
+        catch (const std::exception& failure)
+        {
+            static_cast<void> (failure);
+        }
+    }
+
+    /** What a Task Run carries about the producer at the moment it starts.
+
+        Clips first, because a clip selection is what the producer made
+        deliberately, and the track they are working on otherwise — the same
+        answer the panel's own chip is made of.
+    */
+    [[nodiscard]] duet::collab::OpeningContext openingContext() const
+    {
+        duet::collab::OpeningContext context;
+
+        if (const auto clips = shell.selectedClips(); ! clips.empty())
+        {
+            context.selection = duet::collab::SelectionKind::clips;
+
+            for (const auto clip : clips)
+                context.selectionIds.push_back (duet::collab::toolId::forClip (clip));
+        }
+        else if (const auto track = shell.focusedTrack(); track != duet::model::noTrack)
+        {
+            context.selection = duet::collab::SelectionKind::tracks;
+            context.selectionIds.push_back (duet::collab::toolId::forTrack (track));
+        }
+
+        if (clock != nullptr)
+        {
+            // Bars and beats as the producer reads them: both count from one.
+            const auto perBar = std::max (1.0, clock->beatsPerBar());
+            const auto beats = std::max (0.0, clock->playheadBeats());
+
+            context.playheadBar = static_cast<int> (std::floor (beats / perBar)) + 1;
+            context.playheadBeat = std::fmod (beats, perBar) + 1.0;
+        }
+
+        if (const auto* project = lifecycle.projectOrNull())
+            context.transportPlaying = project->session().isPlaying();
+
+        return context;
     }
 
     void showLifecycleError (const char* title)
@@ -492,6 +644,23 @@ private:
     duet::gui::ViewState view;
     duet::gui::PluginEditorManager pluginEditors { settings };
     duet::gui::MainShell shell { appearance, view };
+
+    /** The DAW half of the AI seam, and what puts it on the panel. The service
+        is declared first so that it is built first and torn down last: the
+        Collaborator registers on it and is what its thread calls into.
+    */
+    duet::collab::CollaboratorService::Configuration collaboration = collaboratorConfiguration();
+    duet::collab::CollaboratorService collaboratorService { collaboration };
+    std::filesystem::path renderFolder = renderFolderFor (collaboration.socketPath);
+    duet::app::Collaborator collaborator {
+        collaboratorService,
+        shell.collaborator(),
+        [this] { return openingContext(); },
+        duet::app::Collaborator::MessageThread {
+            [] (const std::function<void()>& work) { runOnMessageThread (work); },
+            [] (std::function<void()> work)
+            { juce::MessageManager::callAsync (std::move (work)); } }
+    };
 
     std::unique_ptr<duet::gui::SessionClock> clock;
     std::unique_ptr<duet::gui::SettingsWindow> settingsWindow;

@@ -32,17 +32,6 @@ namespace
                                          "Trying an idea",
                                          "Nearly there" };
 
-    /** What the development source says when a scripted run succeeds. Placeholder
-        prose: the Collaborator of spec js437t is what will have something to
-        say.
-    */
-    constexpr std::array scriptedCommentary {
-        "Had a look. Nothing has changed in the project — this is the panel, not the "
-        "Collaborator.",
-        "Noted. A real answer arrives with the Collaborator service.",
-        "That would be a Suggestion once there is something behind this panel."
-    };
-
     [[nodiscard]] bool isBlank (const std::string& text)
     {
         return std::all_of (text.begin(),
@@ -86,7 +75,7 @@ void CollaboratorPanel::setSelectionContext (SelectionContext context)
 
 void CollaboratorPanel::setComposerText (std::string text) { composer = std::move (text); }
 
-bool CollaboratorPanel::canSend() const { return ! isBlank (composer); }
+bool CollaboratorPanel::canSend() const { return ! running && ! isBlank (composer); }
 
 void CollaboratorPanel::send()
 {
@@ -129,9 +118,54 @@ void CollaboratorPanel::useQuickPrompt (std::size_t index)
         composer = prompts[index];
 }
 
-void CollaboratorPanel::say (std::string commentary)
+void CollaboratorPanel::streamCommentary (const std::string& delta,
+                                          std::vector<EstimateMarkLine> estimates)
 {
-    entries.push_back ({ EntryKind::commentary, std::move (commentary), {}, {} });
+    if (! streaming)
+    {
+        entries.push_back ({ EntryKind::commentary, {}, {}, {} });
+        streamingInto = entries.size() - 1;
+        streaming = true;
+    }
+
+    auto& entry = entries.at (streamingInto);
+    entry.text += delta;
+
+    // The mark is the ledger, so a run handed a guess halfway through marks the
+    // whole of what it said: the entry is one thing the producer reads, and the
+    // ledger only ever grows within a run.
+    if (! estimates.empty())
+        entry.estimates = std::move (estimates);
+}
+
+void CollaboratorPanel::toggleEstimates (std::size_t entry)
+{
+    if (entry >= entries.size() || entries.at (entry).estimates.empty())
+        return;
+
+    auto& marked = entries.at (entry);
+    marked.estimatesOpen = ! marked.estimatesOpen;
+}
+
+void CollaboratorPanel::recordToolCall (std::string tool, std::string arguments, std::string result)
+{
+    if (! tracing)
+        return;
+
+    trace.push_back ({ std::move (tool), std::move (arguments), std::move (result) });
+}
+
+void CollaboratorPanel::setToolTraceEnabled (bool shouldKeepTrace)
+{
+    tracing = shouldKeepTrace;
+
+    if (! tracing)
+        trace.clear();
+}
+
+void CollaboratorPanel::setHistory (std::vector<ResolvedSuggestion> resolvedSuggestions)
+{
+    resolved = std::move (resolvedSuggestions);
 }
 
 void CollaboratorPanel::showSuggestion (std::string id, std::string summary)
@@ -142,6 +176,9 @@ void CollaboratorPanel::showSuggestion (std::string id, std::string summary)
 //==============================================================================
 void CollaboratorPanel::beginTaskRun()
 {
+    // A trace is one run's, so what the run before it did goes with it.
+    trace.clear();
+    streaming = false;
     running = true;
     phraseIndex = 0;
     phraseElapsed = 0.0;
@@ -165,8 +202,11 @@ void CollaboratorPanel::failTaskRun (const std::string& reason)
         return;
 
     endRun();
-    entries.push_back (
-        { EntryKind::failure, "That task failed: " + reason + ". Nothing changed.", {} });
+
+    // The reason is the line. What failed a run is the Collaborator's own
+    // sentence about it, already written for the producer to read, and putting
+    // it inside a sentence of the panel's would make two out of one.
+    entries.push_back ({ EntryKind::failure, reason.empty() ? failureNotice : reason, {} });
 }
 
 void CollaboratorPanel::requestCancel()
@@ -182,9 +222,6 @@ void CollaboratorPanel::requestCancel()
 
 void CollaboratorPanel::advance (double seconds)
 {
-    if (source != nullptr)
-        source->advance (*this, seconds);
-
     if (! running)
         return;
 
@@ -202,64 +239,9 @@ void CollaboratorPanel::advance (double seconds)
 void CollaboratorPanel::endRun()
 {
     running = false;
+    streaming = false;
     phrase.clear();
     phraseElapsed = 0.0;
     phraseIndex = 0;
-}
-
-//==============================================================================
-void ScriptedCollaborator::producerSent (CollaboratorPanel& panel, const std::string& message)
-{
-    static_cast<void> (message);
-
-    remaining = taskRunSeconds;
-    running = true;
-    panel.beginTaskRun();
-}
-
-void ScriptedCollaborator::onSuggestion (std::function<bool()> makeSuggestion)
-{
-    suggest = std::move (makeSuggestion);
-}
-
-void ScriptedCollaborator::taskRunCanceled (CollaboratorPanel& panel)
-{
-    static_cast<void> (panel);
-
-    running = false;
-    remaining = 0.0;
-}
-
-void ScriptedCollaborator::advance (CollaboratorPanel& panel, double seconds)
-{
-    if (! running)
-        return;
-
-    remaining -= seconds;
-
-    if (remaining > 0.0)
-        return;
-
-    running = false;
-
-    // The endings alternate, so a reviewer reaches the failed one by sending a
-    // second message rather than by editing this file.
-    const auto fails = ++runsSoFar % 2 == 0;
-
-    if (fails)
-    {
-        panel.failTaskRun ("the Collaborator is not connected yet");
-        return;
-    }
-
-    panel.say (scriptedCommentary.at ((runsSoFar / 2) % scriptedCommentary.size()));
-
-    // A Suggestion is what the Duet Loop is for, so the run that succeeds comes
-    // back with one whenever there is a project to make it over. The card goes
-    // in under the commentary, which is the order the producer reads them in.
-    if (suggest)
-        static_cast<void> (suggest());
-
-    panel.finishTaskRun();
 }
 } // namespace duet::gui

@@ -397,7 +397,7 @@ TEST_CASE ("a run that was canceled or that failed leaves no taint for the next 
     SECTION ("canceled")
     {
         duet::testing::RecordingListener listener;
-        duet::testing::Harness harness { "run-hang-once" };
+        const duet::testing::Harness harness { "run-hang-once" };
         harness->setEstimateLedger (&ledger);
         harness->setTaskRunListener (&listener);
         harness->start();
@@ -420,7 +420,7 @@ TEST_CASE ("a run that was canceled or that failed leaves no taint for the next 
     SECTION ("failed")
     {
         duet::testing::RecordingListener listener;
-        duet::testing::Harness harness { "run-fail" };
+        const duet::testing::Harness harness { "run-fail" };
         harness->setEstimateLedger (&ledger);
         harness->setTaskRunListener (&listener);
         harness->start();
@@ -442,7 +442,7 @@ TEST_CASE ("a run that was canceled or that failed leaves no taint for the next 
     }
 
     duet::testing::RecordingListener listener;
-    duet::testing::Harness harness { "run-stream" };
+    const duet::testing::Harness harness { "run-stream" };
     harness->setEstimateLedger (&ledger);
     harness->setTaskRunListener (&listener);
     harness->start();

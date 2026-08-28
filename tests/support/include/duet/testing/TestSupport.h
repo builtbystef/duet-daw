@@ -105,6 +105,16 @@ void pumpMessages (int milliseconds);
 using MessageThreadCall = std::function<void (const std::function<void()>&)>;
 [[nodiscard]] MessageThreadCall messageThreadMarshal();
 
+/** Leaves one piece of work on the message thread and returns at once.
+
+    The other half of what anything outside the message thread needs of it, and
+    what a Task Run's events cross on: a run must never hold the Collaborator
+    service's thread up, so what it has to say is left here rather than waited
+    for. Whoever calls it owes the message loop a pump, like the marshal above.
+*/
+using MessageThreadPost = std::function<void (std::function<void()>)>;
+[[nodiscard]] MessageThreadPost messageThreadPost();
+
 /** How long pumpUntil runs the message loop before it gives up on a condition.
 
     Under the four seconds of the engine's own device-list rebuild timer, so

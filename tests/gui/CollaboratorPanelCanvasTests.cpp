@@ -22,7 +22,6 @@ using duet::gui::Command;
 using duet::gui::EntryKind;
 using duet::gui::MainShell;
 using duet::gui::noSelection;
-using duet::gui::ScriptedCollaborator;
 using duet::gui::trackSelected;
 using duet::gui::ViewState;
 using duet::testing::StoredSettings;
@@ -207,8 +206,14 @@ TEST_CASE ("a long conversation scrolls to its newest message and leaves the com
     const auto composerBounds = open.composer().getBounds();
 
     for (auto message = 0; message < 40; ++message)
-        open.panel->model().say ("A line of commentary long enough to wrap more than once in a "
-                                 "dock of this width, said again and again.");
+    {
+        open.panel->model().beginTaskRun();
+        open.panel->model().streamCommentary (
+            "A line of commentary long enough to wrap more than once in a "
+            "dock of this width, said again and again.",
+            {});
+        open.panel->model().finishTaskRun();
+    }
 
     open.panel->refresh();
 
@@ -227,6 +232,7 @@ TEST_CASE ("a Task Run shows the card, holds the composer, and Cancel ends it")
 
     open.type ("Tighten this up");
     open.click (duet::gui::collaboratorId::send);
+    open.panel->model().beginTaskRun();
 
     REQUIRE (open.panel->model().taskRunning());
 
@@ -255,15 +261,13 @@ TEST_CASE ("a failed Task Run leaves the rest of the window working")
 
     const auto undoBefore = session.undoNames();
 
-    // The development source alternates its endings, so the second run is the
-    // failed one.
-    for (auto run = 0; run < 2; ++run)
-    {
-        open.type ("Tighten this up");
-        open.click (duet::gui::collaboratorId::send);
-        open.panel->model().advance (ScriptedCollaborator::taskRunSeconds);
-        open.panel->refresh();
-    }
+    // The shell holds no source of its own: what answers the producer is the
+    // Collaborator the host wires in, so a run and its ending are driven here.
+    open.type ("Tighten this up");
+    open.click (duet::gui::collaboratorId::send);
+    open.panel->model().beginTaskRun();
+    open.panel->model().failTaskRun ("the Collaborator is not connected");
+    open.panel->refresh();
 
     REQUIRE (open.panel->model().conversation().back().kind == EntryKind::failure);
 
@@ -273,6 +277,32 @@ TEST_CASE ("a failed Task Run leaves the rest of the window working")
     REQUIRE (session.undoNames() == undoBefore);
     REQUIRE (open.composer().isEnabled());
     std::filesystem::remove (file);
+}
+
+TEST_CASE ("the estimate mark is a thing the producer opens, and it opens onto the ledger")
+{
+    OpenShell open;
+
+    open.panel->model().beginTaskRun();
+    open.panel->model().streamCommentary ("It reads as C major.",
+                                          { { "key", "C major", "krumhansl-schmuckler", 0.72 } });
+    open.panel->model().finishTaskRun();
+    open.panel->refresh();
+
+    auto* mark = dynamic_cast<juce::Button*> (
+        surfaceOf (*open.panel, duet::gui::collaboratorId::estimateMark));
+
+    REQUIRE (mark != nullptr);
+
+    const auto closed = open.area (duet::gui::collaboratorId::conversation).getHeight();
+
+    mark->onClick();
+    open.panel->refresh();
+
+    // Opening the mark is what shows the ledger, so the conversation is taller
+    // by the guesses it now lists.
+    REQUIRE (open.panel->model().conversation().back().estimatesOpen);
+    REQUIRE (open.area (duet::gui::collaboratorId::conversation).getHeight() > closed);
 }
 
 TEST_CASE ("Escape hands the keyboard back and leaves what the producer has typed")
@@ -322,11 +352,12 @@ TEST_CASE ("a run that succeeds comes back with a Suggestion, and every surface 
                            });
     open.shell.setSession (&session);
 
-    // The development source alternates its endings, so the first run is the
-    // one that succeeds — and a run that succeeds makes a Suggestion.
+    // A run that succeeds comes back with a Suggestion. What makes one before
+    // issue 2suzzi wires the Suggestion manager to these surfaces is the shell's
+    // development source.
     open.type ("Rework the intro");
     open.click (duet::gui::collaboratorId::send);
-    open.panel->model().advance (ScriptedCollaborator::taskRunSeconds);
+    REQUIRE (open.shell.developmentSuggestions().fabricate());
     open.panel->refresh();
 
     const auto& conversation = open.panel->model().conversation();

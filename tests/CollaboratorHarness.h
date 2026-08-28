@@ -125,6 +125,19 @@ public:
                                    });
     }
 
+    /** Stops the service before anything it reports into goes away.
+
+        The service has a thread of its own, and a handler registered on it
+        writes into this object's members — so a report still in flight while
+        those members were being destroyed would be a write into freed memory.
+        Members go in reverse order of declaration and the service is not the
+        last of them, so this says the order rather than relying on it.
+    */
+    ~Harness() { release(); }
+
+    Harness (const Harness&) = delete;
+    Harness& operator= (const Harness&) = delete;
+
     CollaboratorService& operator*() const { return *service; }
     CollaboratorService* operator->() const { return service.get(); }
 

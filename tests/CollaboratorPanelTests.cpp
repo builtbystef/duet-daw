@@ -5,8 +5,9 @@
 using duet::gui::clipsSelected;
 using duet::gui::CollaboratorPanel;
 using duet::gui::EntryKind;
+using duet::gui::EstimateMarkLine;
 using duet::gui::noSelection;
-using duet::gui::ScriptedCollaborator;
+using duet::gui::ResolvedSuggestion;
 using duet::gui::trackSelected;
 
 TEST_CASE ("a message the producer sends carries the selection it was sent with")
@@ -52,20 +53,135 @@ TEST_CASE ("a message sent with a track selected names the track, and one sent w
     REQUIRE (panel.conversation().back().context.empty());
 }
 
-TEST_CASE ("commentary answers a message as its own kind of entry")
+TEST_CASE ("commentary is read as it streams rather than when the run finishes")
 {
     CollaboratorPanel panel;
 
     panel.setComposerText ("Tighten this up");
     panel.send();
-    panel.say ("Nudged the hats off the grid.");
+    panel.beginTaskRun();
 
+    panel.streamCommentary ("The hats", {});
+
+    // One entry, part-written: this is what the producer is reading while the
+    // run is still going.
     REQUIRE (panel.conversation().size() == 2);
     REQUIRE (panel.conversation().back().kind == EntryKind::commentary);
-    REQUIRE (panel.conversation().back().text == "Nudged the hats off the grid.");
+    REQUIRE (panel.conversation().back().text == "The hats");
+
+    panel.streamCommentary (" are late.", {});
+
+    REQUIRE (panel.conversation().size() == 2);
+    REQUIRE (panel.conversation().back().text == "The hats are late.");
 
     // Commentary is the Collaborator's, so it carries no selection chip.
     REQUIRE (panel.conversation().back().context.empty());
+
+    // The next run says its own thing rather than lengthening this one.
+    panel.finishTaskRun();
+    panel.beginTaskRun();
+    panel.streamCommentary ("And the snare.", {});
+
+    REQUIRE (panel.conversation().size() == 3);
+    REQUIRE (panel.conversation().back().text == "And the snare.");
+}
+
+TEST_CASE ("commentary that rests on a guess is marked, and the mark opens onto the ledger")
+{
+    CollaboratorPanel panel;
+
+    panel.beginTaskRun();
+    panel.streamCommentary ("It reads as ", {});
+
+    REQUIRE (panel.conversation().back().estimates.empty());
+
+    const std::vector<EstimateMarkLine> ledger {
+        { "key", "C major", "krumhansl-schmuckler", 0.72 }
+    };
+
+    panel.streamCommentary ("C major.", ledger);
+
+    // The mark is on the whole entry, not on the half of it that arrived after
+    // the guess: the entry is one thing the producer reads.
+    const auto marked = panel.conversation().size() - 1;
+
+    REQUIRE (panel.conversation().at (marked).text == "It reads as C major.");
+    REQUIRE (panel.conversation().at (marked).estimates.size() == 1);
+    REQUIRE (panel.conversation().at (marked).estimates.front().field == "key");
+    REQUIRE (panel.conversation().at (marked).estimates.front().value == "C major");
+    REQUIRE (panel.conversation().at (marked).estimates.front().method == "krumhansl-schmuckler");
+    REQUIRE (panel.conversation().at (marked).estimates.front().confidence == 0.72);
+    REQUIRE_FALSE (panel.conversation().at (marked).estimatesOpen);
+
+    panel.toggleEstimates (marked);
+
+    REQUIRE (panel.conversation().at (marked).estimatesOpen);
+
+    panel.toggleEstimates (marked);
+
+    REQUIRE_FALSE (panel.conversation().at (marked).estimatesOpen);
+
+    // A run that was handed no guess has no mark to open.
+    panel.finishTaskRun();
+    panel.beginTaskRun();
+    panel.streamCommentary ("Measured, this time.", {});
+
+    const auto plain = panel.conversation().size() - 1;
+
+    REQUIRE (panel.conversation().at (plain).estimates.empty());
+
+    panel.toggleEstimates (plain);
+
+    REQUIRE_FALSE (panel.conversation().at (plain).estimatesOpen);
+}
+
+TEST_CASE ("the raw tool-call trace is one run's, and an ordinary build keeps none of it")
+{
+    CollaboratorPanel panel;
+
+    // What kind of build this is decides what the panel does by default, and a
+    // test says which of the two it is asserting about.
+    REQUIRE (panel.toolTraceEnabled() == duet::gui::developmentBuild);
+
+    panel.setToolTraceEnabled (true);
+    panel.beginTaskRun();
+    panel.recordToolCall ("list_tracks", "{}", R"({"tracks":[]})");
+    panel.recordToolCall ("get_midi", R"({"trackId":"track-3"})", R"({"clips":[]})");
+
+    REQUIRE (panel.toolTrace().size() == 2);
+    REQUIRE (panel.toolTrace().front().tool == "list_tracks");
+    REQUIRE (panel.toolTrace().back().tool == "get_midi");
+    REQUIRE (panel.toolTrace().back().arguments == R"({"trackId":"track-3"})");
+    REQUIRE (panel.toolTrace().back().result == R"({"clips":[]})");
+
+    // A trace is of a run, so the next run starts with an empty one.
+    panel.finishTaskRun();
+    panel.beginTaskRun();
+
+    REQUIRE (panel.toolTrace().empty());
+
+    // An ordinary build keeps nothing at all, so there is nothing to show and
+    // the status phrases are what is left.
+    panel.setToolTraceEnabled (false);
+    panel.recordToolCall ("list_tracks", "{}", R"({"tracks":[]})");
+
+    REQUIRE (panel.toolTrace().empty());
+    REQUIRE_FALSE (panel.statusPhrase().empty());
+}
+
+TEST_CASE ("the History section is the resolved Suggestions it is handed")
+{
+    CollaboratorPanel panel;
+
+    REQUIRE (panel.history().empty());
+
+    panel.setHistory (std::vector<ResolvedSuggestion> { { "Sidechain the bass", "accepted" },
+                                                        { "Widen the pad", "rejected" } });
+
+    REQUIRE (panel.history().size() == 2);
+    REQUIRE (panel.history().front().summary == "Sidechain the bass");
+    REQUIRE (panel.history().front().outcome == "accepted");
+    REQUIRE (panel.history().back().outcome == "rejected");
 }
 
 TEST_CASE ("an empty composer has nothing to send")
@@ -85,6 +201,15 @@ TEST_CASE ("an empty composer has nothing to send")
     panel.setComposerText ("Sketch a bassline");
 
     REQUIRE (panel.canSend());
+
+    // One run at a time: a composer held by a run has nothing to send either.
+    panel.beginTaskRun();
+
+    REQUIRE_FALSE (panel.canSend());
+
+    panel.send();
+
+    REQUIRE (panel.conversation().empty());
 }
 
 TEST_CASE ("the quick prompts follow the selection, and one fills the composer without sending it")
@@ -181,86 +306,29 @@ TEST_CASE ("a Task Run that fails leaves one plain line and takes the panel no f
     CollaboratorPanel panel;
 
     panel.beginTaskRun();
-    panel.failTaskRun ("the Collaborator is not connected");
+    panel.failTaskRun ("The Collaborator isn't working right now - try again later.");
 
     REQUIRE_FALSE (panel.taskRunning());
     REQUIRE (panel.composerEnabled());
     REQUIRE (panel.conversation().size() == 1);
     REQUIRE (panel.conversation().back().kind == EntryKind::failure);
+
+    // The reason is the line. What failed a run is the Collaborator's own
+    // sentence about it, already written for the producer to read.
     REQUIRE (panel.conversation().back().text
-             == "That task failed: the Collaborator is not "
-                "connected. Nothing changed.");
+             == "The Collaborator isn't working right now - try again later.");
+
+    // A run that failed saying nothing still leaves one line, so the producer
+    // is never left looking at a card that stopped.
+    panel.beginTaskRun();
+    panel.failTaskRun ({});
+
+    REQUIRE (panel.conversation().size() == 2);
+    REQUIRE (panel.conversation().back().text == CollaboratorPanel::failureNotice);
 
     // The panel is ready for the next message rather than stuck on the failed
     // one: a failure is a line in the conversation and nothing more.
     panel.setComposerText ("Try again");
 
     REQUIRE (panel.canSend());
-}
-
-TEST_CASE ("the development source answers a sent message with a Task Run and commentary")
-{
-    CollaboratorPanel panel;
-    ScriptedCollaborator scripted;
-
-    panel.setSource (&scripted);
-    panel.setComposerText ("Tighten this up");
-    panel.send();
-
-    REQUIRE (panel.taskRunning());
-
-    // Time on the card is time the source is counting too, so one tick drives
-    // the whole thing.
-    panel.advance (ScriptedCollaborator::taskRunSeconds / 2.0);
-
-    REQUIRE (panel.taskRunning());
-
-    panel.advance (ScriptedCollaborator::taskRunSeconds);
-
-    REQUIRE_FALSE (panel.taskRunning());
-    REQUIRE (panel.conversation().size() == 2);
-    REQUIRE (panel.conversation().back().kind == EntryKind::commentary);
-}
-
-TEST_CASE ("the development source reaches a failed run too, without a socket or a network")
-{
-    CollaboratorPanel panel;
-    ScriptedCollaborator scripted;
-
-    panel.setSource (&scripted);
-
-    // The runs alternate, so the second one is the failure a reviewer needs to
-    // be able to see.
-    panel.setComposerText ("Tighten this up");
-    panel.send();
-    panel.advance (ScriptedCollaborator::taskRunSeconds);
-
-    panel.setComposerText ("Try that again");
-    panel.send();
-    panel.advance (ScriptedCollaborator::taskRunSeconds);
-
-    REQUIRE_FALSE (panel.taskRunning());
-    REQUIRE (panel.conversation().back().kind == EntryKind::failure);
-}
-
-TEST_CASE ("canceling stops the development source's run where it stands")
-{
-    CollaboratorPanel panel;
-    ScriptedCollaborator scripted;
-
-    panel.setSource (&scripted);
-    panel.setComposerText ("Tighten this up");
-    panel.send();
-    panel.requestCancel();
-
-    REQUIRE_FALSE (panel.taskRunning());
-    REQUIRE (panel.conversation().back().kind == EntryKind::notice);
-
-    // The run the producer stopped does not come back and finish itself later.
-    const auto afterCancel = panel.conversation().size();
-
-    panel.advance (ScriptedCollaborator::taskRunSeconds * 4.0);
-
-    REQUIRE (panel.conversation().size() == afterCancel);
-    REQUIRE_FALSE (panel.taskRunning());
 }

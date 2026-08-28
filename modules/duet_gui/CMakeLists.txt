@@ -34,6 +34,14 @@ target_include_directories(duet_gui PUBLIC include)
 target_compile_features(duet_gui PRIVATE cxx_std_20)
 target_link_libraries(duet_gui PUBLIC duet::model duet::persistence)
 
+# What a development build is, said once for everything that reads the panel's
+# header. The Collaborator's raw tool-call trace is a developer's window into a
+# run and nobody else's (spec js437t), so a Release build — the shipping path —
+# keeps none of it. PUBLIC because the answer is a constant in a public header,
+# and two consumers that disagreed about it would be an ODR violation rather
+# than a build error.
+target_compile_definitions(duet_gui PUBLIC $<$<CONFIG:Debug>:DUET_DEVELOPMENT_BUILD=1>)
+
 # Inter (SIL OFL 1.1), the application typeface, compiled into the binary rather
 # than looked for on the machine: the Graphite look reads the same on a machine
 # that has never heard of Inter. The licence travels beside the font files.

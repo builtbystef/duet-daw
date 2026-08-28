@@ -5,16 +5,22 @@
 # decisions are exercised without a window or dialog. The app-global settings
 # store is here for the same reason: it needs no window, and what the tests must
 # be able to link is the store the shell actually runs on.
+# The Collaborator lives here for the same reason: it is where the panel and the
+# service meet, and neither module can name the other — one links no JUCE and
+# the other no engine. It reaches the message thread through the two functions
+# its host supplies, so it links no JUCE either and the tests drive it headless.
 add_library(duet_app_core STATIC
+    src/Collaborator.cpp
     src/ProjectLifecycle.cpp
     src/PropertyStorageSettings.cpp)
 add_library(duet::app_core ALIAS duet_app_core)
 
 target_include_directories(duet_app_core PUBLIC include)
 target_compile_features(duet_app_core PRIVATE cxx_std_20)
-target_link_libraries(duet_app_core PUBLIC duet::gui duet::persistence)
-# The settings store is the model's app-global one, reached through the facade,
-# so no engine include directory reaches a consumer of this target.
+# duet::collab_tools is PUBLIC because the Collaborator's own header names the
+# service, the tools and the ledger; the model comes with it, that target being
+# what reads the project.
+target_link_libraries(duet_app_core PUBLIC duet::gui duet::persistence duet::collab_tools)
 target_link_libraries(duet_app_core PRIVATE duet::model)
 
 juce_add_gui_app(duet_app
@@ -38,9 +44,7 @@ target_link_libraries(duet_app PRIVATE
     juce::juce_gui_extra)
 
 # The sidecar ships inside the DAW install, beside the application, which is
-# where a Collaborator wired into the shell will look for it (ADR 0003). Nothing
-# spawns it from there yet — the panel meets the real service at 7tw2tz — but the
-# layout the spec asks for is the build's to produce and not that issue's.
+# where the Collaborator looks for it (ADR 0003).
 if(TARGET duet_sidecar)
     add_dependencies(duet_app duet_sidecar)
     add_custom_command(TARGET duet_app POST_BUILD

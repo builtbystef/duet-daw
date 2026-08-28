@@ -15,6 +15,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace duet::gui
 {
@@ -96,6 +97,34 @@ public:
         are working on otherwise.
     */
     [[nodiscard]] SelectionContext currentSelectionContext() const;
+
+    /** The Collaborator panel's own state, so that the host can give it what
+        answers the producer.
+
+        The shell knows about panels and the host knows about the Collaborator
+        service, which is why the source arrives from outside rather than being
+        made here.
+    */
+    [[nodiscard]] CollaboratorPanel& collaborator() { return collaboratorPanel; }
+
+    /** The clips the producer has selected, and nothing when the selection is
+        not clips: what a Task Run's opening context names them by. The panel's
+        chip counts them and the run carries their ids, so the two answers come
+        from this one selection.
+    */
+    [[nodiscard]] std::vector<duet::model::ClipRef> selectedClips() const;
+
+    /** The track the producer last put their hand on, which is what a run
+        carries when no clip is selected.
+    */
+    [[nodiscard]] duet::model::TrackRef focusedTrack() const;
+
+    /** The development-only Suggestion source these surfaces read, until issue
+        2suzzi puts the Suggestion manager behind them. Nothing in the interface
+        makes one: it is here so that the timeline's ghosts, the mixer's ghost
+        handles and the panel's card can be seen together before then.
+    */
+    [[nodiscard]] ScriptedSuggestions& developmentSuggestions() { return scriptedSuggestions; }
 
     /** The component-only bridge used to open a hosted plugin editor. */
     void setPluginEditorAction (std::function<void (duet::model::PluginRef)> openEditor);
@@ -179,11 +208,10 @@ private:
     Mixer mixer;
     TransportBar transport { view };
 
-    /** The Collaborator panel's own state, and — until spec js437t's service
-        exists — the development-only source that answers it.
+    /** The Collaborator panel's own state. What answers it is the host's, the
+        Collaborator service living a layer up from the interface.
     */
     CollaboratorPanel collaboratorPanel;
-    ScriptedCollaborator scriptedCollaborator;
 
     /** The pending Suggestions, and the development-only source that makes them.
         The shell owns them because all three surfaces that show a Suggestion —
@@ -197,7 +225,7 @@ private:
     std::unique_ptr<TransportStrip> transportStrip;
     std::unique_ptr<ArrangementCanvas> arrangement;
     std::unique_ptr<Dock> browser;
-    std::unique_ptr<CollaboratorPanelCanvas> collaborator;
+    std::unique_ptr<CollaboratorPanelCanvas> collaboratorDock;
     std::unique_ptr<BottomPanel> bottom;
     std::unique_ptr<Divider> browserDivider;
     std::unique_ptr<Divider> collaboratorDivider;

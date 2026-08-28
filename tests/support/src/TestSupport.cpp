@@ -14,6 +14,7 @@
 #include <atomic>
 #include <cmath>
 #include <numbers>
+#include <utility>
 
 namespace duet::testing
 {
@@ -178,6 +179,11 @@ MessageThreadCall messageThreadMarshal()
 
         done.wait (marshalTimeoutMs);
     };
+}
+
+MessageThreadPost messageThreadPost()
+{
+    return [] (std::function<void()> work) { juce::MessageManager::callAsync (std::move (work)); };
 }
 
 bool pumpUntil (const std::function<bool()>& condition, int timeoutMilliseconds)

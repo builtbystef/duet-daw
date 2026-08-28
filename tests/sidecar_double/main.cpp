@@ -330,6 +330,17 @@ void performRun (Connection& connection,
         return;
     }
 
+    if (script == "run-stream-hang")
+    {
+        // Says something and then never ends of its own accord, which is the
+        // only way to look at commentary that has arrived while the run it
+        // belongs to is still going.
+        for (const auto& delta : { "Something", " is off", " in the drop." })
+            sendText (connection, runId, delta);
+
+        return;
+    }
+
     if (script == "run-tools")
     {
         for (const auto& tool : { "list_tracks", "get_arrangement" })

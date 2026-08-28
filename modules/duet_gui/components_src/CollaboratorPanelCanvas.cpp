@@ -2,12 +2,15 @@
 
 #include <duet/gui/CollaboratorPainting.h>
 #include <duet/gui/GraphiteLookAndFeel.h>
+#include <duet/gui/Text.h>
 #include <duet/gui/Tokens.h>
 #include <duet/gui/Typography.h>
 
 #include <cmath>
+#include <cstddef>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace duet::gui
 {
@@ -334,6 +337,7 @@ public:
     {
         laidOut.clear();
         syncCards();
+        syncMarks();
 
         const auto padding = appearance.scaled (bubblePadding);
         const auto gap = appearance.scaled (bubbleGap);
@@ -341,6 +345,7 @@ public:
         const auto chipFont = interFont (appearance.scaled (typography::eyebrow));
         auto y = gap;
         auto cardIndex = 0;
+        auto markIndex = 0;
 
         for (const auto& entry : panel.conversation())
         {
@@ -364,15 +369,45 @@ public:
             const auto chip = juce::String { entry.context };
             const auto chipRoom =
                 chip.isEmpty() ? 0 : appearance.scaled (chipHeight) + appearance.scaled (2);
-            const auto height = wrappedHeight (juce::String { entry.text }, font, textWidth)
-                                + (2 * padding) + chipRoom;
 
-            laidOut.push_back ({ entry.kind,
-                                 juce::String { entry.text },
-                                 chip,
-                                 juce::Rectangle<int> { 0, y, width, height } });
+            // The mark is a row of its own under what it is a mark on, and the
+            // ledger it opens onto is a line per guess under that.
+            const auto marked = ! entry.estimates.empty();
+            const auto markRoom = marked ? appearance.scaled (estimateMarkHeight) : 0;
+            const auto ledgerRoom = marked && entry.estimatesOpen
+                                        ? static_cast<int> (entry.estimates.size())
+                                              * appearance.scaled (estimateLineHeight)
+                                        : 0;
+
+            const auto height = wrappedHeight (juce::String { entry.text }, font, textWidth)
+                                + (2 * padding) + chipRoom + markRoom + ledgerRoom;
+
+            EntryLayout laid;
+            laid.kind = entry.kind;
+            laid.text = juce::String { entry.text };
+            laid.context = chip;
+            laid.bounds = juce::Rectangle<int> { 0, y, width, height };
+            laid.estimates = entry.estimates;
+            laid.estimatesOpen = entry.estimatesOpen;
+
+            if (marked && markIndex < marks.size())
+            {
+                auto* mark = marks[markIndex++];
+                const auto row = laid.bounds.reduced (padding)
+                                     .withTrimmedLeft (appearance.scaled (accentRuleWidth))
+                                     .removeFromBottom (markRoom + ledgerRoom)
+                                     .removeFromTop (markRoom);
+
+                mark->setBounds (row);
+                mark->setButtonText (entry.estimatesOpen ? utf8 ("Based on estimates — hide")
+                                                         : utf8 ("Based on estimates"));
+            }
+
+            laidOut.push_back (std::move (laid));
             y += height + gap;
         }
+
+        y = layOutSections (width, y, gap);
 
         setSize (width, y);
         chipTypeface = chipFont;
@@ -381,62 +416,10 @@ public:
 
     void paint (juce::Graphics& g) override
     {
-        const auto padding = appearance.scaled (bubblePadding);
-        const auto radius = static_cast<float> (appearance.scaled (metrics::radiusMedium));
-        const auto rule = appearance.scaled (accentRuleWidth);
-
         for (const auto& entry : laidOut)
-        {
-            auto area = entry.bounds;
+            paintEntry (g, entry);
 
-            if (entry.kind == EntryKind::producer || entry.kind == EntryKind::commentary)
-            {
-                const auto commentary = entry.kind == EntryKind::commentary;
-
-                g.setColour (
-                    toJuce (appearance.colour (commentary ? ColourToken::collaborator
-                                                          : ColourToken::surfaceInteractive))
-                        .withAlpha (commentary ? 0.12F : 1.0F));
-                g.fillRoundedRectangle (area.toFloat(), radius);
-
-                if (commentary)
-                {
-                    g.setColour (toJuce (appearance.colour (ColourToken::collaborator)));
-                    g.fillRect (area.withWidth (rule));
-                }
-            }
-
-            area = area.reduced (padding).withTrimmedLeft (rule);
-
-            if (entry.context.isNotEmpty())
-            {
-                auto chip = area.removeFromTop (appearance.scaled (chipHeight));
-
-                const auto chipWidth =
-                    static_cast<int> (std::ceil (
-                        juce::GlyphArrangement::getStringWidth (chipTypeface, entry.context)))
-                    + (2 * appearance.scaled (chipPadding));
-
-                chip = chip.withWidth (juce::jmin (chip.getWidth(), chipWidth));
-
-                g.setColour (toJuce (appearance.colour (ColourToken::surfaceRaised)));
-                g.fillRoundedRectangle (
-                    chip.toFloat(), static_cast<float> (appearance.scaled (metrics::radiusSmall)));
-                g.setColour (toJuce (appearance.colour (ColourToken::textSecondary)));
-                g.setFont (chipTypeface);
-                g.drawText (entry.context, chip, juce::Justification::centred);
-
-                area.removeFromTop (appearance.scaled (2));
-            }
-
-            g.setColour (toJuce (appearance.colour (inkFor (entry.kind))));
-            g.setFont (bodyTypeface);
-            g.drawFittedText (
-                entry.text,
-                area,
-                juce::Justification::topLeft,
-                juce::jmax (1, area.getHeight() / juce::jmax (1, (int) bodyTypeface.getHeight())));
-        }
+        paintSections (g);
     }
 
 private:
@@ -446,7 +429,229 @@ private:
         juce::String text;
         juce::String context;
         juce::Rectangle<int> bounds;
+        std::vector<EstimateMarkLine> estimates;
+        bool estimatesOpen = false;
     };
+
+    /** One section under the conversation: a heading and the lines beneath it. */
+    struct Section
+    {
+        juce::String heading;
+        std::vector<juce::String> lines;
+        juce::Rectangle<int> bounds;
+    };
+
+    /** One entry: its bubble, the chip frozen onto it, the mark under it, and
+        what it says.
+    */
+    void paintEntry (juce::Graphics& g, const EntryLayout& entry)
+    {
+        auto area = paintBubble (g, entry);
+
+        if (entry.context.isNotEmpty())
+            paintChip (g, entry.context, area);
+
+        if (! entry.estimates.empty())
+            paintLedger (g, entry, area);
+
+        g.setColour (toJuce (appearance.colour (inkFor (entry.kind))));
+        g.setFont (bodyTypeface);
+        g.drawFittedText (
+            entry.text,
+            area,
+            juce::Justification::topLeft,
+            juce::jmax (1, area.getHeight() / juce::jmax (1, (int) bodyTypeface.getHeight())));
+    }
+
+    /** The surface an entry is written on, and what is left inside it: the
+        Collaborator's commentary in an accent bubble behind the reserved teal
+        rule, a producer's message on the interactive surface, and an ending in
+        neither.
+    */
+    [[nodiscard]] juce::Rectangle<int> paintBubble (juce::Graphics& g, const EntryLayout& entry)
+    {
+        const auto rule = appearance.scaled (accentRuleWidth);
+
+        if (entry.kind == EntryKind::producer || entry.kind == EntryKind::commentary)
+        {
+            const auto radius = static_cast<float> (appearance.scaled (metrics::radiusMedium));
+            const auto commentary = entry.kind == EntryKind::commentary;
+
+            g.setColour (toJuce (appearance.colour (commentary ? ColourToken::collaborator
+                                                               : ColourToken::surfaceInteractive))
+                             .withAlpha (commentary ? 0.12F : 1.0F));
+            g.fillRoundedRectangle (entry.bounds.toFloat(), radius);
+
+            if (commentary)
+            {
+                g.setColour (toJuce (appearance.colour (ColourToken::collaborator)));
+                g.fillRect (entry.bounds.withWidth (rule));
+            }
+        }
+
+        return entry.bounds.reduced (appearance.scaled (bubblePadding)).withTrimmedLeft (rule);
+    }
+
+    void paintChip (juce::Graphics& g, const juce::String& context, juce::Rectangle<int>& area)
+    {
+        auto chip = area.removeFromTop (appearance.scaled (chipHeight));
+
+        const auto chipWidth = static_cast<int> (std::ceil (
+                                   juce::GlyphArrangement::getStringWidth (chipTypeface, context)))
+                               + (2 * appearance.scaled (chipPadding));
+
+        chip = chip.withWidth (juce::jmin (chip.getWidth(), chipWidth));
+
+        g.setColour (toJuce (appearance.colour (ColourToken::surfaceRaised)));
+        g.fillRoundedRectangle (chip.toFloat(),
+                                static_cast<float> (appearance.scaled (metrics::radiusSmall)));
+        g.setColour (toJuce (appearance.colour (ColourToken::textSecondary)));
+        g.setFont (chipTypeface);
+        g.drawText (context, chip, juce::Justification::centred);
+
+        area.removeFromTop (appearance.scaled (2));
+    }
+
+    /** What the estimate mark opens onto: one line per guess, what it was, what
+        made it, and how far that routine trusted itself. The mark's own row is
+        a button and is not drawn here — what this takes off the entry is the
+        room both of them stand in.
+    */
+    void paintLedger (juce::Graphics& g, const EntryLayout& entry, juce::Rectangle<int>& area)
+    {
+        const auto lines = entry.estimatesOpen ? static_cast<int> (entry.estimates.size()) : 0;
+        auto below = area.removeFromBottom (appearance.scaled (estimateMarkHeight)
+                                            + (lines * appearance.scaled (estimateLineHeight)));
+
+        if (! entry.estimatesOpen)
+            return;
+
+        below.removeFromTop (appearance.scaled (estimateMarkHeight));
+        g.setColour (toJuce (appearance.colour (ColourToken::textSecondary)));
+        g.setFont (chipTypeface);
+
+        for (const auto& line : entry.estimates)
+            g.drawText (ledgerLine (line),
+                        below.removeFromTop (appearance.scaled (estimateLineHeight)),
+                        juce::Justification::centredLeft,
+                        true);
+    }
+
+    /** One line of the ledger a mark opens onto. */
+    [[nodiscard]] static juce::String ledgerLine (const EstimateMarkLine& line)
+    {
+        return juce::String { line.field } + ": " + juce::String { line.value } + "  ("
+               + juce::String { line.method } + ", "
+               + juce::String { juce::roundToInt (line.confidence * 100.0) } + "%)";
+    }
+
+    /** One button per marked entry, since opening a mark is a gesture and the
+        rest of the conversation is a drawing.
+    */
+    void syncMarks()
+    {
+        auto wanted = 0;
+
+        for (const auto& entry : panel.conversation())
+            if (! entry.estimates.empty())
+                ++wanted;
+
+        while (marks.size() > wanted)
+            marks.removeLast();
+
+        while (marks.size() < wanted)
+        {
+            auto* mark = marks.add (new juce::TextButton {});
+            mark->setComponentID (collaboratorId::estimateMark);
+            addAndMakeVisible (*mark);
+        }
+
+        // Which entry each mark opens is the order they appear in, so the
+        // bindings are made again whenever the conversation has grown.
+        auto markIndex = 0;
+
+        for (std::size_t entry = 0; entry < panel.conversation().size(); ++entry)
+        {
+            if (panel.conversation()[entry].estimates.empty())
+                continue;
+
+            marks[markIndex++]->onClick = [this, entry] { panel.toggleEstimates (entry); };
+        }
+    }
+
+    /** Measures the History section and the development trace under the
+        conversation, and answers where the whole of it ends.
+    */
+    [[nodiscard]] int layOutSections (int width, int top, int gap)
+    {
+        sections.clear();
+
+        if (! panel.history().empty())
+        {
+            Section history;
+            history.heading = "History";
+
+            for (const auto& resolved : panel.history())
+                history.lines.push_back (juce::String { resolved.summary } + utf8 (" — ")
+                                         + juce::String { resolved.outcome });
+
+            sections.push_back (std::move (history));
+        }
+
+        // The trace is the developer's window into a run, and an ordinary build
+        // keeps none of it, so there is nothing here to lay out.
+        if (! panel.toolTrace().empty())
+        {
+            Section trace;
+            trace.heading = "Tool trace";
+
+            for (const auto& call : panel.toolTrace())
+                trace.lines.push_back (juce::String { call.tool } + " "
+                                       + juce::String { call.arguments } + utf8 (" → ")
+                                       + juce::String { call.result });
+
+            sections.push_back (std::move (trace));
+        }
+
+        auto y = top;
+
+        for (auto& section : sections)
+        {
+            const auto height =
+                appearance.scaled (sectionHeaderHeight)
+                + (static_cast<int> (section.lines.size()) * appearance.scaled (sectionLineHeight));
+
+            section.bounds = juce::Rectangle<int> { 0, y, width, height };
+            y += height + gap;
+        }
+
+        return y;
+    }
+
+    void paintSections (juce::Graphics& g)
+    {
+        const auto padding = appearance.scaled (bubblePadding);
+
+        for (const auto& section : sections)
+        {
+            auto area = section.bounds.reduced (padding, 0);
+
+            g.setColour (toJuce (appearance.colour (ColourToken::textMuted)));
+            g.setFont (interFont (appearance.scaled (typography::eyebrow), true));
+            g.drawText (section.heading,
+                        area.removeFromTop (appearance.scaled (sectionHeaderHeight)),
+                        juce::Justification::centredLeft);
+
+            g.setColour (toJuce (appearance.colour (ColourToken::textSecondary)));
+            g.setFont (chipTypeface);
+
+            for (const auto& line : section.lines)
+                g.drawText (line,
+                            area.removeFromTop (appearance.scaled (sectionLineHeight)),
+                            juce::Justification::centredLeft,
+                            true);
+        }
+    }
 
     /** One card per Suggestion entry, made when the entry arrives and kept for
         as long as it is in the conversation.
@@ -502,8 +707,10 @@ private:
     CollaboratorPanel& panel;
     Suggestions* suggestions = nullptr;
     juce::OwnedArray<SuggestionCard> cards;
+    juce::OwnedArray<juce::TextButton> marks;
     std::vector<std::pair<std::string, std::string>> shown;
     std::vector<EntryLayout> laidOut;
+    std::vector<Section> sections;
     juce::Font chipTypeface { juce::FontOptions {} };
     juce::Font bodyTypeface { juce::FontOptions {} };
 
@@ -653,7 +860,7 @@ void CollaboratorPanelCanvas::setSuggestions (Suggestions* pendingSuggestions)
 {
     suggestions = pendingSuggestions;
     conversation->setSuggestions (suggestions);
-    shownCards.clear();
+    shownShape.clear();
     refresh();
 }
 
@@ -700,25 +907,24 @@ void CollaboratorPanelCanvas::refresh()
         changed = true;
     }
 
-    if (panel.conversation().size() != shownEntries)
+    // A card grows and shrinks with the Suggestion under it — an accepted
+    // Element leaves a row behind — and commentary grows as it streams, so what
+    // the conversation is worth is measured and laid out again when the answer
+    // changes.
+    if (auto shape = conversationShape(); shape != shownShape)
     {
+        const auto grew = panel.conversation().size() != shownEntries;
+
+        shownShape = std::move (shape);
         shownEntries = panel.conversation().size();
+        conversation->refreshCards();
         conversation->layOutEntries (scroller.getMaximumVisibleWidth());
 
         // The newest message is the one the producer is waiting for, so the
-        // conversation is always scrolled to the end of itself.
-        scroller.setViewPositionProportionately (0.0, 1.0);
-        changed = true;
-    }
+        // conversation is scrolled to the end of itself as it arrives.
+        if (grew)
+            scroller.setViewPositionProportionately (0.0, 1.0);
 
-    // A card grows and shrinks with the Suggestion under it — an accepted
-    // Element leaves a row behind — so what the cards are worth is measured and
-    // the conversation is laid out again when the answer changes.
-    if (auto shape = cardShape(); shape != shownCards)
-    {
-        shownCards = std::move (shape);
-        conversation->refreshCards();
-        conversation->layOutEntries (scroller.getMaximumVisibleWidth());
         changed = true;
     }
 
@@ -817,15 +1023,32 @@ void CollaboratorPanelCanvas::timerCallback()
     refresh();
 }
 
-std::string CollaboratorPanelCanvas::cardShape() const
+std::string CollaboratorPanelCanvas::conversationShape() const
 {
-    if (suggestions == nullptr)
-        return {};
-
-    // Everything a card draws differently, in one string: which Suggestions are
-    // pending, how many Elements each has left, which are ticked, whether it is
-    // stale, and whether it is the one being heard.
+    // Everything the conversation draws, in one string. The entries first —
+    // their number, the length of each, whether each is marked and whether the
+    // mark is open — then the two sections under them, then the cards.
     std::string shape;
+
+    for (const auto& entry : panel.conversation())
+    {
+        shape += std::to_string (entry.text.size());
+        if (entry.estimates.empty())
+            shape += '.';
+        else
+            shape += entry.estimatesOpen ? '+' : '-';
+
+        shape += ',';
+    }
+
+    shape += '|';
+    shape += std::to_string (panel.history().size());
+    shape += '|';
+    shape += std::to_string (panel.toolTrace().size());
+    shape += '|';
+
+    if (suggestions == nullptr)
+        return shape;
 
     for (const auto& pending : suggestions->cards())
     {
