@@ -8,7 +8,7 @@ depends_on:
     - aty85a
 parent: js437t
 created: 2026-08-12T04:02:25Z
-updated: 2026-08-17T04:10:28Z
+updated: 2026-08-28T21:17:48Z
 ---
 
 ## What to build
@@ -26,3 +26,24 @@ Each plugin in the chain also reports its format, so the model can tell the two 
 - [ ] A plugin that is missing or fails to load appears in the chain with its name and is reported as unavailable, never omitted silently.
 - [ ] No plugin scan and no plugin load happens as a side effect of a tool call: only plugins already in the project's chains are reported.
 - [ ] A parameter read that fails on an already-hosted plugin (an error or exception surfaced through the hosting layer) returns an error result the run survives: the run continues, and the DAW keeps working. Crash isolation is explicitly not asserted — hosting is in-process (b1j3me, hvv3nn; only scanning is out of process), so a plugin that brings the process down brings the DAW down; surviving that arrives only with milestone-two out-of-process hosting.
+
+## Notes
+
+**claude** — 2026-08-28T21:17:48Z
+
+2z0y5u built the wrapper and the ledger, and left this issue one half of its own
+work that it did not have before.
+
+`Estimate` and `wrapped()` in `duet/collab/Estimate.h` are now the one shape a
+guess crosses the seam in, and `ProjectTools`'s `displayString` uses them, so
+what a scanned plugin's display text looks like on the wire is already right.
+What it does not do is write itself into the run's `EstimateLedger`, and the
+spec names that value beside `estimate_audio_content` as something the ledger
+holds. So a run whose only guess was a plugin's display text is not marked as
+based on estimates, and it should be.
+
+The mechanism is there and takes a constructor argument: `EstimateLedger::record`
+is what answers with the wrapped value — wrapping and recording are one act — and
+`ContentEstimates` shows the shape. `ProjectTools` needs the ledger passed in
+(`ToolRun` already carries one, `ToolRunOptions::ledger`), and a test that reads
+a chain holding one of the VST3 fixtures and asserts the run is marked.

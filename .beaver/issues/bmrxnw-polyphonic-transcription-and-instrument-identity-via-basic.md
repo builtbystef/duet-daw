@@ -8,7 +8,7 @@ depends_on:
     - lxt41c
 parent: js437t
 created: 2026-08-12T04:02:37Z
-updated: 2026-08-17T04:12:26Z
+updated: 2026-08-28T21:17:48Z
 ---
 
 ## What to build
@@ -32,3 +32,18 @@ Any attribution or notice obligation the weights' licence carries is honoured he
 **claude** — 2026-08-17T04:12:26Z
 
 Scope note (2026-08-17): this slice owns the ONNX Runtime + RTNeural build integration — the prebuilt-tarball IMPORTED target (never find_package; psmj4y verified the shipped config package is broken) and RTNeural via FetchContent with its default Eigen backend, all behind one CMake option (DUET_ENABLE_POLYPHONIC_TRANSCRIPTION) so u24m3x's escape hatch stays a -D flag. sea14w deliberately excludes both dependencies.
+
+**claude** — 2026-08-28T21:17:48Z
+
+2z0y5u built `estimate_audio_content` for key and chords, and narrowed what the
+model may ask for to those two: the `aspects` union in `sidecar/src/vocabulary.ts`
+lists `key` and `chords` alone, and a test in `tests/ContentEstimateTests.cpp`
+("the aspects the model may ask for are the aspects this build estimates") holds
+it to that. An aspect the model may ask for and never gets an answer to is worse
+than one it was never offered.
+
+So this issue adds `notes` and `instrument` back — to that union, to the tool's
+own description, and to that test — beside the transcription that answers them.
+`ContentEstimates::estimate` is where they land: an aspect nobody asked for is
+absent from the result rather than empty, and so is one the routine could not
+read, which is the shape these two want as well.

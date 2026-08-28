@@ -1,5 +1,6 @@
 #pragma once
 
+#include <duet/collab/Estimate.h>
 #include <duet/collab/JsonRpc.h>
 #include <duet/collab/TaskRun.h>
 
@@ -105,6 +106,18 @@ public:
         inside a listener's own callback.
     */
     void setTaskRunListener (TaskRunListener* newListener);
+
+    /** Registers the ledger this service marks its runs from, read and never
+        owned. Set it before `start()`, and let it outlive the service.
+
+        The service is where the mark is applied, because the mark must not
+        depend on the model's cooperation: a run whose ledger holds an estimate
+        has everything it says from then on marked as based on estimates, and
+        every run begins with its own ledger emptied, so no run inherits the one
+        before it. With no ledger registered nothing is ever marked, which is
+        what a service with no estimating tool wired to it should say.
+    */
+    void setEstimateLedger (EstimateLedger* ledger);
 
     /** Begins a Task Run, and returns without waiting for anything.
 

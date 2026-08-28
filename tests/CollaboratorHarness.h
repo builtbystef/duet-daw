@@ -206,14 +206,20 @@ public:
         RunStatus status = RunStatus::completed;
         std::string error;
         std::thread::id thread;
+
+        /** The estimate mark this commentary carried. */
+        bool basedOnEstimates = false;
     };
 
-    void commentaryDelta (const std::string& runId, const std::string& delta) override
+    void commentaryDelta (const std::string& runId,
+                          const std::string& delta,
+                          bool basedOnEstimates) override
     {
         Event event;
         event.kind = Kind::commentary;
         event.runId = runId;
         event.text = delta;
+        event.basedOnEstimates = basedOnEstimates;
         record (event);
     }
 

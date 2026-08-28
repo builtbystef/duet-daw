@@ -8,8 +8,10 @@
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <map>
 #include <string>
+#include <system_error>
 #include <vector>
 
 /** The fod077 corpus, rebuilt as real projects and served through the seam.
@@ -634,4 +636,105 @@ TEST_CASE ("the fod077 corpus is served through the seam, and every fixture read
             }
         }
     }
+}
+
+namespace
+{
+/** A render that stands in for the project's own.
+
+    What the provenance rule is about is the tools and not the audio — a bare
+    value is a fact whatever the waveform was, and a wrapped one is a guess — so
+    the corpus goes through both analysis tools over a signal this suite wrote,
+    and asserts the same thing for a fraction of the cost. Measured on the dev
+    machine on 2026-08-28: a real render of one of these ninety-six-bar projects
+    costs about fifty seconds in an unoptimised Debug build, which is longer
+    than a Task Run waits, and would say nothing more about provenance for it.
+    What a real render measures and estimates is asserted over real projects in
+    TrackAnalysisTests and ContentEstimateTests.
+*/
+duet::collab::TrackRenderer standInRenderer (const std::filesystem::path& audio)
+{
+    return
+        [audio] (TrackRef, const std::filesystem::path& destination, const std::function<bool()>&)
+    {
+        std::error_code failed;
+        std::filesystem::copy_file (
+            audio, destination, std::filesystem::copy_options::overwrite_existing, failed);
+
+        return ! failed;
+    };
+}
+} // namespace
+
+TEST_CASE ("across the corpus, a fact crosses bare and a guess crosses wrapped", "[collab]")
+{
+    const auto* const name = GENERATE (
+        "fixture-a", "fixture-b", "fixture-c", "fixture-d", "fixture-e", "fixture-f", "fixture-g");
+
+    INFO (name);
+
+    const auto fixture = readFixture (name);
+
+    const TempProject project;
+    Session session { project.editFile() };
+
+    const BuiltFixture built { session, project, fixture };
+
+    // The first track of the fixture, which every one of them has, put through
+    // both analysis tools as well as the read ones: the asymmetry is a property
+    // of the tools, so what it takes to assert it is one real project of each
+    // kind that exists and one track of each to ask about.
+    const auto track = built.ref (fixture.at ("tracks").at (0).at ("id"));
+    const auto standIn =
+        project.writeChords ("stand-in.wav", 2.0, { { 60, 64, 67 }, { 67, 71, 74 } });
+
+    duet::collab::EstimateLedger ledger;
+    duet::collab::TrackRenders renders { standInRenderer (standIn), project.folder() };
+    duet::collab::TrackAnalysis measured { session,
+                                           duet::testing::messageThreadMarshal(),
+                                           renders };
+    duet::collab::ContentEstimates estimated {
+        session, duet::testing::messageThreadMarshal(), renders, ledger
+    };
+
+    duet::testing::ToolRunOptions options;
+    options.measured = &measured;
+    options.estimated = &estimated;
+    options.ledger = &ledger;
+
+    const auto calls = Json::array ({ toolCall ("list_tracks"),
+                                      toolCall ("get_arrangement"),
+                                      toolCall ("get_midi", track),
+                                      toolCall ("get_automation", track),
+                                      toolCall ("get_plugin_chain", track),
+                                      toolCall ("get_track_analysis", track),
+                                      toolCall ("estimate_audio_content", track) });
+
+    const ToolRun run { session, calls, options };
+
+    REQUIRE (run.finished());
+
+    // Nothing read from the project model, and nothing measured off the render,
+    // is wrapped anywhere in what it answered with.
+    for (std::size_t call = 0; call < 6; ++call)
+    {
+        INFO ("call " << call);
+        REQUIRE_FALSE (duet::testing::holdsAnEstimate (run.result (call)));
+    }
+
+    // And nothing the estimating tool answers with is bare: every member of its
+    // result is a wrapper, the ledger holds the same values, and the run is
+    // marked because it holds any.
+    const auto& estimates = run.result (6);
+
+    REQUIRE_FALSE (estimates.empty());
+
+    for (const auto& [aspect, value] : estimates.items())
+    {
+        INFO ("aspect " << aspect);
+        REQUIRE (duet::testing::isAnEstimate (value));
+    }
+
+    REQUIRE (ledger.entries (run.id()).size() == estimates.size());
+    REQUIRE (ledger.basedOnEstimates (run.id()));
 }

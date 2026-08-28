@@ -25,10 +25,12 @@ add_executable(duet_tests
     ClipOpsTests.cpp
     CollaboratorPanelTests.cpp
     CollaboratorServiceTests.cpp
+    ContentEstimateTests.cpp
     DemoWalkthroughTests.cpp
     DeviceRebuildTests.cpp
     EditVocabularyTests.cpp
     GraphiteTokenTests.cpp
+    HarmonyRoutinesTests.cpp
     MasterMixerTests.cpp
     MidiOpsTests.cpp
     MixerOpsTests.cpp

@@ -7,6 +7,7 @@
 # socket, which is the seam the spec names as this area's primary one.
 add_library(duet_collab STATIC
     src/CollaboratorService.cpp
+    src/Estimate.cpp
     src/LineReader.cpp
     src/LocalSocketServer.cpp
     src/SidecarProcess.cpp
@@ -25,16 +26,18 @@ target_link_libraries(duet_collab PUBLIC nlohmann_json::nlohmann_json)
 find_package(Threads REQUIRED)
 target_link_libraries(duet_collab PRIVATE Threads::Threads)
 
-# duet_collab_analysis — the measured analysis routines, as pure functions.
+# duet_collab_analysis — the analysis routines, as pure functions.
 #
-# The tier-2 DSP of spec js437t: peak, loudness, spectrum, stereo, onsets and
-# pitch, each a pure function of a waveform. It links nothing at all — not the
+# The tier-2 and tier-3 DSP of spec js437t: peak, loudness, spectrum, stereo,
+# onsets, pitch, and the harmony a pitch-class profile is read for, each a pure
+# function of a waveform. It links nothing at all — not the
 # engine, not JUCE, not even the JSON the seam speaks — because a routine that
 # can name none of those cannot share a lock with the audio callback and cannot
 # be measured against anything but the signal it was handed. That is also what
 # makes the spec's second test seam a plain function call.
 add_library(duet_collab_analysis STATIC
     src/Analysis.cpp
+    src/Harmony.cpp
     src/Loudness.cpp
     src/Onsets.cpp
     src/Pitch.cpp
@@ -53,10 +56,13 @@ target_compile_features(duet_collab_analysis PRIVATE cxx_std_20)
 # reads live here and the socket lives there, and the only thing crossing
 # between them is JSON and a function that puts a read on the message thread.
 add_library(duet_collab_tools STATIC
+    src/AnalysisCall.cpp
+    src/ContentEstimates.cpp
     src/ProjectTools.cpp
     src/SuggestTool.cpp
     src/SuggestionManager.cpp
-    src/TrackAnalysis.cpp)
+    src/TrackAnalysis.cpp
+    src/TrackRenders.cpp)
 add_library(duet::collab_tools ALIAS duet_collab_tools)
 
 target_compile_features(duet_collab_tools PRIVATE cxx_std_20)

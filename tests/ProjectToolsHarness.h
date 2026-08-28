@@ -12,6 +12,8 @@
 
 #include "CollaboratorHarness.h"
 
+#include <duet/collab/ContentEstimates.h>
+#include <duet/collab/Estimate.h>
 #include <duet/collab/ProjectTools.h>
 #include <duet/collab/SuggestTool.h>
 #include <duet/collab/ToolDispatch.h>
@@ -89,10 +91,15 @@ inline Json toolCall (const std::string& tool, duet::model::TrackRef track)
 class RunEnding final : public duet::collab::TaskRunListener
 {
 public:
-    void commentaryDelta (const std::string& /*runId*/, const std::string& delta) override
+    void commentaryDelta (const std::string& /*runId*/,
+                          const std::string& delta,
+                          bool basedOnEstimates) override
     {
         const std::lock_guard lock (mutex);
         said += delta;
+
+        if (basedOnEstimates)
+            marked += delta;
     }
 
     void toolActivity (const std::string& /*runId*/,
@@ -140,12 +147,21 @@ public:
         return said;
     }
 
+    /** The part of it that arrived marked as based on estimates. */
+    [[nodiscard]] std::string markedCommentary() const
+    {
+        const std::lock_guard lock (mutex);
+
+        return marked;
+    }
+
 private:
     mutable std::mutex mutex;
     bool ended = false;
     duet::collab::RunStatus howItEnded = duet::collab::RunStatus::failed;
     std::string why;
     std::string said;
+    std::string marked;
 };
 
 /** How long a tool run is given to finish: long enough to spawn a child process
@@ -168,6 +184,17 @@ struct ToolRunOptions
     */
     duet::collab::TrackAnalysis* measured = nullptr;
 
+    /** The estimating tool this run answers `estimate_audio_content` with, and
+        nothing when the run is about the other tools. Borrowed for the same
+        reason as the measured one: what it keeps between calls is the point.
+    */
+    duet::collab::ContentEstimates* estimated = nullptr;
+
+    /** The ledger the service marks this run's commentary from, which is the
+        one the estimating tool writes to.
+    */
+    duet::collab::EstimateLedger* ledger = nullptr;
+
     /** Run on the message thread each time the wait for the run pumps it: what
         a producer does while a call is in flight.
     */
@@ -186,12 +213,12 @@ public:
     ToolRun (duet::model::Session& session,
              const Json& calls,
              duet::collab::ProjectReadMarshal marshal = messageThreadMarshal())
-        : ToolRun (session, calls, ToolRunOptions { std::move (marshal), nullptr, {} })
+        : ToolRun (session, calls, ToolRunOptions { std::move (marshal) })
     {
     }
 
     ToolRun (duet::model::Session& session, const Json& calls, ToolRunOptions options)
-        : tools (session, options.marshal), writes (session, options.marshal),
+        : tools (session, options.marshal), writes (session, options.marshal, options.ledger),
           harness ("call-tools", std::vector<std::string> { calls.dump() })
     {
         tools.addTo (registry);
@@ -199,6 +226,11 @@ public:
 
         if (options.measured != nullptr)
             options.measured->addTo (registry);
+
+        if (options.estimated != nullptr)
+            options.estimated->addTo (registry);
+
+        harness->setEstimateLedger (options.ledger);
 
         harness->setMethodHandler ("tool.call",
                                    [this] (const Json& params) { return registry.call (params); });
@@ -248,6 +280,9 @@ public:
 
     /** Everything the run said while it worked. */
     [[nodiscard]] std::string commentary() const { return ending.commentary(); }
+
+    /** The part of that which was marked as based on estimates. */
+    [[nodiscard]] std::string markedCommentary() const { return ending.markedCommentary(); }
 
     /** The Suggestions this run's calls made, oldest first. */
     [[nodiscard]] std::vector<duet::collab::Suggestion> suggestions() const
@@ -301,6 +336,45 @@ private:
     bool accepted = false;
     bool ran = false;
 };
+
+/** Whether a value crossed the seam wrapped as an estimate, in the shape the
+    contract states: a value, the mark that says it was estimated, the routine
+    that estimated it, and a confidence between 0 and 1.
+*/
+inline bool isAnEstimate (const Json& value)
+{
+    return value.is_object() && value.contains ("value")
+           && value.value ("source", std::string {}) == "estimated"
+           && ! value.value ("method", std::string {}).empty() && value.contains ("confidence")
+           && value.at ("confidence").is_number() && value.at ("confidence").get<double>() >= 0.0
+           && value.at ("confidence").get<double>() <= 1.0;
+}
+
+/** Whether anything anywhere inside a value is wrapped as an estimate.
+
+    The provenance rule stated as a search rather than as a field list: a tool
+    that reads or measures may not produce a wrapper anywhere, however deep.
+*/
+inline bool holdsAnEstimate (const Json& value)
+{
+    std::vector<const Json*> remaining { &value };
+
+    while (! remaining.empty())
+    {
+        const auto* looking = remaining.back();
+        remaining.pop_back();
+
+        if (looking->is_object()
+            && (looking->contains ("source") || looking->contains ("confidence")))
+            return true;
+
+        if (looking->is_object() || looking->is_array())
+            for (const auto& inside : *looking)
+                remaining.push_back (&inside);
+    }
+
+    return false;
+}
 
 /** The one entry of a track list that names this track. */
 inline Json trackEntry (const Json& listTracks, duet::model::TrackRef track)

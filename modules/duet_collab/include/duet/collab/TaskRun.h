@@ -75,10 +75,19 @@ public:
     TaskRunListener (const TaskRunListener&) = delete;
     TaskRunListener& operator= (const TaskRunListener&) = delete;
 
-    /** One more piece of the Collaborator's commentary. A run's whole commentary
-        is its deltas concatenated in the order they arrived.
+    /** One more piece of the Collaborator's commentary, and whether the run it
+        belongs to had been handed an estimate by the time it was said.
+
+        A run's whole commentary is its deltas concatenated in the order they
+        arrived. `basedOnEstimates` is the estimate mark, and it is the service's
+        own reading of that run's estimate ledger rather than anything the model
+        said about itself (spec js437t): once the ledger holds something the mark
+        is on everything the run says afterwards, used or unused, mentioned or
+        not.
     */
-    virtual void commentaryDelta (const std::string& runId, const std::string& delta) = 0;
+    virtual void commentaryDelta (const std::string& runId,
+                                  const std::string& delta,
+                                  bool basedOnEstimates) = 0;
 
     /** A named tool call beginning or ending. */
     virtual void

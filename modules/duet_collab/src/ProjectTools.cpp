@@ -1,5 +1,9 @@
 #include <duet/collab/ProjectTools.h>
 
+#include "AnalysisCall.h"
+
+#include <duet/collab/Estimate.h>
+
 #include <algorithm>
 #include <charconv>
 #include <cmath>
@@ -85,14 +89,6 @@ namespace
         reports no latency at all whatever the rate is.
     */
     constexpr double latencySampleRate = 44100.0;
-
-    /** How far a bar boundary may be out before it counts as the next bar.
-
-        A bar position is arithmetic over the tempo map, so a clip that starts
-        exactly on bar 97 can come back as 97.000000001, and the project would
-        be one bar longer than it is.
-    */
-    constexpr double barTolerance = 1.0e-6;
 
     RpcOutcome noSuchThing (std::string_view kind, const std::string& id)
     {
@@ -395,14 +391,6 @@ namespace
     }
 
     //==============================================================================
-    /** How many bars of music the project holds. */
-    int barCountOf (const Session& session)
-    {
-        const auto bars = session.barAtSeconds (session.editLengthSeconds()) - 1.0;
-
-        return std::max (0, static_cast<int> (std::ceil (bars - barTolerance)));
-    }
-
     RpcOutcome getArrangement (const Session& session)
     {
         Json result = Json::object();
@@ -417,7 +405,7 @@ namespace
         const auto signature = session.timeSignature();
         result["timeSignature"] =
             std::to_string (signature.numerator) + "/" + std::to_string (signature.denominator);
-        result["barCount"] = barCountOf (session);
+        result["barCount"] = analysisCall::barCountOf (session);
 
         Json sections = Json::array();
 
@@ -581,17 +569,13 @@ namespace
         Duet owns the semantics of its built-ins and can hand their values over
         bare. It does not own a scanned plugin's, so the one thing that explains
         that plugin's number crosses the seam wrapped, and the Collaborator can
-        tell the two apart without being told (ADR 0002).
+        tell the two apart without being told (ADR 0002). It is not written into
+        the run's estimate ledger yet, which is the other half of this value
+        (issue 97ynt7).
     */
     Json estimatedDisplayString (const std::string& text)
     {
-        Json out = Json::object();
-        out["value"] = text;
-        out["source"] = "estimated";
-        out["method"] = "the plugin's own display text";
-        out["confidence"] = 0.5;
-
-        return out;
+        return wrapped (Estimate { text, "the plugin's own display text", 0.5 });
     }
 
     Json describeParameters (const Session& session, const model::PluginInfo& plugin)

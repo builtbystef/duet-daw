@@ -1,3 +1,5 @@
+#include "Spectrum.h"
+
 #include "Fft.h"
 
 #include <duet/collab/Analysis.h>
@@ -11,6 +13,9 @@
     an averaged periodogram — successive windows transformed, their power
     spectra averaged, and the bands, the centroid and the flatness read off the
     average.
+
+    That average is also what the estimating routines read their pitch classes
+    off, so the transform itself is declared in `Spectrum.h` and made here.
 */
 namespace duet::collab::analysis
 {
@@ -56,10 +61,10 @@ namespace
 
         return window;
     }
+} // namespace
 
-    /** The window a waveform is long enough for: the longest that fits, down to
-        the shortest worth transforming, and nothing at all below that.
-    */
+namespace spectrum
+{
     std::size_t windowFor (const Waveform& waveform)
     {
         auto window = longestWindow;
@@ -70,19 +75,12 @@ namespace
         return window >= shortestWindow ? window : 0;
     }
 
-    /** The average power spectrum of a waveform, one entry per bin up to the
-        Nyquist rate, scaled so that the entries of a band add up to the mean
-        square of what that band holds.
-
-        Every channel goes into the same average, so what a band measures is
-        what the whole waveform puts there.
-    */
-    std::vector<double> powerSpectrum (const Waveform& waveform, std::size_t window)
+    std::vector<double> power (const Waveform& waveform, std::size_t window)
     {
-        const auto window0 = blackmanHarris (window);
+        const auto shape = blackmanHarris (window);
         double windowPower = 0.0;
 
-        for (const auto weight : window0)
+        for (const auto weight : shape)
             windowPower += weight * weight;
 
         // The scale that makes the bins of a band add up to the mean square of
@@ -106,7 +104,7 @@ namespace
                 std::vector<double> imaginary (window, 0.0);
 
                 for (std::size_t sample = 0; sample < window; ++sample)
-                    real[sample] = static_cast<double> (channel[start + sample]) * window0[sample];
+                    real[sample] = static_cast<double> (channel[start + sample]) * shape[sample];
 
                 fft::forward (real, imaginary);
 
@@ -137,32 +135,32 @@ namespace
     {
         return static_cast<double> (bin) * sampleRate / static_cast<double> (window);
     }
-} // namespace
+} // namespace spectrum
 
 std::vector<double> spectralBandEnergiesDb (const Waveform& waveform)
 {
     std::vector<double> energies (spectralBands.size(), silenceDb);
-    const auto window = windowFor (waveform);
+    const auto window = spectrum::windowFor (waveform);
 
     if (window == 0)
         return energies;
 
-    const auto spectrum = powerSpectrum (waveform, window);
+    const auto bins = spectrum::power (waveform, window);
 
-    if (spectrum.empty())
+    if (bins.empty())
         return energies;
 
     for (std::size_t band = 0; band < spectralBands.size(); ++band)
     {
         double power = 0.0;
 
-        for (std::size_t bin = 0; bin < spectrum.size(); ++bin)
+        for (std::size_t bin = 0; bin < bins.size(); ++bin)
         {
-            const auto frequency = binFrequency (bin, window, waveform.sampleRate);
+            const auto frequency = spectrum::binFrequency (bin, window, waveform.sampleRate);
 
             if (frequency >= spectralBands.at (band).fromHz
                 && frequency < spectralBands.at (band).toHz)
-                power += spectrum[bin];
+                power += bins[bin];
         }
 
         energies[band] = power > 0.0 ? std::max (silenceDb, 10.0 * std::log10 (power)) : silenceDb;
@@ -173,19 +171,19 @@ std::vector<double> spectralBandEnergiesDb (const Waveform& waveform)
 
 double spectralCentroidHz (const Waveform& waveform)
 {
-    const auto window = windowFor (waveform);
+    const auto window = spectrum::windowFor (waveform);
 
     if (window == 0)
         return 0.0;
 
-    const auto spectrum = powerSpectrum (waveform, window);
+    const auto bins = spectrum::power (waveform, window);
     double weighted = 0.0;
     double total = 0.0;
 
-    for (std::size_t bin = 0; bin < spectrum.size(); ++bin)
+    for (std::size_t bin = 0; bin < bins.size(); ++bin)
     {
-        const auto magnitude = std::sqrt (spectrum[bin]);
-        weighted += binFrequency (bin, window, waveform.sampleRate) * magnitude;
+        const auto magnitude = std::sqrt (bins[bin]);
+        weighted += spectrum::binFrequency (bin, window, waveform.sampleRate) * magnitude;
         total += magnitude;
     }
 
@@ -194,25 +192,25 @@ double spectralCentroidHz (const Waveform& waveform)
 
 double spectralFlatness (const Waveform& waveform)
 {
-    const auto window = windowFor (waveform);
+    const auto window = spectrum::windowFor (waveform);
 
     if (window == 0)
         return 0.0;
 
-    const auto spectrum = powerSpectrum (waveform, window);
+    const auto bins = spectrum::power (waveform, window);
 
     double logSum = 0.0;
     double sum = 0.0;
     std::size_t counted = 0;
 
-    for (std::size_t bin = 0; bin < spectrum.size(); ++bin)
+    for (std::size_t bin = 0; bin < bins.size(); ++bin)
     {
-        const auto frequency = binFrequency (bin, window, waveform.sampleRate);
+        const auto frequency = spectrum::binFrequency (bin, window, waveform.sampleRate);
 
         if (frequency < audibleFromHz || frequency > audibleToHz)
             continue;
 
-        const auto power = std::max (smallestPower, spectrum[bin]);
+        const auto power = std::max (smallestPower, bins[bin]);
         logSum += std::log (power);
         sum += power;
         ++counted;

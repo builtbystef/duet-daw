@@ -116,10 +116,10 @@ struct ToneProject
     TrackRef track = duet::model::noTrack;
     TrackRef other = duet::model::noTrack;
     std::atomic<int> renders { 0 };
+    duet::collab::TrackRenders rendered { countingRenderer(), project.folder() };
     duet::collab::TrackAnalysis measured { session,
                                            duet::testing::messageThreadMarshal(),
-                                           countingRenderer(),
-                                           project.folder() };
+                                           rendered };
 };
 
 /** A call on one track, with a bar range or without one. */
@@ -132,32 +132,6 @@ Json analysisCall (TrackRef track, int firstBar, int lastBar)
     arguments["barRange"] = Json::array ({ firstBar, lastBar });
 
     return toolCall ("get_track_analysis", arguments);
-}
-
-/** Whether anything anywhere in a result is wrapped as an estimate.
-
-    The provenance rule stated as a search rather than as a field list: a
-    measured tool may not produce a wrapper anywhere, however deep.
-*/
-bool holdsAnEstimate (const Json& value)
-{
-    std::vector<const Json*> remaining { &value };
-
-    while (! remaining.empty())
-    {
-        const auto* looking = remaining.back();
-        remaining.pop_back();
-
-        if (looking->is_object()
-            && (looking->contains ("source") || looking->contains ("confidence")))
-            return true;
-
-        if (looking->is_object() || looking->is_array())
-            for (const auto& inside : *looking)
-                remaining.push_back (&inside);
-    }
-
-    return false;
 }
 
 /** The energy of one named band in a result. */
@@ -216,7 +190,7 @@ TEST_CASE ("a track's analysis carries every measurement of the contract, each a
     REQUIRE_THAT (measured.at ("onsetsBeats").at (0).get<double>(), WithinAbs (0.0, 0.05));
 
     // Everything measured is a fact, so nothing anywhere in it is wrapped.
-    REQUIRE_FALSE (holdsAnEstimate (measured));
+    REQUIRE_FALSE (duet::testing::holdsAnEstimate (measured));
 
     for (const auto& [name, value] : measured.items())
         if (name != "spectralBands" && name != "onsetsBeats")
@@ -326,9 +300,7 @@ TEST_CASE ("a producer keeps editing while a first analysis is in flight", "[col
     std::mutex mutex;
     std::thread::id renderThread;
 
-    duet::collab::TrackAnalysis measured {
-        fixture.session,
-        duet::testing::messageThreadMarshal(),
+    duet::collab::TrackRenders rendered {
         [&] (TrackRef track,
              const std::filesystem::path& destination,
              const std::function<bool()>& keepGoing)
@@ -350,6 +322,10 @@ TEST_CASE ("a producer keeps editing while a first analysis is in flight", "[col
         },
         fixture.project.folder()
     };
+
+    duet::collab::TrackAnalysis measured { fixture.session,
+                                           duet::testing::messageThreadMarshal(),
+                                           rendered };
 
     ToolRunOptions options;
     options.measured = &measured;
@@ -383,9 +359,7 @@ TEST_CASE ("an analysis nobody is waiting for any more is abandoned", "[collab]"
         ToneProject fixture;
         std::atomic<int> rendered { 0 };
 
-        duet::collab::TrackAnalysis measured {
-            fixture.session,
-            duet::testing::messageThreadMarshal(),
+        duet::collab::TrackRenders renders {
             [&] (TrackRef, const std::filesystem::path&, const std::function<bool()>&)
             {
                 ++rendered;
@@ -395,6 +369,10 @@ TEST_CASE ("an analysis nobody is waiting for any more is abandoned", "[collab]"
             fixture.project.folder(),
             [] (const std::string&) { return false; }
         };
+
+        duet::collab::TrackAnalysis measured { fixture.session,
+                                               duet::testing::messageThreadMarshal(),
+                                               renders };
 
         ToolRunOptions options;
         options.measured = &measured;
@@ -413,9 +391,7 @@ TEST_CASE ("an analysis nobody is waiting for any more is abandoned", "[collab]"
         ToneProject fixture;
         std::atomic<bool> started { false };
 
-        duet::collab::TrackAnalysis measured {
-            fixture.session,
-            duet::testing::messageThreadMarshal(),
+        duet::collab::TrackRenders renders {
             [&] (TrackRef track,
                  const std::filesystem::path& destination,
                  const std::function<bool()>& keepGoing)
@@ -428,6 +404,10 @@ TEST_CASE ("an analysis nobody is waiting for any more is abandoned", "[collab]"
             fixture.project.folder(),
             [&] (const std::string&) { return ! started.load(); }
         };
+
+        duet::collab::TrackAnalysis measured { fixture.session,
+                                               duet::testing::messageThreadMarshal(),
+                                               renders };
 
         ToolRunOptions options;
         options.measured = &measured;

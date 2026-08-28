@@ -86,6 +86,7 @@ public:
     RpcOutcome shutdownSidecar();
 
     void setTaskRunListener (TaskRunListener* newListener);
+    void setEstimateLedger (EstimateLedger* newLedger);
     RunStart startRun (const std::string& prompt, const OpeningContext& context);
     bool cancelRun (const std::string& runId);
     [[nodiscard]] std::optional<std::string> activeRunId() const;
@@ -96,6 +97,11 @@ public:
         has already ended, and a run the producer has canceled all say no.
     */
     [[nodiscard]] bool isRunInProgress (const std::string& runId) const;
+
+    /** Whether that run has been handed an estimate, which is the estimate mark
+        and is read from the ledger rather than from anything the model said.
+    */
+    [[nodiscard]] bool basedOnEstimates (const std::string& runId) const;
 
     [[nodiscard]] bool isSidecarRunning() const;
     [[nodiscard]] std::optional<int> sidecarProcessId() const;
@@ -191,6 +197,11 @@ private:
     */
     std::mutex listenerMutex;
     TaskRunListener* runListener = nullptr;
+
+    /** The ledger this service's runs are marked from, and nothing when nothing
+        estimating is wired to it.
+    */
+    EstimateLedger* ledger = nullptr;
 
     bool started = false;
     bool stopRequested = false;
@@ -760,10 +771,17 @@ void CollaboratorService::Impl::setTaskRunListener (TaskRunListener* newListener
     runListener = newListener;
 }
 
+void CollaboratorService::Impl::setEstimateLedger (EstimateLedger* newLedger)
+{
+    const std::lock_guard lock (mutex);
+    ledger = newLedger;
+}
+
 RunStart CollaboratorService::Impl::startRun (const std::string& prompt,
                                               const OpeningContext& context)
 {
     std::string id;
+    EstimateLedger* startingLedger = nullptr;
 
     {
         const std::lock_guard lock (mutex);
@@ -785,6 +803,7 @@ RunStart CollaboratorService::Impl::startRun (const std::string& prompt,
 
         id = run.id;
         activeRun = std::move (run);
+        startingLedger = ledger;
 
         // The run does not wait for a sidecar here: the service thread spawns
         // one and sends `run.start` when it has connected.
@@ -794,6 +813,12 @@ RunStart CollaboratorService::Impl::startRun (const std::string& prompt,
             spawnRequested = true;
         }
     }
+
+    // Emptied before the run can be told to anyone, so that a run begins having
+    // been handed nothing whatever the run before it was handed, and however
+    // that run ended.
+    if (startingLedger != nullptr)
+        startingLedger->beginRun (id);
 
     wake();
 
@@ -835,6 +860,18 @@ void CollaboratorService::Impl::tellListener (const Call& call)
 
     if (runListener != nullptr)
         call (*runListener);
+}
+
+bool CollaboratorService::Impl::basedOnEstimates (const std::string& runId) const
+{
+    EstimateLedger* asked = nullptr;
+
+    {
+        const std::lock_guard lock (mutex);
+        asked = ledger;
+    }
+
+    return asked != nullptr && asked->basedOnEstimates (runId);
 }
 
 bool CollaboratorService::Impl::isRunInProgress (const std::string& runId) const
@@ -928,7 +965,9 @@ bool CollaboratorService::Impl::handleRunEvent (const std::string& method, const
         if (isRunInProgress (runId))
         {
             const auto delta = params.value ("delta", std::string {});
-            tellListener ([&] (TaskRunListener& target) { target.commentaryDelta (runId, delta); });
+            const auto marked = basedOnEstimates (runId);
+            tellListener ([&] (TaskRunListener& target)
+                          { target.commentaryDelta (runId, delta, marked); });
         }
 
         return true;
@@ -1070,6 +1109,11 @@ std::optional<int> CollaboratorService::sidecarProcessId() const
 void CollaboratorService::setTaskRunListener (TaskRunListener* newListener)
 {
     impl->setTaskRunListener (newListener);
+}
+
+void CollaboratorService::setEstimateLedger (EstimateLedger* ledger)
+{
+    impl->setEstimateLedger (ledger);
 }
 
 RunStart CollaboratorService::startRun (const std::string& prompt, const OpeningContext& context)

@@ -3,11 +3,12 @@
 #include <array>
 #include <cstddef>
 #include <optional>
+#include <string>
 #include <string_view>
 #include <vector>
 
-/** The measured half of the analysis layer: what a rendered waveform is, and
-    every routine that measures one (spec js437t, tier 2).
+/** The analysis layer's routines: what a rendered waveform is, and every
+    routine that reads one (spec js437t, tiers 2 and 3).
 
     Each routine is a pure function of a waveform, which is what makes ground
     truth here true by construction: a test states a signal it built itself and
@@ -19,6 +20,11 @@
     routine over real audio is a measurement and not a guess (ADR 0002). What
     the routine is, and the tolerance it holds to, is what each declaration
     below says.
+
+    The last section is the exception that proves the rule. The harmony
+    routines read notes out of a waveform rather than measuring a property of
+    it, so each of them answers with a confidence beside its answer, and what
+    they answer crosses the seam wrapped as an estimate and never bare.
 */
 namespace duet::collab::analysis
 {
@@ -209,4 +215,59 @@ inline constexpr double inaudibleLoudness = -70.0;
     window has no short-term loudness and answers the floor.
 */
 [[nodiscard]] double lufsShortTermMax (const Waveform& waveform);
+
+//==============================================================================
+// Harmony, estimated.
+
+/** What one of the harmony routines made of a waveform: what it would call what
+    it heard, and how well what it heard fits that name, from 0 to 1.
+
+    A name and a confidence together, because these are the tier-3 routines
+    (spec js437t): a key is a reading of the notes and not a property of the
+    waveform, so what comes out of them is a guess with its strength attached
+    and crosses the seam wrapped (ADR 0002).
+
+    The name is empty, and the confidence zero, when the waveform gives nothing
+    to read: silence, or less signal than a transform needs. A routine that
+    cannot tell says so rather than naming the key noise fits least badly.
+*/
+struct Estimated
+{
+    std::string name;
+    double confidence = 0.0;
+};
+
+/** How the two routines below describe themselves, which is what the `method`
+    of a wrapped value says: an estimate names the routine that made it, so that
+    a producer inspecting the mark reads what was done rather than that
+    something was.
+*/
+inline constexpr std::string_view keyMethod =
+    "pitch-class profile scored against the Krumhansl-Schmuckler key profiles";
+inline constexpr std::string_view chordMethod =
+    "pitch-class profile matched against major and minor triad templates";
+
+/** Which of the twenty-four keys the waveform's pitch classes fit best, named
+    as the producer writes it — "C major", "A minor".
+
+    Krumhansl-Schmuckler: how much of each pitch class the waveform holds is
+    correlated with each key's published profile, and the best correlation is
+    both the key and the confidence. A progression that belongs to one key
+    scores far above noise, which holds every pitch class and therefore fits
+    every key badly — which is what the confidence is for.
+
+    Voicing and octave say nothing here: what is read is pitch classes, so a
+    chord played high and a chord played low are the same evidence.
+*/
+[[nodiscard]] Estimated estimatedKey (const Waveform& waveform);
+
+/** Which triad the waveform's pitch classes fit best, named the same way —
+    "C major", "A minor".
+
+    Major and minor triads and no other chord: what the routine can name is what
+    it has templates for, so a seventh reads as the triad inside it and the
+    confidence says how much was left over. One chord for the whole waveform,
+    which is why the tool that uses this hands it one bar at a time.
+*/
+[[nodiscard]] Estimated estimatedChord (const Waveform& waveform);
 } // namespace duet::collab::analysis

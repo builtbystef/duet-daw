@@ -1672,8 +1672,10 @@ namespace
 class SuggestTool::Impl
 {
 public:
-    Impl (model::Session& projectSession, ProjectReadMarshal readMarshal)
-        : session (projectSession), marshal (std::move (readMarshal))
+    Impl (model::Session& projectSession,
+          ProjectReadMarshal readMarshal,
+          const EstimateLedger* estimateLedger)
+        : session (projectSession), marshal (std::move (readMarshal)), ledger (estimateLedger)
     {
     }
 
@@ -1699,6 +1701,11 @@ public:
         }
 
         Suggestion suggestion { std::string {}, *summary };
+
+        // The mark is the run's ledger read here, at the moment the Suggestion
+        // is made, and not the model's account of what it leant on.
+        suggestion.basedOnEstimates = ledger != nullptr && ledger->basedOnEstimates (call.runId);
+
         auto outcome = RpcOutcome::failure (rpcError::internalError, "the project was never read");
 
         marshal (
@@ -1746,6 +1753,7 @@ public:
 private:
     model::Session& session;
     ProjectReadMarshal marshal;
+    const EstimateLedger* ledger = nullptr;
 
     mutable std::mutex mutex;
     std::vector<Suggestion> made;
@@ -1759,8 +1767,10 @@ private:
 };
 
 //==============================================================================
-SuggestTool::SuggestTool (model::Session& projectSession, ProjectReadMarshal readMarshal)
-    : impl (std::make_unique<Impl> (projectSession, std::move (readMarshal)))
+SuggestTool::SuggestTool (model::Session& projectSession,
+                          ProjectReadMarshal readMarshal,
+                          const EstimateLedger* estimateLedger)
+    : impl (std::make_unique<Impl> (projectSession, std::move (readMarshal), estimateLedger))
 {
 }
 

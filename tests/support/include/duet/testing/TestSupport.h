@@ -8,6 +8,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace duet::model
 {
@@ -70,6 +71,16 @@ public:
     */
     [[nodiscard]] std::filesystem::path
         writeTone (std::string_view fileName, double lengthSeconds, double frequencyHz) const;
+
+    /** Writes a sequence of chords into that same place, each one the MIDI
+        pitches it is made of sounding together as sines, and each lasting the
+        same time: what a progression is, for a suite that asks what key or what
+        chords something is in.
+    */
+    [[nodiscard]] std::filesystem::path
+        writeChords (std::string_view fileName,
+                     double secondsPerChord,
+                     const std::vector<std::vector<int>>& chords) const;
 
 private:
     std::filesystem::path projectFolder;

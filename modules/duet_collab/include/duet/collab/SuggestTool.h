@@ -1,5 +1,6 @@
 #pragma once
 
+#include <duet/collab/Estimate.h>
 #include <duet/collab/ProjectTools.h>
 #include <duet/collab/ToolDispatch.h>
 
@@ -54,6 +55,16 @@ struct Suggestion
     std::string summary;
     std::vector<SuggestionElement> elements;
 
+    /** Whether the run that made this Suggestion had been handed an estimate by
+        the time it did.
+
+        The estimate mark, read from that run's ledger when the Suggestion was
+        made and never from anything the model said about itself (spec js437t).
+        A Suggestion carries it for as long as it exists, because what a producer
+        is being asked to accept is the thing the mark is about.
+    */
+    bool basedOnEstimates = false;
+
     /** Every element's operations as one list, named for the summary, which is
         what accepting the whole Suggestion applies as a single Action.
     */
@@ -94,13 +105,19 @@ struct Suggestion
     one value that crosses unchecked is a parameter of a plugin the same element
     is adding, which has no parameters to be asked about until it exists.
 
-    The session and the marshal must both outlive this object, and this object
-    must outlive the registry it was added to.
+    A Suggestion is stamped with the estimate mark of the run that made it, from
+    that run's ledger. Given no ledger nothing is ever marked, which is what a
+    Collaborator with nothing estimating wired to it should say.
+
+    The session, the marshal and the ledger must all outlive this object, and
+    this object must outlive the registry it was added to.
 */
 class SuggestTool
 {
 public:
-    SuggestTool (model::Session& projectSession, ProjectReadMarshal readMarshal);
+    SuggestTool (model::Session& projectSession,
+                 ProjectReadMarshal readMarshal,
+                 const EstimateLedger* estimateLedger = nullptr);
     ~SuggestTool();
 
     SuggestTool (const SuggestTool&) = delete;

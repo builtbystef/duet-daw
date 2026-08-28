@@ -38,6 +38,11 @@ namespace
     constexpr int toneBitDepth = 16;
     constexpr float toneAmplitude = 0.5F;
 
+    /** How loud one note of a chord is written, so that the three of them
+        together stay inside full scale.
+    */
+    constexpr float chordVoiceAmplitude = 0.3F;
+
     juce::File toJuceFile (const std::filesystem::path& path)
     {
         return juce::File { juce::String { path.string() } };
@@ -66,6 +71,25 @@ std::filesystem::path TempProject::editFile() const
     return duet::persistence::editFile (projectFolder);
 }
 
+namespace
+{
+    /** Writes a stereo buffer into the project's audio subdirectory. */
+    void writeWav (const std::filesystem::path& file, const juce::AudioBuffer<float>& buffer)
+    {
+        juce::WavAudioFormat wav;
+        std::unique_ptr<juce::OutputStream> stream { std::make_unique<juce::FileOutputStream> (
+            toJuceFile (file)) };
+        const auto writer = wav.createWriterFor (stream,
+                                                 juce::AudioFormatWriterOptions {}
+                                                     .withSampleRate (toneSampleRate)
+                                                     .withNumChannels (buffer.getNumChannels())
+                                                     .withBitsPerSample (toneBitDepth));
+
+        if (writer != nullptr)
+            writer->writeFromAudioSampleBuffer (buffer, 0, buffer.getNumSamples());
+    }
+} // namespace
+
 std::filesystem::path TempProject::writeTone (std::string_view fileName,
                                               double lengthSeconds,
                                               double frequencyHz) const
@@ -84,17 +108,43 @@ std::filesystem::path TempProject::writeTone (std::string_view fileName,
             buffer.setSample (channel, sample, value);
     }
 
-    juce::WavAudioFormat wav;
-    std::unique_ptr<juce::OutputStream> stream { std::make_unique<juce::FileOutputStream> (
-        toJuceFile (file)) };
-    const auto writer = wav.createWriterFor (stream,
-                                             juce::AudioFormatWriterOptions {}
-                                                 .withSampleRate (toneSampleRate)
-                                                 .withNumChannels (buffer.getNumChannels())
-                                                 .withBitsPerSample (toneBitDepth));
+    writeWav (file, buffer);
 
-    if (writer != nullptr)
-        writer->writeFromAudioSampleBuffer (buffer, 0, numSamples);
+    return file;
+}
+
+std::filesystem::path TempProject::writeChords (std::string_view fileName,
+                                                double secondsPerChord,
+                                                const std::vector<std::vector<int>>& chords) const
+{
+    const auto file = duet::persistence::audioDirectory (projectFolder) / fileName;
+    const auto perChord = static_cast<int> (toneSampleRate * secondsPerChord);
+    const auto numSamples = perChord * static_cast<int> (chords.size());
+
+    juce::AudioBuffer<float> buffer { 2, numSamples };
+    buffer.clear();
+
+    for (std::size_t chord = 0; chord < chords.size(); ++chord)
+    {
+        for (const auto pitch : chords[chord])
+        {
+            // The pitch of a MIDI note, in hertz: 69 is the A above middle C.
+            const auto frequencyHz =
+                440.0 * std::pow (2.0, (static_cast<double> (pitch) - 69.0) / 12.0);
+
+            for (int sample = 0; sample < perChord; ++sample)
+            {
+                const auto phase = 2.0 * std::numbers::pi * frequencyHz * sample / toneSampleRate;
+                const auto value =
+                    static_cast<float> (std::sin (phase)) * toneAmplitude * chordVoiceAmplitude;
+
+                for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
+                    buffer.addSample (channel, static_cast<int> (chord) * perChord + sample, value);
+            }
+        }
+    }
+
+    writeWav (file, buffer);
 
     return file;
 }
