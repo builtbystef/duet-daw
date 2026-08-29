@@ -25,6 +25,8 @@ using duet::gui::CollaboratorPanel;
 using duet::gui::EntryKind;
 using duet::gui::Suggestions;
 using duet::model::BuiltinPlugin;
+using duet::model::InputKind;
+using duet::model::InputRef;
 using duet::model::Session;
 using duet::model::TrackKind;
 using duet::model::TrackRef;
@@ -44,6 +46,24 @@ constexpr int runTimeoutMs = 20000;
     have arrived, when the assertion is that nothing did.
 */
 constexpr int settleMs = 300;
+
+/** How much of a take is run while a run is in flight, and in what steps.
+
+    There is no audio device to push the blocks a take is made of, so the case
+    pushes them itself, and the message loop the Task Run reports through gets a
+    turn between every one of them: a take with nothing going through it is not
+    a take a run could have cut.
+*/
+constexpr int blocksDuringTheRun = 8;
+constexpr double secondsPerBlock = 0.25;
+constexpr int msPerBlock = 5;
+
+/** How many of those blocks it may take before the transport reports a playhead
+    that has moved: the blocks and the message loop do not run at the same time
+    without a device, and the position a transport reports is the one that loop
+    last fetched from the graph.
+*/
+constexpr int playheadAttempts = 10;
 
 /** The panel on the real service: a real socket, the test-double sidecar as a
     real child process, and the Collaborator between them.
@@ -152,6 +172,16 @@ TrackRef buildTrack (Session& session)
                            });
 
     return made;
+}
+
+/** The input of a kind that a session running without audio hardware offers. */
+InputRef inputOfKind (const Session& session, InputKind kind)
+{
+    for (const auto& input : session.availableInputs())
+        if (input.kind == kind)
+            return input.input;
+
+    return duet::model::noInput;
 }
 
 /** A real project on disk, opened through the persistence facade, so that a
@@ -276,6 +306,111 @@ TEST_CASE ("the producer keeps playing and editing while a run is in flight", "[
 
     fixture.panel.requestCancel();
     session.stopPlayback();
+}
+
+TEST_CASE ("the producer keeps recording while a run is in flight", "[collab]")
+{
+    const TempProject folder;
+    const auto project = openProject (folder);
+    auto& session = project->session();
+
+    // A machine with no audio hardware offers no inputs, and a track cannot be
+    // armed to record from an input that is not there, so the take is taken
+    // without a device deliberately — which is what puts recording in CI
+    // (ADR 0006) — and the engine's one-time device rebuild, which would stop
+    // the transport itself, is kept out of the way of a stop this case would
+    // have to read as the run's doing.
+    session.useNoAudioDevice();
+    session.suppressDeviceRebuild();
+
+    buildTrack (session);
+
+    TrackRef keys = duet::model::noTrack;
+
+    session.performAction ("Add a track to record onto",
+                           [&] (auto& ops) {
+                               keys =
+                                   ops.createTrack (TrackKind::midi, "Keys", BuiltinPlugin::synth);
+                           });
+
+    const auto midiInput = inputOfKind (session, InputKind::midi);
+    REQUIRE (midiInput != duet::model::noInput);
+
+    session.setTrackInput (keys, midiInput);
+    session.setTrackRecordArmed (keys, true);
+
+    PanelOnService fixture { "run-hang-once" };
+    fixture.bridge.setSession (&session, folder.folder());
+
+    // Record on settled devices starts the take at once and on devices that have
+    // only just gone quiet waits out the rest of the pre-roll, so the case waits
+    // for the take rather than assuming either.
+    session.startRecording();
+    REQUIRE (pumpUntil ([&] { return session.isRecording(); }));
+
+    // Enough of the take run for the transport to have said where its playhead
+    // has got to, since a playhead that has never moved cannot show that one
+    // kept moving.
+    for (int attempt = 0; attempt < playheadAttempts && session.playbackPositionSeconds() <= 0.0;
+         ++attempt)
+    {
+        session.runWithoutAudioDevice (secondsPerBlock);
+        pumpMessages (msPerBlock);
+    }
+
+    // Something played in before the run, so that what the run must not cut is a
+    // take with something in it already.
+    session.runWithoutAudioDevice (secondsPerBlock, { { { 0.05, 0.1, 60, 100 } } });
+    pumpMessages (msPerBlock);
+
+    const auto reachedBeforeTheRun = session.playbackPositionSeconds();
+    REQUIRE (reachedBeforeTheRun > 0.0);
+
+    fixture.ask ("what is in this project?");
+
+    REQUIRE (fixture.panel.taskRunning());
+
+    int sampled = 0;
+    int recording = 0;
+
+    for (int block = 0; block < blocksDuringTheRun; ++block)
+    {
+        session.runWithoutAudioDevice (secondsPerBlock, { { { 0.05, 0.1, 64, 100 } } });
+        pumpMessages (msPerBlock);
+
+        ++sampled;
+
+        if (session.isRecording())
+            ++recording;
+    }
+
+    // Asked between the blocks and not only at the end: a take a run stopped
+    // partway and one it never touched both read as stopped once it is over.
+    REQUIRE (sampled == blocksDuringTheRun);
+    REQUIRE (recording == sampled);
+
+    // The transport is the producer's, not the run's, and it was rolling
+    // throughout — the playhead is further on than the run found it.
+    REQUIRE (session.playbackPositionSeconds() > reachedBeforeTheRun);
+    REQUIRE (fixture.panel.taskRunning());
+
+    session.stopRecording();
+    REQUIRE_FALSE (session.isRecording());
+
+    // The take landed whole: what was played in before the run and what was
+    // played in while it was in flight are one clip on the armed track.
+    const auto clips = session.track (keys).clips;
+
+    REQUIRE (clips.size() == 1);
+    REQUIRE (clips.front().holdsMidi);
+    REQUIRE (session.notes (clips.front().clip).size()
+             == static_cast<std::size_t> (1 + blocksDuringTheRun));
+
+    // And landing it was never the run's business either: the take's own Action
+    // left the run where it was.
+    REQUIRE (fixture.panel.taskRunning());
+
+    fixture.panel.requestCancel();
 }
 
 TEST_CASE ("canceling ends the run where it stands, and nothing arrives after it", "[collab]")
