@@ -119,12 +119,13 @@ public:
     */
     [[nodiscard]] duet::model::TrackRef focusedTrack() const;
 
-    /** The development-only Suggestion source these surfaces read, until issue
-        2suzzi puts the Suggestion manager behind them. Nothing in the interface
-        makes one: it is here so that the timeline's ghosts, the mixer's ghost
-        handles and the panel's card can be seen together before then.
+    /** The pending Suggestions all three surfaces read, so that the host can
+        give them what makes one.
+
+        The same seam as the panel's: the shell knows which surfaces show a
+        Suggestion, and the host knows the Suggestion manager behind them.
     */
-    [[nodiscard]] ScriptedSuggestions& developmentSuggestions() { return scriptedSuggestions; }
+    [[nodiscard]] Suggestions& pendingSuggestions() { return suggestions; }
 
     /** The component-only bridge used to open a hosted plugin editor. */
     void setPluginEditorAction (std::function<void (duet::model::PluginRef)> openEditor);
@@ -213,13 +214,12 @@ private:
     */
     CollaboratorPanel collaboratorPanel;
 
-    /** The pending Suggestions, and the development-only source that makes them.
-        The shell owns them because all three surfaces that show a Suggestion —
-        the panel's card, the timeline's ghosts and the mixer's ghost handles —
-        have to be reading the same one.
+    /** The pending Suggestions. The shell owns them because all three surfaces
+        that show a Suggestion — the panel's card, the timeline's ghosts and the
+        mixer's ghost handles — have to be reading the same one; what makes one
+        is the host's, and arrives as the source.
     */
     Suggestions suggestions;
-    ScriptedSuggestions scriptedSuggestions;
 
     juce::TextButton duetButton { "Duet" };
     std::unique_ptr<TransportStrip> transportStrip;

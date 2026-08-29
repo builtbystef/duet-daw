@@ -24,6 +24,7 @@ using duet::collab::SelectionKind;
 using duet::collab::ToolCall;
 using duet::gui::CollaboratorPanel;
 using duet::gui::EntryKind;
+using duet::gui::Suggestions;
 using duet::model::BuiltinPlugin;
 using duet::model::Session;
 using duet::model::TrackKind;
@@ -463,69 +464,273 @@ TEST_CASE ("an ordinary build keeps no trace of a run at all", "[collab]")
     REQUIRE (fixture.reported ("tool").at (0).at ("response").contains ("result"));
 }
 
-TEST_CASE ("the History section is the Suggestions the producer has finished with", "[collab]")
+namespace
+{
+/** One `suggest` call over the fixture project: one Element that moves the
+    track's clip, and one that lifts its fader.
+*/
+Json turnaroundOn (TrackRef track, duet::model::ClipRef clip, double startBar, double db)
+{
+    return duet::testing::suggestCall (
+        "A turnaround at bar " + std::to_string (static_cast<int> (startBar)),
+        Json::array (
+            { duet::testing::suggestElement (
+                  "Move the riff",
+                  Json::array ({ Json { { "op", "clip.move" },
+                                        { "clipId", duet::collab::toolId::forClip (clip) },
+                                        { "startBar", startBar } } })),
+              duet::testing::suggestElement (
+                  "Lift the bass",
+                  Json::array ({ Json { { "op", "mixer.set" },
+                                        { "trackId", duet::collab::toolId::forTrack (track) },
+                                        { "volumeDb", db } } })) }));
+}
+
+/** The clip `buildTrack` put on its track. */
+duet::model::ClipRef onlyClip (const Session& session, TrackRef track)
+{
+    const auto clips = session.track (track).clips;
+    REQUIRE (clips.size() == 1);
+
+    return clips.front().clip;
+}
+} // namespace
+
+TEST_CASE ("a real run's Suggestion arrives as a card and as ghosts, and changes nothing",
+           "[collab]")
 {
     const TempProject project;
     Session session { project.editFile() };
 
     const auto bass = buildTrack (session);
+    const auto riff = onlyClip (session, bass);
 
-    PanelOnService fixture { "run-echo" };
+    const Json calls = Json::array (
+        { duet::testing::toolCommentary ("Try this."), turnaroundOn (bass, riff, 3.0, -4.0) });
 
-    duet::collab::ToolRegistry writes;
-    duet::collab::SuggestTool suggest { session, duet::testing::messageThreadMarshal() };
-    suggest.addTo (writes);
+    PanelOnService fixture { "call-tools", { calls.dump() } };
+    fixture.bridge.setSession (&session, project.folder());
 
-    // A run makes at most one Suggestion, so each ask is its own run.
-    int runsAsked = 0;
-    duet::collab::SuggestionManager manager { session, [&runsAsked] (const std::string&) {
-                                                 return RunStart::accepted (
-                                                     "run-" + std::to_string (++runsAsked));
-                                             } };
+    Suggestions suggestions;
+    suggestions.setSource (&fixture.bridge.suggestionSurfaces());
 
-    const auto made = [&] (const std::string& summary, double db)
-    {
-        const auto started = manager.ask (summary);
-        REQUIRE (started.started);
+    const auto before = session.stateDigest();
+    const auto undoDepth = session.undoNames().size();
 
-        Json arguments = Json::object();
-        arguments["summary"] = summary;
-        arguments["elements"] = Json::array (
-            { Json { { "description", "Set the fader" },
-                     { "operations",
-                       Json::array ({ Json { { "op", "mixer.set" },
-                                             { "trackId", duet::collab::toolId::forTrack (bass) },
-                                             { "volumeDb", db } } }) } } });
+    fixture.ask ("give me a turnaround into bar 3");
 
-        const auto outcome = writes.call (Json {
-            { "runId", started.runId }, { "tool", "suggest" }, { "args", std::move (arguments) } });
-        REQUIRE (outcome.succeeded);
+    REQUIRE (fixture.settled());
+    REQUIRE (
+        pumpUntil ([&] { return fixture.last().kind == EntryKind::suggestion; }, runTimeoutMs));
 
-        const auto id = outcome.result.at ("suggestionId").get<std::string>();
-        const auto held = suggest.suggestion (id);
-        REQUIRE (held.has_value());
-        REQUIRE (
-            manager.suggested (started.runId, held.value_or (duet::collab::Suggestion { {}, {} })));
+    // The card sits in the conversation the producer asked in, and the ghosts
+    // stand where the operations put them.
+    const auto id = fixture.last().suggestion;
 
-        return id;
-    };
+    REQUIRE_FALSE (id.empty());
+    REQUIRE (fixture.last().text == "A turnaround at bar 3");
 
-    const auto accepted = made ("Bring the bass down", -6.0);
-    const auto rejected = made ("Push the bass up", 3.0);
+    suggestions.refresh();
 
-    fixture.bridge.setSuggestions (&manager);
+    const auto* card = suggestions.card (id);
 
-    // Nothing is finished with yet, so there is no History to show.
-    REQUIRE (fixture.panel.history().empty());
+    REQUIRE (card != nullptr);
+    REQUIRE (card->elements.size() == 2);
+    REQUIRE (card->elements.front().clips.size() == 1);
+    REQUIRE (card->elements.front().clips.front().track == bass);
+    REQUIRE (card->elements.back().faders.size() == 1);
+    REQUIRE (card->elements.back().faders.front().channel == bass);
 
-    REQUIRE (manager.accept (accepted));
-    REQUIRE (manager.reject (rejected));
+    // Nothing about the project moved, and the producer's undo history is where
+    // they left it: a Suggestion is data until it is accepted.
+    REQUIRE (session.stateDigest() == before);
+    REQUIRE (session.undoNames().size() == undoDepth);
+}
 
-    fixture.bridge.refreshHistory();
+TEST_CASE ("a Suggestion that arrives while the transport rolls does not interrupt playback",
+           "[collab]")
+{
+    const TempProject project;
+    Session session { project.editFile() };
 
-    REQUIRE (fixture.panel.history().size() == 2);
-    REQUIRE (fixture.panel.history().front().summary == "Bring the bass down");
+    const auto bass = buildTrack (session);
+    const auto riff = onlyClip (session, bass);
+
+    const Json calls = Json::array ({ turnaroundOn (bass, riff, 3.0, -4.0) });
+
+    PanelOnService fixture { "call-tools", { calls.dump() } };
+    fixture.bridge.setSession (&session, project.folder());
+
+    session.useNoAudioDevice();
+    session.startPlayback();
+    REQUIRE (session.isPlaying());
+
+    fixture.ask ("give me a turnaround into bar 3");
+
+    REQUIRE (fixture.settled());
+    REQUIRE (
+        pumpUntil ([&] { return fixture.last().kind == EntryKind::suggestion; }, runTimeoutMs));
+
+    REQUIRE (session.isPlaying());
+}
+
+TEST_CASE ("a rejection with a reason is answered in the card the rejected one stood in",
+           "[collab]")
+{
+    const TempProject project;
+    Session session { project.editFile() };
+
+    const auto bass = buildTrack (session);
+    const auto riff = onlyClip (session, bass);
+
+    // One call list per run: the first Suggestion, then the revision the
+    // rejection asks for.
+    const Json calls = Json::array ({ Json::array ({ turnaroundOn (bass, riff, 3.0, -4.0) }),
+                                      Json::array ({ turnaroundOn (bass, riff, 5.0, -2.0) }) });
+
+    PanelOnService fixture { "call-tools", { calls.dump() } };
+    fixture.bridge.setSession (&session, project.folder());
+
+    Suggestions suggestions;
+    suggestions.setSource (&fixture.bridge.suggestionSurfaces());
+
+    fixture.ask ("give me a turnaround into bar 3");
+
+    REQUIRE (fixture.settled());
+    REQUIRE (
+        pumpUntil ([&] { return fixture.last().kind == EntryKind::suggestion; }, runTimeoutMs));
+
+    const auto rejected = fixture.last().suggestion;
+    const auto entries = fixture.panel.conversation().size();
+
+    suggestions.refresh();
+    suggestions.reject (rejected, "bar 3 is too early");
+
+    // Exactly one more run, carrying what the producer said and what they asked
+    // in the first place.
+    REQUIRE (fixture.settled());
+    REQUIRE (
+        pumpUntil ([&] { return fixture.last().kind == EntryKind::suggestion; }, runTimeoutMs));
+
+    REQUIRE (fixture.reported ("run.start").size() == 2);
+
+    const auto asked = fixture.reported ("run.start").back().at ("prompt").get<std::string>();
+
+    REQUIRE (asked.find ("bar 3 is too early") != std::string::npos);
+    REQUIRE (asked.find ("give me a turnaround into bar 3") != std::string::npos);
+
+    // The revision stands where the rejected card stood: the conversation gains
+    // no second card.
+    REQUIRE (fixture.panel.conversation().size() == entries);
+    REQUIRE (fixture.last().suggestion != rejected);
+    REQUIRE (fixture.last().text == "A turnaround at bar 5");
+
+    suggestions.refresh();
+
+    REQUIRE (suggestions.cards().size() == 1);
+    REQUIRE (suggestions.card (rejected) == nullptr);
+
+    // And where the rejected one went is the History section's to say: it was
+    // not merely dropped, it was answered by another.
+    REQUIRE (fixture.panel.history().size() == 1);
+    REQUIRE (fixture.panel.history().front().outcome == "asked again");
+}
+
+TEST_CASE ("the redo control on a stale Suggestion asks once more against current state",
+           "[collab]")
+{
+    const TempProject project;
+    Session session { project.editFile() };
+
+    const auto bass = buildTrack (session);
+    const auto riff = onlyClip (session, bass);
+
+    const Json calls = Json::array ({ Json::array ({ turnaroundOn (bass, riff, 3.0, -4.0) }),
+                                      Json::array ({ turnaroundOn (bass, riff, 5.0, -2.0) }) });
+
+    PanelOnService fixture { "call-tools", { calls.dump() } };
+    fixture.bridge.setSession (&session, project.folder());
+
+    Suggestions suggestions;
+    suggestions.setSource (&fixture.bridge.suggestionSurfaces());
+
+    fixture.ask ("give me a turnaround into bar 3");
+
+    REQUIRE (fixture.settled());
+    REQUIRE (
+        pumpUntil ([&] { return fixture.last().kind == EntryKind::suggestion; }, runTimeoutMs));
+
+    const auto stale = fixture.last().suggestion;
+
+    // The producer moves the very clip the Suggestion is about, which is what
+    // makes the card and its ghosts stale.
+    session.performAction ("Move the riff", [&] (auto& ops) { ops.moveClip (riff, 6.0); });
+    suggestions.refresh();
+
+    REQUIRE (suggestions.card (stale) != nullptr);
+    REQUIRE (suggestions.card (stale)->stale);
+
+    REQUIRE (suggestions.redo (stale));
+
+    REQUIRE (fixture.settled());
+    REQUIRE (pumpUntil ([&] { return fixture.last().suggestion != stale; }, runTimeoutMs));
+
+    REQUIRE (fixture.reported ("run.start").size() == 2);
+
+    const auto asked = fixture.reported ("run.start").back().at ("prompt").get<std::string>();
+
+    REQUIRE (asked.find ("give me a turnaround into bar 3") != std::string::npos);
+    REQUIRE (asked.find ("is now") != std::string::npos);
+
+    suggestions.refresh();
+
+    REQUIRE (suggestions.card (stale) == nullptr);
+    REQUIRE (suggestions.cards().size() == 1);
+    REQUIRE (fixture.panel.history().size() == 1);
+    REQUIRE (fixture.panel.history().front().outcome == "asked again");
+}
+
+TEST_CASE ("accepting from the card lands as one Action, and the History says where it went",
+           "[collab]")
+{
+    const TempProject project;
+    Session session { project.editFile() };
+
+    const auto bass = buildTrack (session);
+    const auto riff = onlyClip (session, bass);
+
+    const Json calls = Json::array ({ turnaroundOn (bass, riff, 3.0, -4.0) });
+
+    PanelOnService fixture { "call-tools", { calls.dump() } };
+    fixture.bridge.setSession (&session, project.folder());
+
+    Suggestions suggestions;
+    suggestions.setSource (&fixture.bridge.suggestionSurfaces());
+
+    const auto before = session.stateDigest();
+    const auto undoDepth = session.undoNames().size();
+
+    fixture.ask ("give me a turnaround into bar 3");
+
+    REQUIRE (fixture.settled());
+    REQUIRE (
+        pumpUntil ([&] { return fixture.last().kind == EntryKind::suggestion; }, runTimeoutMs));
+
+    const auto id = fixture.last().suggestion;
+
+    suggestions.refresh();
+
+    REQUIRE (suggestions.accept (id));
+
+    REQUIRE (session.undoNames().size() == undoDepth + 1);
+    REQUIRE (session.track (bass).volumeDb == -4.0);
+    REQUIRE (suggestions.cards().empty());
+
+    REQUIRE (fixture.panel.history().size() == 1);
+    REQUIRE (fixture.panel.history().front().summary == "A turnaround at bar 3");
     REQUIRE (fixture.panel.history().front().outcome == "accepted");
-    REQUIRE (fixture.panel.history().back().summary == "Push the bass up");
-    REQUIRE (fixture.panel.history().back().outcome == "rejected");
+
+    // One Action: a single undo takes the whole of it back.
+    REQUIRE (session.undo());
+    REQUIRE (session.stateDigest() == before);
 }

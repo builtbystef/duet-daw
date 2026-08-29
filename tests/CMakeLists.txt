@@ -23,6 +23,7 @@ add_executable(duet_tests
     AutomationOpsTests.cpp
     AutosaveTests.cpp
     ClipOpsTests.cpp
+    CollaboratorLoopLiveTests.cpp
     CollaboratorPanelTests.cpp
     CollaboratorServiceTests.cpp
     CollaboratorTests.cpp
@@ -60,6 +61,7 @@ add_executable(duet_tests
     SuggestToolTests.cpp
     SuggestionViewTests.cpp
     SuggestionManagerTests.cpp
+    SuggestionSurfacesTests.cpp
     SuggestionTests.cpp
     TaskRunTests.cpp
     TextEncodingTests.cpp

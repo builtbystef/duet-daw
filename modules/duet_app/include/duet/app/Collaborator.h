@@ -1,9 +1,12 @@
 #pragma once
 
+#include <duet/app/SuggestionSurfaces.h>
+
 #include <duet/collab/CollaboratorService.h>
 #include <duet/collab/ContentEstimates.h>
 #include <duet/collab/Estimate.h>
 #include <duet/collab/ProjectTools.h>
+#include <duet/collab/SuggestTool.h>
 #include <duet/collab/SuggestionManager.h>
 #include <duet/collab/TaskRun.h>
 #include <duet/collab/ToolDispatch.h>
@@ -103,16 +106,24 @@ public:
     */
     void setSession (duet::model::Session* openProject, std::filesystem::path renderFolder);
 
-    /** The Suggestions of this app session, which the History section is the
-        resolved end of. Read and never owned, and none is a panel with no
-        History — which is what a build that has nothing making Suggestions yet
-        should show.
+    /** The Duet Loop of the open project, and nothing when none is open.
+
+        The manager is this object's because a Suggestion is what a Task Run
+        makes: the run that made it is the one whose request has to be
+        remembered, and asking again is starting another run. Public so that the
+        surfaces the ghosts are drawn on can be handed the same one.
     */
-    void setSuggestions (duet::collab::SuggestionManager* manager);
+    [[nodiscard]] duet::collab::SuggestionManager* suggestionManager() { return suggestions.get(); }
+
+    /** What the interface's Suggestion surfaces read: the manager, in the shape
+        the card and the ghosts speak. The shell hands this to its own
+        `duet::gui::Suggestions`, which is the one thing all three surfaces
+        read.
+    */
+    [[nodiscard]] duet::gui::Suggestions::Source& suggestionSurfaces() { return surfaces; }
 
     /** Takes the manager's resolved Suggestions onto the panel. Called whenever
-        one can have been resolved, this object holding no listener on a manager
-        that is not its own.
+        one can have been resolved.
     */
     void refreshHistory();
 
@@ -131,6 +142,21 @@ public:
     void taskRunCanceled (duet::gui::CollaboratorPanel& sender) override;
 
 private:
+    //==============================================================================
+    /** Starts one Task Run for a prompt, and puts the card in front of the
+        producer while it lasts.
+
+        Every run of this Collaborator goes through here — the producer's own
+        message, a revision the manager asks for, a redo against current state —
+        because every one of them is a run the panel has to be showing.
+    */
+    duet::collab::RunStart startRun (const std::string& prompt);
+
+    /** Holds what a run's `suggest` call made, and puts its card in the
+        conversation where the producer asked for it.
+    */
+    void holdSuggestion (const std::string& runId, const std::string& suggestionId);
+
     //==============================================================================
     void commentaryDelta (const std::string& runId,
                           const std::string& delta,
@@ -168,13 +194,19 @@ private:
 
     duet::collab::ToolRegistry registry;
     duet::collab::EstimateLedger ledger;
-    duet::collab::SuggestionManager* suggestions = nullptr;
 
     duet::model::Session* session = nullptr;
     std::unique_ptr<duet::collab::TrackRenders> renders;
     std::unique_ptr<duet::collab::ProjectTools> reads;
     std::unique_ptr<duet::collab::TrackAnalysis> measured;
     std::unique_ptr<duet::collab::ContentEstimates> estimated;
+    std::unique_ptr<duet::collab::SuggestTool> writes;
+    std::unique_ptr<duet::collab::SuggestionManager> suggestions;
+
+    /** Declared after the manager so that it goes before it: it reads the
+        manager and the manager reads nothing of it.
+    */
+    SuggestionSurfaces surfaces { [this] { refreshHistory(); } };
 
     /** The run the panel is showing, and empty between runs. Written and read on
         the message thread alone, which is what lets a late event about a run the

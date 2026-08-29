@@ -468,12 +468,8 @@ MainShell::MainShell (Appearance& lookAndScale, ViewState& projectView)
                                                        });
     browser = std::make_unique<Dock> (appearance, surfaceId::browser, "Browser");
 
-    // A Suggestion is made in the conversation it was asked for, shown as ghosts
-    // on the surfaces it would change, and read from one place by all of them.
-    scriptedSuggestions.onSuggestionMade (
-        [this] (std::string id, std::string summary)
-        { collaboratorPanel.showSuggestion (std::move (id), std::move (summary)); });
-    suggestions.setSource (&scriptedSuggestions);
+    // A Suggestion is shown as ghosts on the surfaces it would change, and read
+    // from one place by all of them.
     arrangementView.setSuggestions (&suggestions);
     mixer.setSuggestions (&suggestions);
 
@@ -696,8 +692,7 @@ void MainShell::setSession (duet::model::Session* openProject)
     transport.setSession (openProject);
 
     // Whatever was pending goes with the project it was made against, so the
-    // surfaces are told there is nothing to draw before they are laid out.
-    scriptedSuggestions.setSession (openProject);
+    // surfaces are told what there is to draw before they are laid out.
     suggestions.refresh();
 
     viewStateChanged();

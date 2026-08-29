@@ -332,3 +332,36 @@ TEST_CASE ("a Task Run that fails leaves one plain line and takes the panel no f
 
     REQUIRE (panel.canSend());
 }
+
+TEST_CASE ("a revision takes the place of the card it revises rather than standing beside it")
+{
+    CollaboratorPanel panel;
+
+    panel.setComposerText ("give me a turnaround into bar 9");
+    panel.send();
+    panel.showSuggestion ("sug-1", "A turnaround on the bass", {});
+
+    REQUIRE (panel.conversation().size() == 2);
+    REQUIRE (panel.conversation().back().kind == EntryKind::suggestion);
+    REQUIRE (panel.conversation().back().suggestion == "sug-1");
+
+    // The producer said what was wrong with it and the Collaborator answered
+    // with a better one: the conversation gains no second card, and the one it
+    // has is the revision.
+    panel.showSuggestion ("sug-2", "A quieter turnaround", "sug-1");
+
+    REQUIRE (panel.conversation().size() == 2);
+
+    const auto& card = panel.conversation().back();
+
+    REQUIRE (card.kind == EntryKind::suggestion);
+    REQUIRE (card.suggestion == "sug-2");
+    REQUIRE (card.text == "A quieter turnaround");
+
+    // A Suggestion that revises one the conversation never showed is a card of
+    // its own, wherever the one it revises went.
+    panel.showSuggestion ("sug-4", "Something else again", "sug-3");
+
+    REQUIRE (panel.conversation().size() == 3);
+    REQUIRE (panel.conversation().back().suggestion == "sug-4");
+}

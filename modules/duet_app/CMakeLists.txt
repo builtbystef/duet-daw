@@ -12,7 +12,8 @@
 add_library(duet_app_core STATIC
     src/Collaborator.cpp
     src/ProjectLifecycle.cpp
-    src/PropertyStorageSettings.cpp)
+    src/PropertyStorageSettings.cpp
+    src/SuggestionSurfaces.cpp)
 add_library(duet::app_core ALIAS duet_app_core)
 
 target_include_directories(duet_app_core PUBLIC include)

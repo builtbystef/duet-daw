@@ -171,6 +171,16 @@ public:
     */
     bool accept (std::string_view id);
 
+    /** Applies exactly the Elements named, as one Action: named for the
+        Element when there is one of them, and for the summary when there are
+        several. The Elements left out stay pending, which is what a producer
+        who unticked a row and pressed Accept has said.
+
+        False for a Suggestion that is not pending, and for a list holding
+        nothing or naming an Element that is not there to resolve.
+    */
+    bool accept (std::string_view id, const std::vector<std::size_t>& elements);
+
     /** Resolves every Element still pending, applying nothing. */
     bool reject (std::string_view id);
 
@@ -199,6 +209,12 @@ public:
         when the Suggestion is not pending, or has no Element left to hear.
     */
     bool audition (std::string_view id);
+
+    /** Auditions exactly the Elements named: what accepting those now would
+        do. The same rules as the whole-Suggestion Audition, and the same
+        refusals as the Element-wise acceptance.
+    */
+    bool audition (std::string_view id, const std::vector<std::size_t>& elements);
 
     /** Ends a live Audition. Does nothing when none is live. */
     void stopAudition();

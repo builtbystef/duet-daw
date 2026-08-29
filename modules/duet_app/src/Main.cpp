@@ -195,7 +195,9 @@ public:
         std::error_code ignored;
         std::filesystem::remove_all (collaboration.socketPath.parent_path(), ignored);
 
-        // The shell and plugin windows stop reading the session before it goes.
+        // The shell and plugin windows stop reading the session before it goes,
+        // and the surfaces stop reading a manager that has gone with it.
+        shell.pendingSuggestions().setSource (nullptr);
         pluginEditors.setSession (nullptr);
         shell.setTimelineClock (nullptr);
         shell.setSession (nullptr);
@@ -503,6 +505,8 @@ private:
 
     void detachProject()
     {
+        // Whatever was pending goes with the project it was made against, and
+        // the surfaces are told so before they are asked to draw again.
         collaborator.setSession (nullptr, {});
         pluginEditors.setSession (nullptr);
         shell.setTimelineClock (nullptr);
@@ -528,6 +532,9 @@ private:
 
         clock = std::make_unique<duet::gui::SessionClock> (project->session());
         pluginEditors.setSession (&project->session());
+
+        // The Collaborator first: its manager is what the shell's Suggestions
+        // read, and the shell reads them as it takes the project.
         collaborator.setSession (&project->session(), renderFolder);
         shell.setSession (&project->session());
         shell.setTimelineClock (clock.get());
@@ -544,6 +551,11 @@ private:
     void startCollaborator()
     {
         shell.collaborator().setSource (&collaborator);
+
+        // One Suggestion manager behind all three surfaces that show a
+        // Suggestion: the card in the conversation, the ghosts on the timeline
+        // and the ghost marks in the mixer.
+        shell.pendingSuggestions().setSource (&collaborator.suggestionSurfaces());
 
         try
         {

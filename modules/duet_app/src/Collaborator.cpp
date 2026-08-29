@@ -77,6 +77,9 @@ void Collaborator::setSession (duet::model::Session* openProject,
     if (! shownRun.empty())
         service.cancelRun (shownRun);
 
+    surfaces.setManager (nullptr, nullptr);
+    suggestions.reset();
+    writes.reset();
     estimated.reset();
     measured.reset();
     reads.reset();
@@ -84,7 +87,11 @@ void Collaborator::setSession (duet::model::Session* openProject,
     session = openProject;
 
     if (session == nullptr)
+    {
+        refreshHistory();
+
         return;
+    }
 
     auto marshal = readMarshalFor (session);
 
@@ -97,15 +104,20 @@ void Collaborator::setSession (duet::model::Session* openProject,
     measured = std::make_unique<duet::collab::TrackAnalysis> (*session, marshal, *renders);
     estimated =
         std::make_unique<duet::collab::ContentEstimates> (*session, marshal, *renders, ledger);
+    writes = std::make_unique<duet::collab::SuggestTool> (*session, marshal, &ledger);
+
+    // The Duet Loop is the open project's: what a Suggestion names lives there,
+    // and a Suggestion made against the project before it is not a Suggestion
+    // about this one.
+    suggestions = std::make_unique<duet::collab::SuggestionManager> (
+        *session, [this] (const std::string& prompt) { return startRun (prompt); });
 
     reads->addTo (registry);
     measured->addTo (registry);
     estimated->addTo (registry);
-}
+    writes->addTo (registry);
 
-void Collaborator::setSuggestions (duet::collab::SuggestionManager* manager)
-{
-    suggestions = manager;
+    surfaces.setManager (suggestions.get(), session);
     refreshHistory();
 }
 
@@ -122,23 +134,44 @@ void Collaborator::refreshHistory()
 }
 
 //==============================================================================
-void Collaborator::producerSent (duet::gui::CollaboratorPanel& sender, const std::string& message)
+void Collaborator::producerSent (duet::gui::CollaboratorPanel& /*sender*/,
+                                 const std::string& message)
 {
-    sender.beginTaskRun();
+    // Through the manager when there is one, because what was asked is what a
+    // revision and a redo ask again, and the manager is what remembers it. With
+    // no project open there is no manager, and the run is still the producer's
+    // to have.
+    if (suggestions != nullptr)
+    {
+        suggestions->ask (message);
+
+        return;
+    }
+
+    startRun (message);
+}
+
+duet::collab::RunStart Collaborator::startRun (const std::string& prompt)
+{
+    if (! panel.taskRunning())
+        panel.beginTaskRun();
 
     const auto context = openingContextOf ? openingContextOf() : duet::collab::OpeningContext {};
-    const auto start = service.startRun (message, context);
+    const auto start = service.startRun (prompt, context);
 
     if (! start.started)
     {
         // Nothing queues and nothing retries: the run that was refused is one
         // line in the conversation, and the next one is the producer's to ask
         // for (spec js437t).
-        sender.failTaskRun (start.error.message);
-        return;
+        panel.failTaskRun (start.error.message);
+
+        return start;
     }
 
     shownRun = start.runId;
+
+    return start;
 }
 
 void Collaborator::taskRunCanceled (duet::gui::CollaboratorPanel& /*sender*/)
@@ -216,6 +249,11 @@ duet::collab::RpcOutcome Collaborator::answerToolCall (const Json& params)
     const auto outcome = registry.call (params);
 
     auto tool = params.value ("tool", std::string {});
+
+    if (outcome.succeeded && tool == "suggest")
+        holdSuggestion (params.value ("runId", std::string {}),
+                        outcome.result.value ("suggestionId", std::string {}));
+
     auto arguments = params.value ("args", Json::object()).dump();
     auto result =
         outcome.succeeded
@@ -230,6 +268,36 @@ duet::collab::RpcOutcome Collaborator::answerToolCall (const Json& params)
         { panel.recordToolCall (std::move (tool), std::move (arguments), std::move (result)); });
 
     return outcome;
+}
+
+void Collaborator::holdSuggestion (const std::string& runId, const std::string& suggestionId)
+{
+    if (writes == nullptr || suggestionId.empty())
+        return;
+
+    auto made = writes->suggestion (suggestionId);
+
+    if (! made.has_value())
+        return;
+
+    onMessageThread (
+        [this, runId, made = std::move (made.value())]() mutable
+        {
+            const auto id = made.id;
+            auto summary = made.summary;
+
+            // A run this Collaborator did not start is a run with no request
+            // behind it, and a Suggestion nothing could revise or redo.
+            if (suggestions == nullptr || ! suggestions->suggested (runId, std::move (made)))
+                return;
+
+            std::string revises;
+
+            if (const auto held = suggestions->suggestion (id); held.has_value())
+                revises = held->revises;
+
+            panel.showSuggestion (id, std::move (summary), std::move (revises));
+        });
 }
 
 void Collaborator::onMessageThread (std::function<void()> work)

@@ -21,7 +21,6 @@ using duet::gui::ArrangementView;
 using duet::gui::GhostClip;
 using duet::gui::GhostFader;
 using duet::gui::Mixer;
-using duet::gui::ScriptedSuggestions;
 using duet::gui::SuggestionCardView;
 using duet::gui::SuggestionElementView;
 using duet::gui::Suggestions;
@@ -66,6 +65,8 @@ public:
     std::vector<std::size_t> auditioned;
     std::vector<std::size_t> accepted;
     std::string rejected;
+    std::string reason;
+    std::string redone;
     int auditionCalls = 0;
     int stopCalls = 0;
 
@@ -100,10 +101,19 @@ public:
         return true;
     }
 
-    void reject (std::string_view id) override
+    void reject (std::string_view id, const std::string& why) override
     {
         rejected = std::string { id };
+        reason = why;
         std::erase_if (cards, [id] (const auto& card) { return card.id == id; });
+    }
+
+    bool redo (std::string_view id) override
+    {
+        redone = std::string { id };
+        std::erase_if (cards, [id] (const auto& card) { return card.id == id; });
+
+        return true;
     }
 };
 } // namespace
@@ -463,220 +473,29 @@ TEST_CASE ("a suggested level is a ghost handle beside the fader, and the A/B ch
     REQUIRE (mixer.ghostFader (drums).has_value());
 }
 
-namespace
+TEST_CASE ("rejecting carries the reason the producer typed, and redoing asks again")
 {
-/** A project with something to suggest a change to, and the development
-    Suggestion made over it.
-*/
-struct FabricatedSuggestion
-{
-    FabricatedSuggestion() : session (project.editFile())
-    {
-        session.performAction ("Keys",
-                               [&] (auto& ops)
-                               {
-                                   track = ops.createTrack (TrackKind::midi, "Keys");
-                                   clip = ops.insertMidiClip (track, "Riff", 0.0, 1.0);
-                                   ops.setTrackVolumeDb (track, -6.0);
-                               });
+    RecordedSource source;
+    source.cards = { threeElements() };
 
-        scripted.setSession (&session);
-        REQUIRE (scripted.fabricate());
-        suggestions.setSource (&scripted);
-    }
-
-    [[nodiscard]] std::string id() const
-    {
-        REQUIRE (suggestions.cards().size() == 1);
-        return suggestions.cards().front().id;
-    }
-
-    [[nodiscard]] std::size_t clipCount() const { return session.track (track).clips.size(); }
-
-    TempProject project;
-    Session session;
-    ScriptedSuggestions scripted;
     Suggestions suggestions;
-    TrackRef track = duet::model::noTrack;
-    duet::model::ClipRef clip = duet::model::noClip;
-};
-} // namespace
+    suggestions.setSource (&source);
 
-TEST_CASE ("Audition makes the development Suggestion audible, and leaving it puts the project "
-           "back exactly")
-{
-    FabricatedSuggestion made;
-    const auto before = made.session.stateDigest();
+    REQUIRE (suggestions.audition ("sug-1"));
 
-    REQUIRE (made.suggestions.cards().front().elements.size() == 3);
-    REQUIRE (made.suggestions.audition (made.id()));
+    suggestions.reject ("sug-1", "the hats belong where they were");
 
-    // What is heard is the whole Suggestion: the clip where it would go, the
-    // copy it would make, and the level it would set.
-    REQUIRE (made.clipCount() == 2);
-    REQUIRE_THAT (made.session.track (made.track).volumeDb,
-                  WithinAbs (ScriptedSuggestions::proposedLevelDb, 1e-6));
+    // Rejecting leaves the Audition as surely as accepting does, and what the
+    // producer typed is what the revision run is asked in.
+    REQUIRE (source.rejected == "sug-1");
+    REQUIRE (source.reason == "the hats belong where they were");
+    REQUIRE_FALSE (suggestions.auditioning().has_value());
+    REQUIRE (suggestions.cards().empty());
 
-    made.suggestions.stopAudition();
+    source.cards = { threeElements() };
+    suggestions.refresh();
 
-    REQUIRE (made.session.stateDigest() == before);
-    REQUIRE_THAT (made.session.track (made.track).volumeDb, WithinAbs (-6.0, 1e-6));
-}
-
-TEST_CASE ("the mixer reads the project again when an Audition ends")
-{
-    FabricatedSuggestion made;
-
-    Mixer mixer;
-    mixer.setSession (&made.session);
-    mixer.setSuggestions (&made.suggestions);
-
-    REQUIRE_THAT (mixer.strip (made.track).volumeDb, WithinAbs (-6.0, 1e-6));
-    REQUIRE (made.suggestions.audition (made.id()));
-
-    // The strip is read while the Audition is on, so what the mixer holds is
-    // the suggested level. Leaving has to take it off again: the chip invites
-    // the producer to compare, and the numbers beside it have to be the ones
-    // they are hearing.
-    REQUIRE_THAT (mixer.strip (made.track).volumeDb,
-                  WithinAbs (ScriptedSuggestions::proposedLevelDb, 1e-6));
-
-    made.suggestions.stopAudition();
-
-    REQUIRE_THAT (mixer.strip (made.track).volumeDb, WithinAbs (-6.0, 1e-6));
-}
-
-TEST_CASE ("an Audition is not the project moving under a Suggestion")
-{
-    FabricatedSuggestion made;
-
-    REQUIRE_FALSE (made.suggestions.cards().front().stale);
-    REQUIRE (made.suggestions.audition (made.id()));
-
-    made.suggestions.stopAudition();
-    made.suggestions.refresh();
-
-    // The revert put the project back exactly, so nothing has moved under the
-    // Suggestion and it is not stale — hearing a Suggestion is not editing.
-    REQUIRE_FALSE (made.suggestions.cards().front().stale);
-}
-
-TEST_CASE ("an Audition hears only the Elements the producer has left ticked")
-{
-    FabricatedSuggestion made;
-
-    // The second Element is the copy the Suggestion would make; unticked, it is
-    // not among what is heard.
-    made.suggestions.setChecked (made.id(), 1, false);
-
-    REQUIRE (made.suggestions.audition (made.id()));
-    REQUIRE (made.clipCount() == 1);
-    REQUIRE_THAT (made.session.track (made.track).volumeDb,
-                  WithinAbs (ScriptedSuggestions::proposedLevelDb, 1e-6));
-
-    made.suggestions.stopAudition();
-}
-
-TEST_CASE ("A/B swaps what is heard while the transport rolls, and never stops it")
-{
-    FabricatedSuggestion made;
-    made.session.useNoAudioDevice();
-    made.session.startPlayback();
-    REQUIRE (made.session.isPlaying());
-
-    REQUIRE (made.suggestions.audition (made.id()));
-    REQUIRE (made.session.isPlaying());
-    REQUIRE (made.clipCount() == 2);
-
-    made.suggestions.toggleAB();
-
-    REQUIRE (made.session.isPlaying());
-    REQUIRE_FALSE (made.suggestions.hearingProposed());
-    REQUIRE (made.clipCount() == 1);
-
-    made.suggestions.toggleAB();
-
-    REQUIRE (made.session.isPlaying());
-    REQUIRE (made.suggestions.hearingProposed());
-    REQUIRE (made.clipCount() == 2);
-
-    made.suggestions.stopAudition();
-    REQUIRE (made.session.isPlaying());
-}
-
-TEST_CASE ("accepting a Suggestion lands as exactly one Action, and one undo removes all of it")
-{
-    FabricatedSuggestion made;
-    const auto before = made.session.stateDigest();
-    const auto depthBefore = made.session.undoNames().size();
-
-    REQUIRE (made.suggestions.audition (made.id()));
-    REQUIRE (made.suggestions.accept (made.id()));
-
-    REQUIRE (made.session.undoNames().size() == depthBefore + 1);
-    REQUIRE (made.session.stateDigest() != before);
-    REQUIRE (made.clipCount() == 2);
-    REQUIRE_THAT (made.session.track (made.track).volumeDb,
-                  WithinAbs (ScriptedSuggestions::proposedLevelDb, 1e-6));
-
-    // Accepting everything leaves nothing pending, so the ghosts go with it.
-    REQUIRE (made.suggestions.cards().empty());
-    REQUIRE_FALSE (made.suggestions.auditioning().has_value());
-
-    REQUIRE (made.session.undo());
-    REQUIRE (made.session.stateDigest() == before);
-}
-
-TEST_CASE ("accepting the ticked Elements clears their ghosts and leaves the rest of the card")
-{
-    FabricatedSuggestion made;
-    made.suggestions.setChecked (made.id(), 1, false);
-
-    REQUIRE (made.suggestions.accept (made.id()));
-
-    const auto* card = made.suggestions.card (made.id());
-
-    REQUIRE (card != nullptr);
-    REQUIRE (card->elements.size() == 1);
-
-    // The copy was never made: only what the producer ticked was applied.
-    REQUIRE (made.clipCount() == 1);
-    REQUIRE_THAT (made.session.track (made.track).volumeDb,
-                  WithinAbs (ScriptedSuggestions::proposedLevelDb, 1e-6));
-}
-
-TEST_CASE ("rejecting a Suggestion leaves the project, the undo stack and the redo stack alone")
-{
-    FabricatedSuggestion made;
-    REQUIRE (made.session.undo());
-    REQUIRE (made.session.redo());
-
-    const auto before = made.session.stateDigest();
-    const auto undoDepth = made.session.undoNames().size();
-    const auto redoDepth = made.session.redoNames().size();
-
-    REQUIRE (made.suggestions.audition (made.id()));
-    made.suggestions.reject (made.id());
-
-    REQUIRE (made.suggestions.cards().empty());
-    REQUIRE (made.session.stateDigest() == before);
-    REQUIRE (made.session.undoNames().size() == undoDepth);
-    REQUIRE (made.session.redoNames().size() == redoDepth);
-}
-
-TEST_CASE ("a Suggestion the producer has edited under is marked stale and stays auditionable")
-{
-    FabricatedSuggestion made;
-
-    REQUIRE_FALSE (made.suggestions.cards().front().stale);
-
-    made.session.performAction ("Move", [&] (auto& ops) { ops.moveClip (made.clip, 4.0); });
-    made.suggestions.refresh();
-
-    REQUIRE (made.suggestions.cards().front().stale);
-
-    // Stale takes away a Suggestion's claim to still fit, and nothing else.
-    REQUIRE (made.suggestions.audition (made.id()));
-    REQUIRE (made.clipCount() == 2);
-    made.suggestions.stopAudition();
+    REQUIRE (suggestions.redo ("sug-1"));
+    REQUIRE (source.redone == "sug-1");
+    REQUIRE (suggestions.cards().empty());
 }

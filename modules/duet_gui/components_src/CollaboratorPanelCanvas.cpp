@@ -65,11 +65,18 @@ public:
         compareButton.setComponentID (collaboratorId::suggestionCompare);
         acceptButton.setComponentID (collaboratorId::suggestionAccept);
         rejectButton.setComponentID (collaboratorId::suggestionReject);
+        redoButton.setComponentID (collaboratorId::suggestionRedo);
+        reason.setComponentID (collaboratorId::suggestionReason);
 
         auditionButton.setButtonText (Suggestions::auditionLabel);
         compareButton.setButtonText ("A/B");
         acceptButton.setButtonText (Suggestions::acceptLabel);
         rejectButton.setButtonText (Suggestions::rejectLabel);
+        redoButton.setButtonText (Suggestions::redoLabel);
+
+        reason.setMultiLine (false);
+        reason.setTextToShowWhenEmpty (Suggestions::rejectReasonHint,
+                                       toJuce (appearance.colour (ColourToken::textMuted)));
 
         // Audition is a place the producer goes and comes back from, so the
         // button that takes them in is the one that brings them out.
@@ -95,9 +102,17 @@ public:
             refresh();
         };
 
+        // Saying why is what turns a rejection into the next question, so the
+        // reason travels with it rather than being typed anywhere else.
         rejectButton.onClick = [this]
         {
-            suggestions.reject (id);
+            suggestions.reject (id, reason.getText().toStdString());
+            refresh();
+        };
+
+        redoButton.onClick = [this]
+        {
+            suggestions.redo (id);
             refresh();
         };
 
@@ -105,6 +120,8 @@ public:
         addChildComponent (compareButton);
         addAndMakeVisible (acceptButton);
         addAndMakeVisible (rejectButton);
+        addChildComponent (redoButton);
+        addAndMakeVisible (reason);
         refresh();
     }
 
@@ -123,10 +140,11 @@ public:
         if (view == nullptr)
             return appearance.scaled (suggestionHeaderHeight + (2 * bubblePadding));
 
-        return appearance.scaled (suggestionHeaderHeight + suggestionButtonRowHeight
-                                  + (2 * bubblePadding))
+        return appearance.scaled (suggestionHeaderHeight + suggestionReasonHeight
+                                  + suggestionButtonRowHeight + (2 * bubblePadding))
                + (static_cast<int> (view->elements.size())
-                  * appearance.scaled (suggestionElementHeight));
+                  * appearance.scaled (suggestionElementHeight))
+               + (view->stale ? appearance.scaled (suggestionButtonRowHeight) : 0);
     }
 
     /** Takes what the Suggestion says now onto the card: the rows it still has,
@@ -141,9 +159,10 @@ public:
             ticks.clear();
 
             for (auto* button : std::initializer_list<juce::Button*> {
-                     &auditionButton, &compareButton, &acceptButton, &rejectButton })
+                     &auditionButton, &compareButton, &acceptButton, &rejectButton, &redoButton })
                 button->setVisible (false);
 
+            reason.setVisible (false);
             repaint();
             return;
         }
@@ -151,6 +170,11 @@ public:
         auditionButton.setVisible (true);
         acceptButton.setVisible (true);
         rejectButton.setVisible (true);
+        reason.setVisible (true);
+
+        // The redo control belongs to a Suggestion the project has moved under,
+        // and there is nothing for it to do on one that still fits.
+        redoButton.setVisible (view->stale);
 
         while (ticks.size() > static_cast<int> (view->elements.size()))
             ticks.removeLast();
@@ -197,6 +221,13 @@ public:
 
         for (auto* tick : ticks)
             tick->setBounds (area.removeFromTop (appearance.scaled (suggestionElementHeight)));
+
+        if (redoButton.isVisible())
+            redoButton.setBounds (area.removeFromTop (appearance.scaled (suggestionButtonRowHeight))
+                                      .reduced (appearance.scaled (1)));
+
+        reason.setBounds (area.removeFromTop (appearance.scaled (suggestionReasonHeight))
+                              .reduced (appearance.scaled (1)));
 
         auto buttons = area.removeFromTop (appearance.scaled (suggestionButtonRowHeight));
         const auto each = juce::jmax (1, buttons.getWidth() / (compareButton.isVisible() ? 4 : 3));
@@ -293,6 +324,8 @@ private:
     juce::TextButton compareButton;
     juce::TextButton acceptButton;
     juce::TextButton rejectButton;
+    juce::TextButton redoButton;
+    juce::TextEditor reason;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SuggestionCard)
 };

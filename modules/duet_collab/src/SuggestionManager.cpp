@@ -508,6 +508,23 @@ public:
         return true;
     }
 
+    bool accept (std::string_view id, const std::vector<std::size_t>& elements)
+    {
+        auto* held = withPendingElements (id, elements);
+
+        if (held == nullptr)
+            return false;
+
+        apply (*held, chosenOf (*held, elements));
+
+        for (const auto element : elements)
+            held->info.elements.at (element) = ElementState::accepted;
+
+        resolve (*held);
+
+        return true;
+    }
+
     bool reject (std::string_view id)
     {
         auto* held = pending (id);
@@ -577,25 +594,14 @@ public:
     {
         auto* held = pending (id);
 
-        if (held == nullptr)
-            return false;
+        return held != nullptr && hear (*held, everythingLeftOf (*held));
+    }
 
-        stopAudition();
+    bool audition (std::string_view id, const std::vector<std::size_t>& elements)
+    {
+        auto* held = withPendingElements (id, elements);
 
-        // The model reads the operations it is auditioning for as long as the
-        // Audition lasts, so what it is given has to outlive the call.
-        live = std::make_unique<model::Suggestion> (everythingLeftOf (*held));
-
-        if (! session.auditionSuggestion (*live))
-        {
-            live.reset();
-
-            return false;
-        }
-
-        liveFor = held->info.made.id;
-
-        return true;
+        return held != nullptr && hear (*held, chosenOf (*held, elements));
     }
 
     void stopAudition()
@@ -661,6 +667,26 @@ private:
         return held;
     }
 
+    /** The Suggestion holding every one of these Elements still pending, and
+        nothing when one of them is not there to resolve. A list naming nothing
+        resolves nothing, so it is refused too.
+    */
+    [[nodiscard]] Held* withPendingElements (std::string_view id,
+                                             const std::vector<std::size_t>& elements)
+    {
+        auto* held = pending (id);
+
+        if (held == nullptr || elements.empty())
+            return nullptr;
+
+        for (const auto element : elements)
+            if (element >= held->info.elements.size()
+                || held->info.elements.at (element) != ElementState::pending)
+                return nullptr;
+
+        return held;
+    }
+
     /** Every Element of a Suggestion the producer has not resolved, as one
         operation list named for the whole: what accepting it now would do.
     */
@@ -673,6 +699,45 @@ private:
                 changes.append (held.info.made.elements.at (at).changes);
 
         return changes;
+    }
+
+    /** The Elements a list names, as one operation list: named for the Element
+        when it names one and for the whole when it names several, because that
+        is what the Action the producer undoes will be called.
+    */
+    [[nodiscard]] static model::Suggestion chosenOf (const Held& held,
+                                                     const std::vector<std::size_t>& elements)
+    {
+        model::Suggestion changes { elements.size() == 1
+                                        ? held.info.made.elements.at (elements.front()).description
+                                        : held.info.made.summary };
+
+        for (const auto element : elements)
+            changes.append (held.info.made.elements.at (element).changes);
+
+        return changes;
+    }
+
+    /** Puts an operation list in front of the producer without applying it.
+
+        The model reads what it is auditioning for as long as the Audition
+        lasts, so what it is given has to outlive the call.
+    */
+    bool hear (const Held& held, model::Suggestion changes)
+    {
+        stopAudition();
+        live = std::make_unique<model::Suggestion> (std::move (changes));
+
+        if (! session.auditionSuggestion (*live))
+        {
+            live.reset();
+
+            return false;
+        }
+
+        liveFor = held.info.made.id;
+
+        return true;
     }
 
     /** Ends an Audition of this Suggestion, and leaves another one's alone. */
@@ -869,6 +934,11 @@ bool SuggestionManager::rejectElement (std::string_view id, std::size_t element)
 
 bool SuggestionManager::accept (std::string_view id) { return impl->accept (id); }
 
+bool SuggestionManager::accept (std::string_view id, const std::vector<std::size_t>& elements)
+{
+    return impl->accept (id, elements);
+}
+
 bool SuggestionManager::reject (std::string_view id) { return impl->reject (id); }
 
 RunStart SuggestionManager::reply (std::string_view id, const std::string& what)
@@ -879,6 +949,11 @@ RunStart SuggestionManager::reply (std::string_view id, const std::string& what)
 RunStart SuggestionManager::redo (std::string_view id) { return impl->redo (id); }
 
 bool SuggestionManager::audition (std::string_view id) { return impl->audition (id); }
+
+bool SuggestionManager::audition (std::string_view id, const std::vector<std::size_t>& elements)
+{
+    return impl->audition (id, elements);
+}
 
 void SuggestionManager::stopAudition() { impl->stopAudition(); }
 

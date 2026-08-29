@@ -28,13 +28,19 @@ namespace collaboratorId
     */
     inline constexpr const char* estimateMark = "collaboratorEstimateMark";
 
-    /** The Suggestion card in the conversation, and the four gestures on it. */
+    /** The Suggestion card in the conversation, and the gestures on it. */
     inline constexpr const char* suggestionCard = "collaboratorSuggestionCard";
     inline constexpr const char* suggestionElement = "collaboratorSuggestionElement";
     inline constexpr const char* suggestionAudition = "collaboratorSuggestionAudition";
     inline constexpr const char* suggestionCompare = "collaboratorSuggestionCompare";
     inline constexpr const char* suggestionAccept = "collaboratorSuggestionAccept";
     inline constexpr const char* suggestionReject = "collaboratorSuggestionReject";
+
+    /** Where the producer says why a Suggestion is wrong, and the control a
+        Suggestion the project has moved under carries.
+    */
+    inline constexpr const char* suggestionReason = "collaboratorSuggestionReason";
+    inline constexpr const char* suggestionRedo = "collaboratorSuggestionRedo";
 } // namespace collaboratorId
 
 /** The right dock: the surface the Collaborator speaks from.
@@ -101,10 +107,12 @@ public:
     static constexpr int composerHeight = 66;
 
     /** The Suggestion card's own chrome, in logical units: the summary row, one
-        row per Element, and the row the three buttons sit on.
+        row per Element, the box a rejection reason is typed into, and the row
+        the buttons sit on.
     */
     static constexpr int suggestionHeaderHeight = 20;
     static constexpr int suggestionElementHeight = 22;
+    static constexpr int suggestionReasonHeight = 22;
     static constexpr int suggestionButtonRowHeight = 24;
 
     /** The estimate mark's own row, and one line of the ledger it opens onto. */

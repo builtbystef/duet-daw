@@ -747,3 +747,58 @@ TEST_CASE ("cherry-picked Elements that each create something keep their creatio
 
     REQUIRE (added == std::vector<std::string> { "Warm Pad", "Bright Lead" });
 }
+
+TEST_CASE ("accepting a chosen few Elements is one Action and leaves the rest pending", "[collab]")
+{
+    const TempProject project;
+    Session session { project.editFile() };
+
+    const auto trio = buildTrio (session);
+    Loop loop { session };
+
+    const auto id = loop.turn ("balance these three", "Balance the three", threeFaders (trio));
+    const auto before = session.stateDigest();
+    const auto historyBefore = session.undoNames().size();
+
+    // The producer unticked the middle row: what Accept applies is the first
+    // and the third, and it is still one thing on the undo history.
+    REQUIRE (loop->accept (id, { 0, 2 }));
+
+    REQUIRE (session.track (trio.bass).volumeDb == -3.0);
+    REQUIRE (session.track (trio.drums).volumeDb == -6.0);
+    REQUIRE (session.track (trio.pad).volumeDb == 0.0);
+    REQUIRE (session.undoNames().size() == historyBefore + 1);
+    REQUIRE (session.undoNames().front() == "Balance the three");
+
+    const auto midway = loop.held (id);
+
+    REQUIRE (midway.state == SuggestionState::pending);
+    REQUIRE (
+        midway.elements
+        == std::vector { ElementState::accepted, ElementState::pending, ElementState::accepted });
+
+    REQUIRE (session.undo());
+    REQUIRE (session.stateDigest() == before);
+}
+
+TEST_CASE ("auditioning a chosen few Elements hears those and nothing else", "[collab]")
+{
+    const TempProject project;
+    Session session { project.editFile() };
+
+    const auto trio = buildTrio (session);
+    Loop loop { session };
+
+    const auto id = loop.turn ("balance these three", "Balance the three", threeFaders (trio));
+    const auto before = session.stateDigest();
+
+    REQUIRE (loop->audition (id, { 0, 2 }));
+
+    REQUIRE (session.track (trio.bass).volumeDb == -3.0);
+    REQUIRE (session.track (trio.drums).volumeDb == -6.0);
+    REQUIRE (session.track (trio.pad).volumeDb == 0.0);
+
+    loop->stopAudition();
+
+    REQUIRE (session.stateDigest() == before);
+}

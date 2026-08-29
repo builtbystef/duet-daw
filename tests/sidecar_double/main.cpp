@@ -26,7 +26,9 @@
 #include <sys/un.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <chrono>
+#include <cstddef>
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
@@ -276,7 +278,15 @@ void performRun (Connection& connection,
         // The Tool Vocabulary driven from the far side of the seam: the script
         // argument is the list of calls to make, and every answer is reported
         // back so the assertion about it is made in the suite's own process.
-        const auto calls = Json::parse (scriptArgument, nullptr, false);
+        //
+        // A list of lists is one list per run, so that a conversation of several
+        // turns can answer each of them differently; the last one stands for
+        // every run after it.
+        auto calls = Json::parse (scriptArgument, nullptr, false);
+
+        if (calls.is_array() && ! calls.empty() && calls.front().is_array())
+            calls = calls.at (
+                std::min (static_cast<std::size_t> (std::max (runsSeen, 0)), calls.size() - 1));
 
         if (calls.is_array())
         {
@@ -569,9 +579,10 @@ try
         ++requestsSeen;
         reply (connection, message);
 
-        // Every run script reports what crossed the seam, so a test can assert on
-        // it and can wait for the moment the sidecar has it.
-        if (script.starts_with ("run-") && (method == "run.start" || method == "run.cancel"))
+        // Every script that runs anything reports what crossed the seam, so a
+        // test can assert on it and can wait for the moment the sidecar has it.
+        if ((script.starts_with ("run-") || script == "call-tools")
+            && (method == "run.start" || method == "run.cancel"))
             report (connection, nextReportId(), method, message.value ("params", Json::object()));
 
         if (method == "run.start")

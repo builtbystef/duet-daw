@@ -168,8 +168,18 @@ void CollaboratorPanel::setHistory (std::vector<ResolvedSuggestion> resolvedSugg
     resolved = std::move (resolvedSuggestions);
 }
 
-void CollaboratorPanel::showSuggestion (std::string id, std::string summary)
+void CollaboratorPanel::showSuggestion (std::string id, std::string summary, std::string revises)
 {
+    if (! revises.empty())
+        for (auto& entry : entries)
+            if (entry.kind == EntryKind::suggestion && entry.suggestion == revises)
+            {
+                entry.suggestion = std::move (id);
+                entry.text = std::move (summary);
+
+                return;
+            }
+
     entries.push_back ({ EntryKind::suggestion, std::move (summary), {}, std::move (id) });
 }
 

@@ -223,8 +223,15 @@ public:
     /** Puts a Suggestion's card in the conversation, where the producer asked
         for it. What the card then shows is the Suggestion's, not the panel's:
         this is the place it sits in and nothing more.
+
+        `revises` names the Suggestion this one was asked to improve on, and a
+        card of that Suggestion is replaced where it stands rather than joined:
+        a producer who rejected one Suggestion with a reason, or asked for the
+        same thing again, asked one question and is owed one card (spec
+        js437t). Empty, or naming a Suggestion this conversation never showed,
+        and the card is a new one at the end.
     */
-    void showSuggestion (std::string id, std::string summary);
+    void showSuggestion (std::string id, std::string summary, std::string revises = {});
 
     //==============================================================================
     /** The raw tool-call trace of the run on now, or of the last one there was.

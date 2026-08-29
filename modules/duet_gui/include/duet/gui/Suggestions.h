@@ -3,8 +3,6 @@
 #include <duet/model/Session.h>
 
 #include <cstddef>
-#include <cstdint>
-#include <functional>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -86,10 +84,9 @@ public:
     //==============================================================================
     /** Where the pending Suggestions come from and what resolving one does.
 
-        Spec js437t's Suggestion manager is what implements this in the finished
-        app; `ScriptedSuggestions` beneath is the development-only stand-in, so
-        that every state of the card and the ghosts is reachable before the
-        Collaborator's service exists.
+        Spec js437t's Suggestion manager is what implements this, through the
+        adapter that puts it on these surfaces: this module links no engine and
+        cannot name the manager, so the app is where the two meet.
     */
     class Source
     {
@@ -115,8 +112,20 @@ public:
         */
         virtual bool accept (std::string_view id, const std::vector<std::size_t>& elements) = 0;
 
-        /** Drops the whole Suggestion, applying nothing. */
-        virtual void reject (std::string_view id) = 0;
+        /** Drops the whole Suggestion, applying nothing.
+
+            `reason` is what the producer typed about it, and empty when they
+            typed nothing. It is first-class input to the revision the
+            rejection asks for (spec js437t), so it crosses here rather than
+            being lost between the card and whatever answers it.
+        */
+        virtual void reject (std::string_view id, const std::string& reason) = 0;
+
+        /** Asks the same question again, against the project as it now stands:
+            what the redo control on a stale Suggestion does. The Suggestion
+            goes and the answer arrives as a card of its own.
+        */
+        virtual bool redo (std::string_view id) = 0;
 
     protected:
         Source() = default;
@@ -181,8 +190,15 @@ public:
     */
     bool accept (std::string_view id);
 
-    /** Takes the whole Suggestion down, applying nothing. */
-    void reject (std::string_view id);
+    /** Takes the whole Suggestion down, applying nothing, and carries the
+        producer's reason to whatever asks for a better one.
+    */
+    void reject (std::string_view id, const std::string& reason = {});
+
+    /** Asks for this Suggestion again against the project as it now stands, and
+        takes it down. False when the source would not ask.
+    */
+    bool redo (std::string_view id);
 
     //==============================================================================
     /** How strongly one Element is drawn, in its card row and in its ghosts: as
@@ -228,8 +244,17 @@ public:
     static constexpr const char* acceptLabel = "Accept";
     static constexpr const char* rejectLabel = "Reject";
 
-    /** What marks a Suggestion the project has moved under. */
+    /** What marks a Suggestion the project has moved under, and what the
+        control beside the mark offers to do about it.
+    */
     static constexpr const char* staleLabel = "Stale";
+    static constexpr const char* redoLabel = "Redo against current state";
+
+    /** What the box the producer types a rejection reason into says when it is
+        empty. Saying why is the producer's to offer, not the panel's to
+        demand: Reject with nothing typed rejects.
+    */
+    static constexpr const char* rejectReasonHint = "Why not? (optional)";
 
     /** The two sides of the A/B, as the chip on an affected strip names them. */
     static constexpr const char* currentSideLabel = "A: CURRENT";
@@ -238,6 +263,9 @@ public:
 private:
     [[nodiscard]] std::size_t indexOf (std::string_view id) const;
     void hearProposed();
+
+    /** Drops the ticks kept for a Suggestion that has gone. */
+    void forget (std::string_view id);
 
     Source* source = nullptr;
     std::vector<SuggestionCardView> pending;
@@ -249,89 +277,5 @@ private:
 
     std::optional<std::string> audition_;
     bool proposedHeard = false;
-};
-
-/** The development-only Suggestions that stand in for the Collaborator's.
-
-    It speaks to no AI backend, opens no socket and reaches no network: it makes
-    one Suggestion of three Elements over the project as it stands — two clip
-    changes and a fader change — so that every state the card and the ghosts can
-    be in is reachable by hand before spec js437t's Suggestion manager is wired
-    to this interface. The mechanism it drives is the real one: an Audition is
-    the model's apply-and-revert, and an acceptance is one Action on the
-    producer's own undo history.
-
-    Staleness here is the whole project moving rather than the named things a
-    Suggestion touches — which is the manager's measurement, not a stand-in's —
-    so a producer edit of any kind marks it, and its own acceptance does not.
-*/
-class ScriptedSuggestions final : public Suggestions::Source
-{
-public:
-    ScriptedSuggestions() = default;
-
-    /** The project the Suggestion is made over, or nothing when none is open.
-        Whatever was pending goes with the project it was made against.
-    */
-    void setSession (duet::model::Session* openProject);
-
-    /** Makes the Suggestion. False when there is no project to make one over.
-        Only one stands at a time: making another replaces it.
-    */
-    bool fabricate();
-
-    /** Told whenever a Suggestion is made, so that the card can be put in the
-        conversation it belongs in.
-    */
-    void onSuggestionMade (std::function<void (std::string id, std::string summary)> notify);
-
-    [[nodiscard]] std::vector<SuggestionCardView> pending() override;
-    bool audition (std::string_view id, const std::vector<std::size_t>& elements) override;
-    void stopAudition() override;
-    bool accept (std::string_view id, const std::vector<std::size_t>& elements) override;
-    void reject (std::string_view id) override;
-
-    /** What the fabricated Suggestion asks the track's fader to read. */
-    static constexpr double proposedLevelDb = -3.0;
-
-    /** How far the fabricated Suggestion moves a clip, and how long the clips
-        it makes are.
-    */
-    static constexpr double movedByBeats = 4.0;
-    static constexpr double madeClipBeats = 4.0;
-
-private:
-    struct Element
-    {
-        SuggestionElementView view;
-        duet::model::Suggestion changes { "" };
-    };
-
-    struct Made
-    {
-        std::string id;
-        std::string summary;
-        std::vector<Element> elements;
-        std::uint64_t madeAtRevision = 0;
-    };
-
-    [[nodiscard]] duet::model::Suggestion applicable (const std::vector<std::size_t>& elements,
-                                                      std::string_view name) const;
-
-    /** Leaves a live Audition and carries the staleness baseline over it.
-
-        An Audition moves the revision twice — once putting the suggested state
-        in front of the producer and once taking it away — and neither is the
-        project moving under the Suggestion, because the second undoes the
-        first exactly. So the baseline moves by what the Audition spent, which
-        leaves a Suggestion that was stale before it stale after it.
-    */
-    void endAudition();
-
-    duet::model::Session* session = nullptr;
-    std::optional<Made> made;
-    std::function<void (std::string, std::string)> suggestionMade;
-    std::uint64_t revisionEnteringAudition = 0;
-    int fabricated = 0;
 };
 } // namespace duet::gui

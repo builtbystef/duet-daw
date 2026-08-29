@@ -13,8 +13,11 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include <algorithm>
+#include <cstddef>
 #include <filesystem>
 #include <string>
+#include <string_view>
+#include <vector>
 
 using duet::gui::Appearance;
 using duet::gui::CollaboratorPanelCanvas;
@@ -29,6 +32,101 @@ using duet::testing::surfaceOf;
 
 namespace
 {
+/** One Suggestion over the open project, as the surfaces read it.
+
+    This suite links the interface and nothing under it, so the Suggestion
+    manager cannot be named here — what is asserted is that the shell's three
+    surfaces read one `Suggestions` and that a gesture on the card reaches the
+    project. The mechanism behind the seam is the manager's own suite's, and
+    what puts the manager here is `duet::app::SuggestionSurfaces`.
+*/
+class FabricatedSource final : public duet::gui::Suggestions::Source
+{
+public:
+    FabricatedSource (duet::model::Session& openProject,
+                      duet::model::TrackRef track,
+                      duet::model::ClipRef clip)
+        : session (openProject), keys (track), verse (clip)
+    {
+    }
+
+    static constexpr double proposedLevelDb = -3.0;
+    static constexpr double movedToSeconds = 4.0;
+
+    [[nodiscard]] std::vector<duet::gui::SuggestionCardView> pending() override
+    {
+        if (resolved)
+            return {};
+
+        duet::gui::SuggestionCardView card;
+        card.id = "sug-1";
+        card.summary = "Rework the intro";
+
+        duet::gui::SuggestionElementView moved;
+        moved.description = "Move Verse later";
+        moved.clips.push_back (duet::gui::GhostClip { keys, "Verse", movedToSeconds, 4.0, true });
+
+        duet::gui::SuggestionElementView lifted;
+        lifted.description = "Bring Keys up";
+        lifted.faders.push_back (duet::gui::GhostFader { keys, proposedLevelDb });
+
+        card.elements = { moved, lifted };
+
+        return { card };
+    }
+
+    bool audition (std::string_view /*id*/, const std::vector<std::size_t>& elements) override
+    {
+        return session.auditionSuggestion (changes ("Rework the intro", elements));
+    }
+
+    void stopAudition() override { session.stopAudition(); }
+
+    bool accept (std::string_view /*id*/, const std::vector<std::size_t>& elements) override
+    {
+        if (! session.acceptSuggestion (changes ("Rework the intro", elements)))
+            return false;
+
+        resolved = true;
+
+        return true;
+    }
+
+    void reject (std::string_view /*id*/, const std::string& /*reason*/) override
+    {
+        resolved = true;
+    }
+
+    bool redo (std::string_view /*id*/) override
+    {
+        resolved = true;
+
+        return true;
+    }
+
+private:
+    [[nodiscard]] duet::model::Suggestion changes (std::string_view name,
+                                                   const std::vector<std::size_t>& elements) const
+    {
+        duet::model::Suggestion applied { std::string { name } };
+
+        for (const auto element : elements)
+        {
+            if (element == 0)
+                applied.moveClip (verse, movedToSeconds);
+            else
+                applied.setTrackVolumeDb (keys, proposedLevelDb);
+        }
+
+        return applied;
+    }
+
+    duet::model::Session& session;
+    duet::model::TrackRef keys;
+    duet::model::ClipRef verse;
+    bool resolved = false;
+};
+
 /** The window, with the Collaborator panel found inside it. */
 struct OpenShell
 {
@@ -343,21 +441,24 @@ TEST_CASE ("a run that succeeds comes back with a Suggestion, and every surface 
     const auto file = editFile ("collaborator-suggestion");
     duet::model::Session session { file };
     duet::model::TrackRef track = duet::model::noTrack;
+    duet::model::ClipRef clip = duet::model::noClip;
 
     session.performAction ("Something to suggest over",
                            [&] (auto& ops)
                            {
                                track = ops.createTrack (duet::model::TrackKind::midi, "Keys");
-                               ops.insertMidiClip (track, "Verse", 0.0, 4.0);
+                               clip = ops.insertMidiClip (track, "Verse", 0.0, 4.0);
                            });
     open.shell.setSession (&session);
 
-    // A run that succeeds comes back with a Suggestion. What makes one before
-    // issue 2suzzi wires the Suggestion manager to these surfaces is the shell's
-    // development source.
+    FabricatedSource source { session, track, clip };
+    open.shell.pendingSuggestions().setSource (&source);
+
+    // A run that succeeds comes back with a Suggestion, and its card goes in the
+    // conversation the producer asked in.
     open.type ("Rework the intro");
     open.click (duet::gui::collaboratorId::send);
-    REQUIRE (open.shell.developmentSuggestions().fabricate());
+    open.panel->model().showSuggestion ("sug-1", "Rework the intro");
     open.panel->refresh();
 
     const auto& conversation = open.panel->model().conversation();
