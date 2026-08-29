@@ -886,3 +886,25 @@ of audio after.
 **Duet.** `DetachedProject` in `Session.cpp` builds its copy through
 `Edit::createEdit`, with the project item ID read off the copied state and the
 retriever pointing at the project's own edit file.
+
+### A plugin made through the cache has its parameters before it is in a chain
+
+**The engine.** `PluginCache::createNewPlugin` builds and fully initialises the
+plugin, and a built-in declares its automatable parameters — their IDs, names,
+value ranges and `valueToString` — in its own constructor. The returned
+`Plugin::Ptr` therefore answers `getAutomatableParameters` while nothing in the
+Edit points at it, and releasing the pointer is the whole of putting it away:
+the Edit's state never held it, so neither the project nor its undo history
+records that it existed.
+
+**Where.** `PluginCache::createNewPlugin` in `tracktion_PluginCache.cpp`;
+`AutomatableEditItem::addAutomatableParameter`, called from each built-in's
+constructor.
+
+**Proved.** `w1nar1`, on the dev machine 2026-08-28. A compressor made this way
+and thrown away reported the same parameter IDs, ends and units as one added to
+a track, and the project's state digest was untouched.
+
+**Duet.** `Session::builtinPluginParameters` answers what a built-in has this
+way, so `suggest` can hold a parameter of a plugin an element is only adding to
+the plugin's own range without a second table of ranges to drift from the first.

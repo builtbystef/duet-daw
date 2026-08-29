@@ -938,6 +938,21 @@ public:
     /** A plugin's parameters, in the order the plugin declares them. */
     [[nodiscard]] std::vector<PluginParameterInfo> pluginParameters (PluginRef plugin) const;
 
+    /** What one of the built-ins has, before the project holds one of it.
+
+        Duet ships them, so what a built-in's parameters are is a fact that does
+        not wait on an instance in a chain: the ids, the two ends, the skew and
+        the units are the ones an added instance reports, read off a plugin made
+        and thrown away here rather than off a second table that could drift
+        from the first. The value and the display string are the plugin's own
+        defaults, which is all an untouched plugin has to say about itself.
+
+        Empty for a built-in with no automatable parameters, which the engine's
+        sampler is.
+    */
+    [[nodiscard]] std::vector<PluginParameterInfo>
+        builtinPluginParameters (BuiltinPlugin plugin) const;
+
     /** A hosted plugin's current opaque state. Empty for an unavailable or
         engine-built plugin.
     */

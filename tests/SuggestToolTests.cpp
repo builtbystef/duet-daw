@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <optional>
 #include <string>
 
 using duet::collab::Json;
@@ -125,6 +126,31 @@ Corpus buildCorpus (Session& session, const TempProject& project)
     built.note = session.notes (built.riff).front().note;
 
     return built;
+}
+
+/** The scanned VST3 fixture's known-list identifier, and nothing when this
+    build cannot scan one.
+*/
+std::optional<std::string> scannedFixture (Session& session, const TempProject& project)
+{
+    const auto pluginDirectory = project.folder() / "vst3";
+    std::filesystem::create_directory (pluginDirectory);
+    std::filesystem::copy (DUET_GOOD_VST3_FIXTURE,
+                           pluginDirectory
+                               / std::filesystem::path { DUET_GOOD_VST3_FIXTURE }.filename(),
+                           std::filesystem::copy_options::recursive
+                               | std::filesystem::copy_options::overwrite_existing);
+
+    if (! session.canHostVst3() || ! session.scanVst3Plugins (pluginDirectory).completed)
+        return {};
+
+    const auto known = session.knownVst3Plugins();
+    const auto scanned = std::find_if (known.begin(),
+                                       known.end(),
+                                       [] (const duet::model::KnownPluginInfo& plugin)
+                                       { return plugin.name == "Duet Good VST3 Fixture"; });
+
+    return scanned == known.end() ? std::nullopt : std::optional { scanned->identifier };
 }
 
 std::string trackId (TrackRef track) { return duet::collab::toolId::forTrack (track); }
@@ -587,30 +613,65 @@ TEST_CASE ("a built-in parameter is written in real units and an external one no
     REQUIRE (run.result (1).contains ("suggestionId"));
 }
 
+TEST_CASE ("a parameter of a built-in the element is adding is held to what that plugin has",
+           "[collab]")
+{
+    const TempProject project;
+    Session session { project.editFile() };
+
+    const auto built = buildCorpus (session, project);
+
+    const auto addAndSet = [&] (const std::string& paramId, double value)
+    {
+        return suggestCall (
+            "Compress the bus",
+            Json::array ({ suggestElement (
+                "Put a compressor on the bus and set it",
+                Json::array ({ operation ("plugin.add",
+                                          { { "trackId", trackId (built.bus) },
+                                            { "position", 0 },
+                                            { "plugin", Json { { "builtin", "compressor" } } },
+                                            { "ref", "#compressor" } }),
+                               operation ("plugin.setParam",
+                                          { { "pluginId", "#compressor" },
+                                            { "paramId", paramId },
+                                            { "value", value } }) })) }));
+    };
+
+    // Duet ships the compressor, so what it has and what its ratio may be are
+    // both known before the element's own first operation makes one.
+    const ToolRun run { session,
+                        Json::array ({ addAndSet ("mix", 0.5),
+                                       addAndSet ("ratio", 0.05),
+                                       addAndSet ("ratio", 4.0) }) };
+
+    REQUIRE (run.finished());
+
+    REQUIRE (run.result (0).empty());
+    REQUIRE_THAT (run.error (0).at ("message").get<std::string>(),
+                  Catch::Matchers::ContainsSubstring ("mix"));
+    REQUIRE_THAT (run.error (0).at ("message").get<std::string>(),
+                  Catch::Matchers::ContainsSubstring ("elements[0].operations[1]"));
+
+    REQUIRE (run.result (1).empty());
+    REQUIRE_THAT (run.error (1).at ("message").get<std::string>(),
+                  Catch::Matchers::ContainsSubstring ("value"));
+    REQUIRE_THAT (run.error (1).at ("message").get<std::string>(),
+                  Catch::Matchers::ContainsSubstring ("elements[0].operations[1]"));
+
+    REQUIRE (run.result (2).contains ("suggestionId"));
+}
+
 TEST_CASE ("a scanned plugin's parameter is written normalized and a real-unit value is refused",
            "[collab]")
 {
     const TempProject project;
-    const auto pluginDirectory = project.folder() / "vst3";
-    std::filesystem::create_directory (pluginDirectory);
-    std::filesystem::copy (DUET_GOOD_VST3_FIXTURE,
-                           pluginDirectory
-                               / std::filesystem::path { DUET_GOOD_VST3_FIXTURE }.filename(),
-                           std::filesystem::copy_options::recursive
-                               | std::filesystem::copy_options::overwrite_existing);
-
     Session session { project.editFile() };
 
-    if (! session.canHostVst3() || ! session.scanVst3Plugins (pluginDirectory).completed)
+    const auto fixture = scannedFixture (session, project);
+
+    if (! fixture.has_value())
         SKIP ("this build cannot scan VST3s");
-
-    const auto known = session.knownVst3Plugins();
-    const auto scanned = std::find_if (known.begin(),
-                                       known.end(),
-                                       [] (const duet::model::KnownPluginInfo& plugin)
-                                       { return plugin.name == "Duet Good VST3 Fixture"; });
-
-    REQUIRE (scanned != known.end());
 
     duet::model::PluginRef hosted = duet::model::noPlugin;
 
@@ -618,7 +679,7 @@ TEST_CASE ("a scanned plugin's parameter is written normalized and a real-unit v
                            [&] (auto& ops)
                            {
                                const auto track = ops.createTrack (TrackKind::audio, "Tone");
-                               hosted = ops.addPlugin (track, scanned->identifier, 0);
+                               hosted = ops.addPlugin (track, *fixture, 0);
                            });
 
     const auto parameterId = session.pluginParameters (hosted).front().parameterId;
@@ -643,6 +704,55 @@ TEST_CASE ("a scanned plugin's parameter is written normalized and a real-unit v
     REQUIRE (run.result (0).empty());
     REQUIRE_THAT (run.error (0).at ("message").get<std::string>(),
                   Catch::Matchers::ContainsSubstring ("value"));
+    REQUIRE (run.result (1).contains ("suggestionId"));
+}
+
+TEST_CASE ("a parameter of a scanned plugin the element is adding is held to 0 and 1", "[collab]")
+{
+    const TempProject project;
+    Session session { project.editFile() };
+
+    const auto fixture = scannedFixture (session, project);
+
+    if (! fixture.has_value())
+        SKIP ("this build cannot scan VST3s");
+
+    TrackRef tone = duet::model::noTrack;
+
+    session.performAction ("Make room for it",
+                           [&] (auto& ops) { tone = ops.createTrack (TrackKind::audio, "Tone"); });
+
+    const auto addAndSet = [&] (double value)
+    {
+        return suggestCall (
+            "Put the fixture on the tone",
+            Json::array ({ suggestElement (
+                "Add the fixture and set its first parameter",
+                Json::array ({ operation ("plugin.add",
+                                          { { "trackId", trackId (tone) },
+                                            { "position", 0 },
+                                            { "plugin", Json { { "external", *fixture } } },
+                                            { "ref", "#fixture" } }),
+                               operation ("plugin.setParam",
+                                          { { "pluginId", "#fixture" },
+                                            { "paramId", "gain" },
+                                            { "value", value } }) })) }));
+    };
+
+    // Which parameters a plugin Duet did not ship has is the vendor's answer
+    // and there is nothing to ask until the plugin exists. What its numbers
+    // are is not: they are the normalised 0..1 every VST3 speaks, so a value
+    // written in some other domain is refused here as it is anywhere else.
+    const ToolRun run { session, Json::array ({ addAndSet (4.0), addAndSet (0.5) }) };
+
+    REQUIRE (run.finished());
+
+    REQUIRE (run.result (0).empty());
+    REQUIRE_THAT (run.error (0).at ("message").get<std::string>(),
+                  Catch::Matchers::ContainsSubstring ("value"));
+    REQUIRE_THAT (run.error (0).at ("message").get<std::string>(),
+                  Catch::Matchers::ContainsSubstring ("elements[0].operations[1]"));
+
     REQUIRE (run.result (1).contains ("suggestionId"));
 }
 

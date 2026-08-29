@@ -223,6 +223,12 @@ namespace
         Kind kind = Kind::track;
         bool isPlaceholder = false;
 
+        /** Which built-in a plugin an earlier operation adds is, and nothing
+            for an external one — the only thing about a plugin that does not
+            exist yet that says what parameters it is going to have.
+        */
+        std::optional<model::BuiltinPlugin> builtin;
+
         /** The project's own reference, and nothing for a placeholder, whose
             reference does not exist yet and cannot be read about.
         */
@@ -334,6 +340,22 @@ namespace
             return {};
         }
 
+        /** One of a built-in's parameters, before the project holds one of it.
+
+            Duet ships the built-ins, so this is a fact about the plugin and not
+            about any instance of it, which is what makes it answerable for a
+            plugin an element is only adding.
+        */
+        [[nodiscard]] std::optional<model::PluginParameterInfo>
+            builtinParameter (model::BuiltinPlugin plugin, const std::string& parameterId) const
+        {
+            for (const auto& held : parametersOf (plugin))
+                if (held.parameterId == parameterId)
+                    return held;
+
+            return {};
+        }
+
         [[nodiscard]] bool knowsExternal (const std::string& identifier) const
         {
             const auto known = session.knownVst3Plugins();
@@ -346,7 +368,25 @@ namespace
         [[nodiscard]] const Session& read() const { return session; }
 
     private:
+        /** What a built-in has, asked of the model once for each built-in a
+            call names: the model makes a plugin to answer it, and one element
+            may set several parameters of the same one.
+        */
+        [[nodiscard]] const std::vector<model::PluginParameterInfo>&
+            parametersOf (model::BuiltinPlugin plugin) const
+        {
+            const auto found = builtins.find (plugin);
+
+            if (found != builtins.end())
+                return found->second;
+
+            return builtins.emplace (plugin, session.builtinPluginParameters (plugin))
+                .first->second;
+        }
+
         const Session& session;
+
+        mutable std::map<model::BuiltinPlugin, std::vector<model::PluginParameterInfo>> builtins;
     };
 
     //==============================================================================
@@ -427,14 +467,18 @@ namespace
         }
 
         /** Records what an operation makes, under the name the call gave it. */
-        Problem declare (const Json& operation, Kind kind, const model::SuggestionRef& made)
+        Problem declare (const Json& operation,
+                         Kind kind,
+                         const model::SuggestionRef& made,
+                         std::optional<model::BuiltinPlugin> builtin = {})
         {
-            return declareAs (text (operation, "ref"), kind, made);
+            return declareAs (text (operation, "ref"), kind, made, builtin);
         }
 
         Problem declareAs (const std::optional<std::string>& name,
                            Kind kind,
-                           const model::SuggestionRef& made)
+                           const model::SuggestionRef& made,
+                           std::optional<model::BuiltinPlugin> builtin = {})
         {
             if (! name.has_value())
                 return {};
@@ -446,7 +490,7 @@ namespace
             if (declared.contains (*name))
                 return "this element already declares " + *name;
 
-            declared[*name] = { made, kind, true };
+            declared[*name] = { made, kind, true, builtin };
 
             return {};
         }
@@ -668,15 +712,16 @@ namespace
     }
 
     /** The two ends a parameter's value has to be inside, and nothing when the
-        plugin is one this element has yet to add.
+        parameter is one nothing can be asked about.
 
         Duet owns what a built-in's numbers mean and holds them to the plugin's
-        own range, in the real units the read side reported. It does not own a
+        own range, in the real units the read side reported — for a plugin an
+        earlier operation of the element adds just as much as for one the
+        project already holds, since which parameters a built-in has is a fact
+        about the plugin and not about an instance of it. It does not own a
         scanned plugin's mapping, so an external parameter is the normalised
         0..1 the plugin itself speaks, and a number in the wrong one of those
-        two domains is refused rather than quietly converted. A plugin an
-        earlier operation adds has no parameters to ask about yet, and that is
-        the one case where a value crosses unchecked.
+        two domains is refused rather than quietly converted.
     */
     std::optional<std::pair<double, double>>
         parameterRange (const Element& element, const Resolved& plugin, const std::string& paramId)
@@ -684,7 +729,19 @@ namespace
         const auto ref = plugin.inProject();
 
         if (! ref.has_value())
-            return {};
+        {
+            // An external plugin the element adds: 0..1 is the whole of what
+            // Duet can say about a mapping it does not own, and it is enough to
+            // refuse a number written in some other domain.
+            if (! plugin.builtin.has_value())
+                return std::pair { normalisedLowest, normalisedHighest };
+
+            const auto stated = element.reads().builtinParameter (*plugin.builtin, paramId);
+
+            return stated.has_value()
+                       ? std::optional { std::pair { stated->minValue, stated->maxValue } }
+                       : std::nullopt;
+        }
 
         const auto parameter = element.reads().parameter (*ref, paramId);
 
@@ -699,14 +756,21 @@ namespace
         return std::pair { parameter->minValue, parameter->maxValue };
     }
 
-    /** Whether a plugin declares a parameter at all, which only a plugin the
-        project already holds can be asked.
+    /** Whether a plugin declares a parameter at all.
+
+        An external plugin an element adds is the one thing that cannot be
+        asked: Duet does not ship it, so what it has is the vendor's own answer
+        and there is nothing to ask until the plugin exists.
     */
     bool hasParameter (const Element& element, const Resolved& plugin, const std::string& paramId)
     {
         const auto ref = plugin.inProject();
 
-        return ! ref.has_value() || element.reads().parameter (*ref, paramId).has_value();
+        if (! ref.has_value())
+            return ! plugin.builtin.has_value()
+                   || element.reads().builtinParameter (*plugin.builtin, paramId).has_value();
+
+        return element.reads().parameter (*ref, paramId).has_value();
     }
 
     /** The curve an automation operation is drawn on, and the two ends its
@@ -1304,7 +1368,8 @@ namespace
 
             return element.declare (operation,
                                     Kind::plugin,
-                                    element.changes().addPlugin (track.target, *plugin, position));
+                                    element.changes().addPlugin (track.target, *plugin, position),
+                                    plugin);
         }
 
         const auto external = text (*which, "external");

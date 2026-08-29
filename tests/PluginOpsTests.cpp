@@ -280,6 +280,54 @@ TEST_CASE ("every parameter of every built-in says what its number is, and takes
     REQUIRE (silent == withoutUnit.at (builtin));
 }
 
+TEST_CASE ("what a built-in's parameters are is known before one is in the project")
+{
+    const TempProject project;
+    Session session { project.editFile() };
+
+    const auto stated = session.builtinPluginParameters (BuiltinPlugin::compressor);
+    const auto ratio =
+        std::ranges::find (stated, "ratio", &duet::model::PluginParameterInfo::parameterId);
+
+    REQUIRE (ratio != stated.end());
+    REQUIRE (ratio->unit == ":1");
+
+    // Four to one is a ratio the producer can ask for; the 0.05 the engine
+    // keeps underneath for it is not one at all.
+    REQUIRE (ratio->minValue > 0.05);
+    REQUIRE (ratio->minValue <= 4.0);
+    REQUIRE (ratio->maxValue >= 4.0);
+
+    PluginRef compressor = duet::model::noPlugin;
+
+    session.performAction ("Compress the bass",
+                           [&] (auto& ops)
+                           {
+                               const auto bass = ops.createTrack (TrackKind::audio, "Bass");
+                               compressor = ops.addPlugin (bass, BuiltinPlugin::compressor, 0);
+                           });
+
+    // The same thing an instance says about itself, said before there is one.
+    const auto held = session.pluginParameters (compressor);
+
+    REQUIRE (held.size() == stated.size());
+    REQUIRE_FALSE (held.empty());
+
+    for (std::size_t at = 0; at < held.size(); ++at)
+    {
+        INFO ("parameter " << held[at].parameterId);
+
+        REQUIRE (held[at].parameterId == stated[at].parameterId);
+        REQUIRE (held[at].unit == stated[at].unit);
+        REQUIRE_THAT (held[at].minValue, WithinAbs (stated[at].minValue, 0.000001));
+        REQUIRE_THAT (held[at].maxValue, WithinAbs (stated[at].maxValue, 0.000001));
+    }
+
+    // The engine's sampler has no automatable parameters, and saying so is not
+    // the same as having nothing to say about the plugin.
+    REQUIRE (session.builtinPluginParameters (BuiltinPlugin::sampler).empty());
+}
+
 TEST_CASE ("a chain position counts the producer's plugins, not the ones Duet put there")
 {
     const TempProject project;

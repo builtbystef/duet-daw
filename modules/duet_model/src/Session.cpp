@@ -834,35 +834,54 @@ std::vector<NoteInfo> Session::notes (ClipRef clip) const
     return out;
 }
 
+namespace
+{
+    /** Every parameter of one plugin, as the facade speaks them. */
+    std::vector<PluginParameterInfo> describeParameters (te::Plugin& plugin)
+    {
+        std::vector<PluginParameterInfo> out;
+
+        for (auto* parameter : plugin.getAutomatableParameters())
+        {
+            const auto held = parameter->getCurrentExplicitValue();
+
+            // A reciprocal turns the range end for end, so the ends are sorted
+            // after the conversion rather than converted in place.
+            const auto oneEnd =
+                realParameterValue (*parameter, parameter->getValueRange().getStart());
+            const auto otherEnd =
+                realParameterValue (*parameter, parameter->getValueRange().getEnd());
+
+            out.push_back ({ parameter->paramID.toStdString(),
+                             parameter->getParameterName().toStdString(),
+                             realParameterValue (*parameter, held),
+                             std::min (oneEnd, otherEnd),
+                             std::max (oneEnd, otherEnd),
+                             parameterSkew (*parameter),
+                             parameter->valueToString (held).toStdString(),
+                             unitOf (plugin, parameter->paramID.toStdString()) });
+        }
+
+        return out;
+    }
+} // namespace
+
 std::vector<PluginParameterInfo> Session::pluginParameters (PluginRef plugin) const
 {
-    std::vector<PluginParameterInfo> out;
-
     auto* p = impl->pluginFor (plugin);
 
-    if (p == nullptr)
-        return out;
+    return p == nullptr ? std::vector<PluginParameterInfo> {} : describeParameters (*p);
+}
 
-    for (auto* parameter : p->getAutomatableParameters())
-    {
-        const auto held = parameter->getCurrentExplicitValue();
+std::vector<PluginParameterInfo> Session::builtinPluginParameters (BuiltinPlugin plugin) const
+{
+    // Made outside every chain and released with the reference: the plugin
+    // cache hands out one that nothing in the edit points at, so asking it what
+    // it has leaves the project exactly as it was.
+    const te::Plugin::Ptr made =
+        impl->edit->getPluginCache().createNewPlugin (engineTypeOf (plugin), {});
 
-        // A reciprocal turns the range end for end, so the ends are sorted
-        // after the conversion rather than converted in place.
-        const auto oneEnd = realParameterValue (*parameter, parameter->getValueRange().getStart());
-        const auto otherEnd = realParameterValue (*parameter, parameter->getValueRange().getEnd());
-
-        out.push_back ({ parameter->paramID.toStdString(),
-                         parameter->getParameterName().toStdString(),
-                         realParameterValue (*parameter, held),
-                         std::min (oneEnd, otherEnd),
-                         std::max (oneEnd, otherEnd),
-                         parameterSkew (*parameter),
-                         parameter->valueToString (held).toStdString(),
-                         unitOf (*p, parameter->paramID.toStdString()) });
-    }
-
-    return out;
+    return made == nullptr ? std::vector<PluginParameterInfo> {} : describeParameters (*made);
 }
 
 std::string Session::pluginOpaqueState (PluginRef plugin) const

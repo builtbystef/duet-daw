@@ -1,13 +1,14 @@
 ---
 id: w1nar1
 title: A Suggestion can set a parameter on a plugin it is adding, and nothing checks it
-state: todo
+state: done
+assignee: claude
 priority: low
 labels:
     - bug
 parent: js437t
 created: 2026-08-27T06:53:13Z
-updated: 2026-08-27T06:53:13Z
+updated: 2026-08-29T01:47:52Z
 ---
 
 ## What is wrong
@@ -52,3 +53,21 @@ something that can be checked.
 - [ ] An element that adds an external plugin and then sets a parameter outside
       0..1 is refused.
 - [ ] `SuggestTool.h` no longer names a value that crosses unchecked.
+
+## Notes
+
+**claude** — 2026-08-29T01:26:05Z
+
+Seams for this work: `Session` for what a built-in's parameters are without an instance (tests/PluginOpsTests.cpp), and the `suggest` tool through the ToolRun harness for every acceptance criterion (tests/SuggestToolTests.cpp) — the outermost seam that can observe a refusal and its position.
+
+**claude** — 2026-08-29T01:47:52Z
+
+Done. The model states what a built-in has, which is the first of the two options the body named; the closure principle keeps the whole gesture in one element.
+
+`Session::builtinPluginParameters (BuiltinPlugin)` answers the ids, ends, skew and units of a built-in's parameters with no instance in the project: the plugin cache makes one, `describeParameters` (extracted from `pluginParameters`, so the two cannot drift) reads it, and the reference releases it. Nothing in the Edit ever points at it, so the project state and the undo history are untouched — recorded as a further fact in `docs/ENGINE_NOTES.md`.
+
+In `suggest`, a resolved placeholder now carries which built-in it is going to be (nothing for an external), so `hasParameter` and `parameterRange` answer for a plugin the element is only adding: a built-in against its own parameter list in real units, an external against 0..1. `automation.setPoints` on a `pluginParam` target goes through the same two helpers, so a curve drawn on a plugin the element adds is held the same way.
+
+The one thing still unasked is a scanned plugin's parameter *ids* — the vendor's own, and unknowable before the plugin exists. `SuggestTool.h` says so where it used to name an unchecked value.
+
+Checks: format, lint, and the full suite (492 tests) all pass.
