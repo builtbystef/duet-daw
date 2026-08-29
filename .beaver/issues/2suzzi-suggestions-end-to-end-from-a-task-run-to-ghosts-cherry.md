@@ -11,7 +11,7 @@ depends_on:
     - 0wdwin
 parent: js437t
 created: 2026-08-12T04:03:58Z
-updated: 2026-08-29T00:07:57Z
+updated: 2026-08-29T07:02:43Z
 ---
 
 ## What to build
@@ -151,3 +151,94 @@ diagnostics, full Debug build clean, and 473/473 CTest entries pass.
 
 **This issue's closure waits for your review.** Close it to approve, or note the
 changes you want and remove the `needs-review` label.
+
+**claude** — 2026-08-29T06:22:26Z
+
+Criterion 10 was run against a real provider (openai:gpt-5.6-terra) twice on
+2026-08-29. It has not passed, and the two failures were different — which is
+itself the finding.
+
+Run 1 reached the staleness step, 25/26 assertions. The loop worked: the model
+read the measured facts ("nearly all of their measured energy is below 500 Hz"),
+suggested lifting the Keys 6 dB and opening the filter to 2.2 kHz, the
+cherry-pick applied one of two Elements as one Action, and the revision declined
+to brighten further and offered a chorus instead. Staleness then failed, and the
+staleness rule was not at fault: the revision was made of `plugin.setParam` on
+the Keys synth, whose reference set is one plugin id and nothing else, and the
+case's hard-coded edit moved a clip, changed a track fader and the tempo — all
+of which miss a plugin's description. The fixture's own comment claimed "every
+Suggestion about it must name this track or this clip", which is not true of
+this vocabulary. Fixed in the working tree: the staleness step now reads the
+first id the revision's operations name and edits that entity — a track's
+volume, a clip's start, a plugin's bypass, a note's velocity — asserts the
+digest moved, and fails loudly if the revision names nothing. Each Element's
+operations are now printed, so a live failure is diagnosable from the transcript.
+The scripted path passes with it, 29 assertions.
+
+Run 2 failed at the first turn instead: the model answered with commentary and
+called `suggest` at no point. Its advice was sound and grounded in the measured
+facts, and js437t says the Collaborator "answers with commentary, a Suggestion,
+or both" — so a free-form question ("The keys feel buried. What would you do?")
+answered with prose is the spec working, not failing. The case nonetheless
+REQUIREs a card on turn one.
+
+The decision this needs, and the reason it is not resolved here: criterion 10 as
+written is not reliably satisfiable, because it asks a live model for a
+Suggestion the spec does not oblige it to make. Either the request becomes
+directive so `suggest` is the expected answer, or the case tolerates a
+commentary-only turn and asks again, or the criterion is accepted as a
+best-effort manual check and the run recorded as evidence. That is a spec
+question, not a mechanical one.
+
+**claude** — 2026-08-29T07:02:43Z
+
+Criterion 10 now passes against a real provider. Run of 2026-08-29,
+DUET_LIVE_MODEL=openai:gpt-5.6-terra, 36 assertions in 2 cases, all passing.
+
+What the criterion asked to be recorded, one turn at a time:
+
+Request — "The keys feel buried. Change the mix so they sit forward, and give me
+each change on its own so I can take some and leave others."
+
+Suggestion — "Bring the Keys forward with independent level and tone options",
+two Elements: raise the Keys fader 3 dB (one ghost fader), and open the synth
+filter 440 Hz to 1.6 kHz. Grounded in what it read, not guessed: "I found the
+Keys are at -12 dB, with the synth filter closed down at 440 Hz."
+  {"op":"mixer.set","trackId":"track-1010","volumeDb":-9}
+  {"op":"plugin.setParam","pluginId":"plugin-1013","paramId":"filterFreq","value":1600}
+
+Audition — heard in place, digest 1c51e6daf041c5d1, and A/B restored it exactly.
+
+Cherry-pick — 1 of 2 Elements applied, as one Action named for the Element.
+
+Revision — "Give the Keys a wider, more forward position": chorusMix and
+ampAttack, both `plugin.setParam` on plugin-1013, replacing the card in place.
+
+Staleness — the case edits what the revision names, which here was a plugin and
+nothing else. Bypassing plugin-1013 marked the card stale and left it
+auditionable.
+
+Redo — and this is the turn worth reading. The model saw the state the staleness
+edit had left: "The 4OSC instrument is currently bypassed, so the Keys cannot
+render at all", and offered to restore the instrument and then, separately, lift
+the Keys from -9 dB to -6 dB. The redo carried what had changed and the answer
+was made against it.
+
+History — both superseded Suggestions recorded as "asked again".
+
+Two changes were needed to get there, both in the case and neither in the
+product. The staleness step now derives its edit from the revision's operations
+(recorded in the note above). And the request is now directive and asks for
+separable changes: js437t has the Collaborator answer "with commentary, a
+Suggestion, or both", so an open question earns prose as readily as a change —
+one earlier run answered with advice and called `suggest` at no point — and a
+one-Element Suggestion is fully resolved by the cherry-pick, which leaves the
+rejection step nothing pending to reply to. The cherry-pick now requires more
+than one Element and says so, rather than failing three steps later on a null
+card.
+
+Noted while there, pre-existing and not this issue's: in the other [live] case,
+the model calls `get_track_analysis` four times and is refused each time with
+`unknownTool`. The sidecar advertises the tool and the registry in that case's
+fixture does not hold it. Every tool is registered under the ordinary
+`setSession` path, so this is that case's harness and not the shipping app.

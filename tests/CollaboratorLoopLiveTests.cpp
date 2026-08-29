@@ -27,6 +27,7 @@
 
 #include <duet/app/Collaborator.h>
 #include <duet/collab/ProjectTools.h>
+#include <duet/collab/SuggestionManager.h>
 #include <duet/gui/CollaboratorPanel.h>
 #include <duet/gui/Suggestions.h>
 #include <duet/model/Session.h>
@@ -39,6 +40,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -80,12 +82,127 @@ std::string fromEnvironment (const char* name)
     return value == nullptr ? std::string {} : std::string { value };
 }
 
+namespace toolId = duet::collab::toolId;
+
+/** The Suggestion as the manager holds it, which is the only place the raw
+    operations survive: the card carries descriptions and ghosts, not the call.
+*/
+std::optional<duet::collab::SuggestionInfo> madeSuggestion (duet::app::Collaborator& collaborator,
+                                                            const std::string& id)
+{
+    auto* const manager = collaborator.suggestionManager();
+
+    return manager == nullptr ? std::nullopt : manager->suggestion (id);
+}
+
+/** Every id anywhere inside one operation, whatever field it was written in.
+
+    The same walk the manager measures staleness with, because a list of field
+    names would miss the one that matters: `plugin.setParam` names its plugin
+    in `pluginId` and names nothing else at all.
+*/
+void idsIn (const Json& value, std::vector<std::string>& found)
+{
+    std::vector<const Json*> unread { &value };
+
+    while (! unread.empty())
+    {
+        const auto* next = unread.back();
+        unread.pop_back();
+
+        if (next->is_string())
+        {
+            auto text = next->get<std::string>();
+
+            if (toolId::toTrack (text).has_value() || toolId::toClip (text).has_value()
+                || toolId::toPlugin (text).has_value() || toolId::toNote (text).has_value())
+                found.push_back (std::move (text));
+
+            continue;
+        }
+
+        if (next->is_object() || next->is_array())
+            for (const auto& under : *next)
+                unread.push_back (&under);
+    }
+}
+
+/** The first id a Suggestion's operations name, and empty when they name none. */
+std::string firstIdNamed (duet::app::Collaborator& collaborator, const std::string& id)
+{
+    const auto made = madeSuggestion (collaborator, id);
+
+    if (! made.has_value())
+        return {};
+
+    for (const auto& element : made->made.elements)
+        for (const auto& operation : element.operations)
+        {
+            std::vector<std::string> found;
+            idsIn (operation, found);
+
+            if (! found.empty())
+                return found.front();
+        }
+
+    return {};
+}
+
+/** Prints a Suggestion's operations as the call gave them. */
+void printOperations (duet::app::Collaborator& collaborator, const std::string& id)
+{
+    const auto made = madeSuggestion (collaborator, id);
+
+    if (! made.has_value())
+        return;
+
+    for (const auto& element : made->made.elements)
+        for (const auto& operation : element.operations)
+            std::cout << "     op: " << operation.dump() << "\n";
+}
+
+double clipStartOf (const Session& session, duet::model::ClipRef clip)
+{
+    for (const auto& track : session.tracks())
+        for (const auto& info : track.clips)
+            if (info.clip == clip)
+                return info.startSeconds;
+
+    return 0.0;
+}
+
+bool bypassedNow (const Session& session, duet::model::PluginRef plugin)
+{
+    for (const auto& track : session.tracks())
+        for (const auto& info : track.plugins)
+            if (info.plugin == plugin)
+                return info.bypassed;
+
+    for (const auto& info : session.master().plugins)
+        if (info.plugin == plugin)
+            return info.bypassed;
+
+    return false;
+}
+
+int velocityOf (const Session& session, duet::model::NoteRef note)
+{
+    for (const auto& track : session.tracks())
+        for (const auto& clip : track.clips)
+            for (const auto& info : session.notes (clip.clip))
+                if (info.note == note)
+                    return info.velocity;
+
+    return 0;
+}
+
 /** A small project with something worth suggesting a change to: one MIDI track
     carrying one four-bar idea, under a fader that has been left low.
 
-    Small on purpose — every Suggestion about it must name this track or this
-    clip, which is what lets the case edit the project under one and know that
-    it has gone stale.
+    Small on purpose, but not small enough to constrain what a Suggestion may
+    name: an operation such as `plugin.setParam` names one plugin and no track
+    and no clip, so what the staleness step edits is read off the Suggestion's
+    own operations rather than assumed to be this track or this clip.
 */
 struct Fixture
 {
@@ -211,7 +328,7 @@ TEST_CASE ("the whole Duet Loop runs against a real backend on a fixture project
     }
 
     CollaboratorPanel panel;
-    Harness harness { arguments, std::filesystem::path { liveSidecar } };
+    const Harness harness { arguments, std::filesystem::path { liveSidecar } };
 
     Collaborator collaborator { *harness,
                                 panel,
@@ -227,9 +344,11 @@ TEST_CASE ("the whole Duet Loop runs against a real backend on a fixture project
 
     harness->start();
 
-    const auto configured = harness->configure (model, Json { { "project", "Live fixture" } });
-    INFO ("configure: " << configured.error.message);
-    REQUIRE (configured.succeeded);
+    {
+        const auto configured = harness->configure (model, Json { { "project", "Live fixture" } });
+        INFO ("configure: " << configured.error.message);
+        REQUIRE (configured.succeeded);
+    }
 
     const auto say = [] (const std::string& what) { std::cout << "\n=== " << what << " ===\n"; };
 
@@ -269,7 +388,14 @@ TEST_CASE ("the whole Duet Loop runs against a real backend on a fixture project
 
     //==============================================================================
     say ("the request");
-    const std::string request = "The keys feel buried. What would you do?";
+    // Directive on purpose. js437t has the Collaborator answer "with commentary,
+    // a Suggestion, or both", so an open question is answered with prose as
+    // readily as with a change — measured on 2026-08-29, where two runs of this
+    // case on the same request answered differently. What this case is about is
+    // the loop a Suggestion goes round, so it asks for one.
+    const std::string request = "The keys feel buried. Change the mix so they sit forward, "
+                                "and give me each change on its own so I can take some and "
+                                "leave others.";
     panel.setComposerText (request);
     panel.send();
 
@@ -286,6 +412,11 @@ TEST_CASE ("the whole Duet Loop runs against a real backend on a fixture project
     for (const auto& element : card->elements)
         std::cout << "   - " << element.description << " (" << element.clips.size()
                   << " ghost clips, " << element.faders.size() << " ghost faders)\n";
+
+    // The operations, not only the prose: what a Suggestion names is what the
+    // staleness step edits, and with a live provider this print is the only
+    // record of what the model chose to name.
+    printOperations (collaborator, first);
 
     // Nothing has moved: a Suggestion is data until the producer accepts it.
     const auto beforeAnything = fixture.session.stateDigest();
@@ -307,8 +438,16 @@ TEST_CASE ("the whole Duet Loop runs against a real backend on a fixture project
     say ("the cherry-pick");
     const auto rows = suggestions.card (first)->elements.size();
 
-    if (rows > 1)
-        suggestions.setChecked (first, rows - 1, false);
+    // Cherry-picking needs something to leave behind, and so does the rejection
+    // that follows it: a Suggestion every Element of which is accepted is
+    // resolved, and a resolved one cannot be replied to. The request asks for
+    // separable changes for this reason, and a model that answered with one
+    // Element has not met the criterion — which is worth saying here rather
+    // than as a null card three steps further on.
+    INFO ("the Suggestion came back with " << rows << " Element(s)");
+    REQUIRE (rows > 1);
+
+    suggestions.setChecked (first, rows - 1, false);
 
     std::cout << "  applying " << suggestions.checkedElements (first).size() << " of " << rows
               << " Elements\n";
@@ -358,13 +497,49 @@ TEST_CASE ("the whole Duet Loop runs against a real backend on a fixture project
     say ("the staleness");
     REQUIRE_FALSE (suggestions.cards().front().stale);
 
-    fixture.session.performAction ("the producer edits under it",
-                                   [&fixture] (duet::model::EditOps& ops)
-                                   {
-                                       ops.moveClip (fixture.verse, 6.0);
-                                       ops.setTrackVolumeDb (fixture.keys, -9.0);
-                                       ops.setTempo (124.0);
-                                   });
+    printOperations (collaborator, second);
+
+    // The producer edits the thing the revision is about. Which thing that is
+    // belongs to the model, so it is read off the revision's own operations: a
+    // Suggestion made only of `plugin.setParam` names a plugin and nothing
+    // else, and the fader and the clip and the tempo all miss it.
+    const auto named = firstIdNamed (collaborator, second);
+    INFO ("the revision names: " << named);
+    REQUIRE_FALSE (named.empty());
+
+    const auto beforeTheEdit = fixture.session.stateDigest();
+
+    fixture.session.performAction (
+        "the producer edits under it",
+        [&fixture, &named] (duet::model::EditOps& ops)
+        {
+            if (const auto track = toolId::toTrack (named))
+            {
+                ops.setTrackVolumeDb (*track, fixture.session.track (*track).volumeDb - 3.0);
+                return;
+            }
+
+            if (const auto clip = toolId::toClip (named))
+            {
+                ops.moveClip (*clip, clipStartOf (fixture.session, *clip) + 2.0);
+                return;
+            }
+
+            if (const auto plugin = toolId::toPlugin (named))
+            {
+                // Bypass is in every plugin's description, so flipping it is
+                // the one edit that shows on any plugin at all.
+                ops.setPluginBypassed (*plugin, ! bypassedNow (fixture.session, *plugin));
+                return;
+            }
+
+            if (const auto note = toolId::toNote (named))
+                ops.setNoteVelocity (*note, velocityOf (fixture.session, *note) == 100 ? 64 : 100);
+        });
+
+    // An edit that changed nothing would make the staleness below vacuous.
+    REQUIRE (fixture.session.stateDigest() != beforeTheEdit);
+
     suggestions.refresh();
 
     REQUIRE (suggestions.card (second) != nullptr);
