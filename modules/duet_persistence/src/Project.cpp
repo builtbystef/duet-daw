@@ -355,7 +355,14 @@ Project::Project (std::filesystem::path folder,
     editSession->onProjectChanged ([this] { unsavedChanges = true; });
 }
 
-Project::~Project() = default;
+Project::~Project()
+{
+    // The model can outlive this facade: a measurement rendering on the
+    // Collaborator's own thread holds the project it is reading, and lets go of
+    // it when it stops (issue 9tdwdq). What it must not go on holding is a
+    // callback over this object.
+    editSession->onProjectChanged ({});
+}
 
 //==============================================================================
 bool Project::save()

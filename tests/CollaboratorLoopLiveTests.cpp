@@ -337,7 +337,7 @@ TEST_CASE ("the whole Duet Loop runs against a real backend on a fixture project
                                     duet::testing::messageThreadMarshal(),
                                     duet::testing::messageThreadPost() } };
 
-    collaborator.setSession (&fixture.session, fixture.project.folder());
+    collaborator.setSession (duet::testing::lent (fixture.session), fixture.project.folder());
 
     Suggestions suggestions;
     suggestions.setSource (&collaborator.suggestionSurfaces());

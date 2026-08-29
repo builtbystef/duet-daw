@@ -1,5 +1,7 @@
 #include <duet/collab/ToolDispatch.h>
 
+#include <memory>
+#include <mutex>
 #include <utility>
 
 namespace duet::collab
@@ -23,12 +25,43 @@ namespace
     }
 } // namespace
 
-void ToolRegistry::add (std::string name, Tool tool) { tools[std::move (name)] = std::move (tool); }
+std::shared_ptr<const ToolRegistry::Vocabulary> ToolRegistry::held() const
+{
+    const std::lock_guard lock (swapMutex);
 
-void ToolRegistry::clear() { tools.clear(); }
+    return vocabulary;
+}
+
+void ToolRegistry::replace (Vocabulary next)
+{
+    auto replacement = std::make_shared<const Vocabulary> (std::move (next));
+    const std::lock_guard lock (swapMutex);
+    vocabulary = std::move (replacement);
+}
+
+void ToolRegistry::add (std::string name, Tool tool)
+{
+    Vocabulary next = *held();
+    next.tools[std::move (name)] = std::move (tool);
+    replace (std::move (next));
+}
+
+void ToolRegistry::hold (std::shared_ptr<void> whatTheyRead)
+{
+    Vocabulary next = *held();
+    next.read = std::move (whatTheyRead);
+    replace (std::move (next));
+}
+
+void ToolRegistry::clear() { replace (Vocabulary {}); }
 
 RpcOutcome ToolRegistry::call (const Json& params) const
 {
+    // The hold is taken before the name is even read, and let go only when the
+    // tool has answered: what the tools read cannot be taken away underneath
+    // one, whatever the message thread does meanwhile.
+    const auto vocabularyHeld = held();
+
     ToolCall toolCall;
 
     if (params.is_object())
@@ -45,9 +78,9 @@ RpcOutcome ToolRegistry::call (const Json& params) const
     if (toolCall.tool.empty())
         return RpcOutcome::failure (rpcError::invalidParams, "a tool call needs a tool name");
 
-    const auto found = tools.find (toolCall.tool);
+    const auto found = vocabularyHeld->tools.find (toolCall.tool);
 
-    if (found == tools.end())
+    if (found == vocabularyHeld->tools.end())
         return RpcOutcome::failure (rpcError::unknownTool,
                                     "there is no tool called " + toolCall.tool);
 

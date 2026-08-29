@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <memory>
 #include <numbers>
 #include <utility>
 
@@ -149,6 +150,10 @@ std::filesystem::path TempProject::writeChords (std::string_view fileName,
 
     return file;
 }
+
+MessageLoop::MessageLoop() : initialiser (std::make_shared<juce::ScopedJuceInitialiser_GUI>()) {}
+
+MessageLoop::~MessageLoop() = default;
 
 void pumpMessages (int milliseconds)
 {

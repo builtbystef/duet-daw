@@ -86,6 +86,20 @@ public:
     /** The model that edits this project. */
     [[nodiscard]] duet::model::Session& session() const { return *editSession; }
 
+    /** The same model, as a hold that keeps it alive.
+
+        What the Collaborator takes: a measurement renders the project on the
+        service's own thread, and the swap that closes a project is a message
+        thread call that cannot wait for a render — tearing one down needs the
+        message loop running. So the render holds the project it is reading, and
+        the project outlives the folder it belonged to for as long as the render
+        does (issue 9tdwdq).
+    */
+    [[nodiscard]] std::shared_ptr<duet::model::Session> sessionHandle() const
+    {
+        return editSession;
+    }
+
     /** Writes the project to its folder.
 
         A snapshot, never the engine's own flush-and-save path: the state is
@@ -187,7 +201,7 @@ private:
     void writeViewState();
 
     std::filesystem::path projectFolder;
-    std::unique_ptr<duet::model::Session> editSession;
+    std::shared_ptr<duet::model::Session> editSession;
     std::function<DataNode()> captureViewState;
     std::chrono::steady_clock::time_point lastAutosaveTick = std::chrono::steady_clock::now();
     AutosaveInterval autosaveEvery = defaultAutosaveInterval;

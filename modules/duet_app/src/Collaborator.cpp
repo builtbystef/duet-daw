@@ -1,6 +1,8 @@
 #include <duet/app/Collaborator.h>
 
+#include <algorithm>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <utility>
 #include <vector>
@@ -46,9 +48,11 @@ namespace
 Collaborator::Collaborator (duet::collab::CollaboratorService& collaboratorService,
                             duet::gui::CollaboratorPanel& conversationPanel,
                             OpeningContextSource openingContext,
-                            MessageThread threadAccess)
+                            MessageThread threadAccess,
+                            TrackRendererFor trackRenderer)
     : service (collaboratorService), panel (conversationPanel),
-      openingContextOf (std::move (openingContext)), messageThread (std::move (threadAccess))
+      openingContextOf (std::move (openingContext)), messageThread (std::move (threadAccess)),
+      trackRendererFor (std::move (trackRenderer))
 {
     service.setMethodHandler ("tool.call",
                               [this] (const Json& params) { return answerToolCall (params); });
@@ -60,16 +64,25 @@ Collaborator::Collaborator (duet::collab::CollaboratorService& collaboratorServi
 Collaborator::~Collaborator()
 {
     // The order matters: the panel stops asking first, then the service stops
-    // telling, and only then does the token that a posted event checks go. What
-    // is left in flight after that finds nothing to touch.
+    // telling and stops asking for a tool, and only then does the token that a
+    // posted event checks go. What is left in flight after that finds nothing
+    // to touch.
     panel.setSource (nullptr);
     service.setTaskRunListener (nullptr);
     service.setEstimateLedger (nullptr);
+    service.setMethodHandler ("tool.call", {});
     life.reset();
+
+    // The service is stopped before this object goes — that is what anything
+    // holding the two owes them — so no call is inside a project any more, and
+    // every one of them is put down here, on the thread that may put one down.
+    registry.clear();
+    open.reset();
+    retired.clear();
 }
 
 //==============================================================================
-void Collaborator::setSession (duet::model::Session* openProject,
+void Collaborator::setSession (std::shared_ptr<duet::model::Session> openProject,
                                std::filesystem::path renderFolder)
 {
     // A run about a project that is going is a run about nothing, so it ends
@@ -78,20 +91,26 @@ void Collaborator::setSession (duet::model::Session* openProject,
         service.cancelRun (shownRun);
 
     surfaces.setManager (nullptr, nullptr);
+    suggestions.reset();
 
-    // The registry holds a callable over each of these, so it must forget them
-    // before they go: a `tool.call` answered from a handler whose object has
-    // been destroyed is a use-after-free, and a project is detached on every
-    // New, Open and Save As, and stays detached when opening one fails.
+    // The registry answers no more calls out of the project that is going, and
+    // lets go of it: a project is detached on every New, Open and Save As, and
+    // stays detached when opening one fails.
     registry.clear();
 
-    suggestions.reset();
-    writes.reset();
-    estimated.reset();
-    measured.reset();
-    reads.reset();
-    renders.reset();
-    session = openProject;
+    // What a call is still inside is not destroyed here. This returns to the
+    // producer at once, and a measurement rendering on the service thread needs
+    // the message loop to take its copy down, so waiting for one here would be
+    // the message thread waiting for itself.
+    {
+        const std::lock_guard lock (openMutex);
+
+        if (open != nullptr)
+            retired.push_back (std::exchange (open, nullptr));
+    }
+
+    putDownWhatIsFinishedWith();
+    session = openProject.get();
 
     if (session == nullptr)
     {
@@ -101,31 +120,61 @@ void Collaborator::setSession (duet::model::Session* openProject,
     }
 
     auto marshal = readMarshalFor (session);
+    auto taking = std::make_shared<OpenProject>();
+    auto& project = *openProject;
+    taking->project = std::move (openProject);
 
-    renders = std::make_unique<duet::collab::TrackRenders> (
-        duet::collab::offlineTrackRenderer (*session),
+    taking->renders = std::make_unique<duet::collab::TrackRenders> (
+        trackRendererFor ? trackRendererFor (project)
+                         : duet::collab::offlineTrackRenderer (project),
         std::move (renderFolder),
         [this] (const std::string& runId) { return service.isRunInProgress (runId); });
 
-    reads = std::make_unique<duet::collab::ProjectTools> (*session, marshal);
-    measured = std::make_unique<duet::collab::TrackAnalysis> (*session, marshal, *renders);
-    estimated =
-        std::make_unique<duet::collab::ContentEstimates> (*session, marshal, *renders, ledger);
-    writes = std::make_unique<duet::collab::SuggestTool> (*session, marshal, &ledger);
+    taking->reads = std::make_unique<duet::collab::ProjectTools> (project, marshal);
+    taking->measured =
+        std::make_unique<duet::collab::TrackAnalysis> (project, marshal, *taking->renders);
+    taking->estimated = std::make_unique<duet::collab::ContentEstimates> (
+        project, marshal, *taking->renders, ledger);
+    taking->writes = std::make_unique<duet::collab::SuggestTool> (project, marshal, &ledger);
 
     // The Duet Loop is the open project's: what a Suggestion names lives there,
     // and a Suggestion made against the project before it is not a Suggestion
     // about this one.
     suggestions = std::make_unique<duet::collab::SuggestionManager> (
-        *session, [this] (const std::string& prompt) { return startRun (prompt); });
+        project, [this] (const std::string& prompt) { return startRun (prompt); });
 
-    reads->addTo (registry);
-    measured->addTo (registry);
-    estimated->addTo (registry);
-    writes->addTo (registry);
+    taking->reads->addTo (registry);
+    taking->measured->addTo (registry);
+    taking->estimated->addTo (registry);
+    taking->writes->addTo (registry);
+    registry.hold (taking);
+
+    {
+        const std::lock_guard lock (openMutex);
+        open = std::move (taking);
+    }
 
     surfaces.setManager (suggestions.get(), session);
     refreshHistory();
+}
+
+std::shared_ptr<Collaborator::OpenProject> Collaborator::heldProject() const
+{
+    const std::lock_guard lock (openMutex);
+
+    return open;
+}
+
+void Collaborator::putDownWhatIsFinishedWith()
+{
+    // The list is the only hold left on a project no call is inside, so a
+    // count of one is what says the last call is out of it.
+    const auto finished = std::remove_if (retired.begin(),
+                                          retired.end(),
+                                          [] (const std::shared_ptr<OpenProject>& closed)
+                                          { return closed.use_count() == 1; });
+
+    retired.erase (finished, retired.end());
 }
 
 void Collaborator::refreshHistory()
@@ -258,8 +307,15 @@ duet::collab::RpcOutcome Collaborator::answerToolCall (const Json& params)
     auto tool = params.value ("tool", std::string {});
 
     if (outcome.succeeded && tool == "suggest")
-        holdSuggestion (params.value ("runId", std::string {}),
-                        outcome.result.value ("suggestionId", std::string {}));
+    {
+        // The project of the moment, and not the one the call was answered out
+        // of: a Suggestion about a project the producer has since closed is a
+        // Suggestion about nothing, and there is nothing left to hold it in.
+        if (const auto project = heldProject(); project != nullptr)
+            holdSuggestion (*project->writes,
+                            params.value ("runId", std::string {}),
+                            outcome.result.value ("suggestionId", std::string {}));
+    }
 
     auto arguments = params.value ("args", Json::object()).dump();
     auto result =
@@ -277,12 +333,14 @@ duet::collab::RpcOutcome Collaborator::answerToolCall (const Json& params)
     return outcome;
 }
 
-void Collaborator::holdSuggestion (const std::string& runId, const std::string& suggestionId)
+void Collaborator::holdSuggestion (duet::collab::SuggestTool& madeBy,
+                                   const std::string& runId,
+                                   const std::string& suggestionId)
 {
-    if (writes == nullptr || suggestionId.empty())
+    if (suggestionId.empty())
         return;
 
-    auto made = writes->suggestion (suggestionId);
+    auto made = madeBy.suggestion (suggestionId);
 
     if (! made.has_value())
         return;
@@ -313,10 +371,17 @@ void Collaborator::onMessageThread (std::function<void()> work)
         return;
 
     messageThread.post (
-        [held = std::weak_ptr<int> { life }, work = std::move (work)]
+        [this, held = std::weak_ptr<int> { life }, work = std::move (work)]
         {
-            if (! held.expired())
-                work();
+            if (held.expired())
+                return;
+
+            work();
+
+            // Every event of a run crosses here, so this is where a project the
+            // producer closed while a call was inside it is finally put down —
+            // on the message thread, which is the only thread that may.
+            putDownWhatIsFinishedWith();
         });
 }
 

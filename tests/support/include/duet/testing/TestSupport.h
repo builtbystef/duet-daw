@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <functional>
 #include <map>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -84,6 +85,30 @@ public:
 
 private:
     std::filesystem::path projectFolder;
+};
+
+/** Keeps this process's message loop up for as long as this object lives.
+
+    A `Session` carries the JUCE initialiser the loop belongs to, so the last
+    Session put down takes the loop with it. The application holds an
+    initialiser of its own for its whole life and never meets that; a case that
+    puts a project down from inside the loop — which is where a project a tool
+    call was still inside is put down — holds one too, or the loop is destroyed
+    while it is running.
+*/
+class MessageLoop
+{
+public:
+    MessageLoop();
+    ~MessageLoop();
+
+    MessageLoop (const MessageLoop&) = delete;
+    MessageLoop (MessageLoop&&) = delete;
+    MessageLoop& operator= (const MessageLoop&) = delete;
+    MessageLoop& operator= (MessageLoop&&) = delete;
+
+private:
+    std::shared_ptr<void> initialiser;
 };
 
 /** Runs the message loop for approximately this many milliseconds, so that the

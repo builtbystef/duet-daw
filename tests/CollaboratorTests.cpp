@@ -9,9 +9,15 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <condition_variable>
+#include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <memory>
+#include <mutex>
 #include <string>
+#include <thread>
+#include <utility>
 #include <vector>
 
 using duet::app::Collaborator;
@@ -76,14 +82,16 @@ struct PanelOnService
 {
     explicit PanelOnService (const std::string& script,
                              const std::vector<std::string>& scriptArguments = {},
-                             const std::filesystem::path& executable = DUET_SIDECAR_DOUBLE)
+                             const std::filesystem::path& executable = DUET_SIDECAR_DOUBLE,
+                             Collaborator::TrackRendererFor trackRenderer = {})
         : harness (script, scriptArguments, executable),
           bridge (
               *harness,
               panel,
               [this] { return opening; },
               Collaborator::MessageThread { duet::testing::messageThreadMarshal(),
-                                            duet::testing::messageThreadPost() })
+                                            duet::testing::messageThreadPost() },
+              std::move (trackRenderer))
     {
         // The suite asserts about both kinds of build, and only one of them is
         // ever compiled here, so each test says which it is talking about.
@@ -286,7 +294,7 @@ TEST_CASE ("the producer keeps playing and editing while a run is in flight", "[
     const auto bass = buildTrack (session);
 
     PanelOnService fixture { "run-hang-once" };
-    fixture.bridge.setSession (&session, folder.folder());
+    fixture.bridge.setSession (duet::testing::lent (session), folder.folder());
 
     REQUIRE (duet::testing::playUntilRolling (session));
 
@@ -340,7 +348,7 @@ TEST_CASE ("the producer keeps recording while a run is in flight", "[collab]")
     session.setTrackRecordArmed (keys, true);
 
     PanelOnService fixture { "run-hang-once" };
-    fixture.bridge.setSession (&session, folder.folder());
+    fixture.bridge.setSession (duet::testing::lent (session), folder.folder());
 
     // Record on settled devices starts the take at once and on devices that have
     // only just gone quiet waits out the rest of the pre-roll, so the case waits
@@ -445,7 +453,7 @@ TEST_CASE ("a failed run leaves one plain line and the DAW keeps working", "[col
     const auto bass = buildTrack (session);
 
     PanelOnService fixture { "run-fail" };
-    fixture.bridge.setSession (&session, folder.folder());
+    fixture.bridge.setSession (duet::testing::lent (session), folder.folder());
 
     fixture.ask ("something's off in the drop");
 
@@ -549,7 +557,7 @@ TEST_CASE ("a run that was handed no guess carries no mark, and its tools read t
                                       duet::testing::toolCommentary ("One track, called Bass.") });
 
     PanelOnService fixture { "call-tools", { calls.dump() } };
-    fixture.bridge.setSession (&session, project.folder());
+    fixture.bridge.setSession (duet::testing::lent (session), project.folder());
 
     fixture.ask ("what is in this project?");
 
@@ -573,6 +581,240 @@ TEST_CASE ("a run that was handed no guess carries no mark, and its tools read t
     REQUIRE (duet::testing::trackEntry (answered, bass).at ("name") == "Bass");
 }
 
+namespace
+{
+/** A measurement's render, stopped where it stands until the case lets it
+    through.
+
+    What `get_track_analysis` does on the Collaborator service's own thread, and
+    the only part of answering a tool call that is not the message thread's: the
+    real one is inside `Session::renderDetachedTrackToFile` for seconds, holding
+    the project. This is that moment held open, so that a project swap can be
+    driven into the middle of it — and the project is read on the far side of
+    the wait, which is where a project destroyed meanwhile would be read after
+    it had gone.
+*/
+class HeldRender
+{
+public:
+    /** The renderer the Collaborator measures one project with.
+
+        The closure is the project's, and goes when the project does, so what it
+        carries records where that happened: a project must be put down on the
+        message thread, and the thread that let the last call out of one is not
+        that thread.
+    */
+    [[nodiscard]] duet::collab::TrackRenderer over (Session& session)
+    {
+        return
+            [this, &session, farewell = std::make_shared<Farewell> (&putDownThread)] (
+                duet::model::TrackRef, const std::filesystem::path&, const std::function<bool()>&)
+        {
+            {
+                std::unique_lock<std::mutex> lock { mutex };
+                arrived = true;
+                letThrough.wait (lock, [this] { return released; });
+            }
+
+            // The project, on the far side of the wait.
+            readAfterwards = session.revision();
+
+            const std::lock_guard<std::mutex> lock { mutex };
+            arrived = false;
+
+            // Nothing was rendered: the run that asked has been canceled, which
+            // is what a render abandoned between blocks answers.
+            return false;
+        };
+    }
+
+    /** Whether the service thread is inside the render right now. */
+    [[nodiscard]] bool isInside() const
+    {
+        const std::lock_guard<std::mutex> lock { mutex };
+
+        return arrived;
+    }
+
+    void release()
+    {
+        {
+            const std::lock_guard<std::mutex> lock { mutex };
+            released = true;
+        }
+
+        letThrough.notify_all();
+    }
+
+    /** What the project said when the render read it on the far side of the
+        wait, which is after the producer closed it.
+    */
+    [[nodiscard]] std::uint64_t readWhenReleased() const
+    {
+        const std::lock_guard<std::mutex> lock { mutex };
+
+        return readAfterwards;
+    }
+
+    /** The thread the project this render belonged to was put down on. */
+    [[nodiscard]] std::thread::id putDownOn() const { return putDownThread; }
+
+private:
+    /** Writes down where it was destroyed, which is where the project holding
+        it was destroyed.
+    */
+    struct Farewell
+    {
+        explicit Farewell (std::thread::id* where) : recordIn (where) {}
+
+        ~Farewell() { *recordIn = std::this_thread::get_id(); }
+
+        Farewell (const Farewell&) = delete;
+        Farewell (Farewell&&) = delete;
+        Farewell& operator= (const Farewell&) = delete;
+        Farewell& operator= (Farewell&&) = delete;
+
+        std::thread::id* recordIn;
+    };
+
+    mutable std::mutex mutex;
+    std::condition_variable letThrough;
+    bool arrived = false;
+    bool released = false;
+    std::uint64_t readAfterwards = 0;
+    std::thread::id putDownThread;
+};
+
+/** How many endings the conversation holds: a canceled run writes one notice,
+    and a failed one writes one failure line.
+*/
+std::size_t endingsIn (const CollaboratorPanel& panel)
+{
+    std::size_t endings = 0;
+
+    for (const auto& entry : panel.conversation())
+        if (entry.kind == EntryKind::notice || entry.kind == EntryKind::failure)
+            ++endings;
+
+    return endings;
+}
+} // namespace
+
+TEST_CASE ("a project closed while a measurement renders is not read once it has gone", "[collab]")
+{
+    // The project is put down from inside the message loop here, and it is the
+    // last one this case holds: without this the loop would go with it.
+    const duet::testing::MessageLoop loop;
+
+    const TempProject folder;
+    auto project = duet::persistence::Project::create (folder.folder() / "Project");
+
+    REQUIRE (project != nullptr);
+
+    auto held = project->sessionHandle();
+    const std::weak_ptr<Session> watching = held;
+    const auto bass = buildTrack (*held);
+
+    HeldRender render;
+    const Json calls = Json::array ({ duet::testing::toolCall ("get_track_analysis", bass) });
+
+    PanelOnService fixture { "call-tools",
+                             { calls.dump() },
+                             DUET_SIDECAR_DOUBLE,
+                             [&render] (Session& session) { return render.over (session); } };
+
+    fixture.bridge.setSession (held, folder.folder());
+    fixture.ask ("how loud is the bass?");
+
+    // The service thread is inside the render, which is where a measurement
+    // spends its seconds.
+    REQUIRE (pumpUntil ([&] { return render.isInside(); }, runTimeoutMs));
+
+    // New, Open and Save As all do this, and it returns to the producer at
+    // once: nothing here waits for the render, which could not be waited for
+    // anyway — taking a render's copy down needs the message loop running, so a
+    // message thread waiting on one would be waiting on itself.
+    fixture.bridge.setSession (nullptr, {});
+
+    REQUIRE (render.isInside());
+
+    // The producer's own hold on the project goes with the project the swap
+    // closed. The render still holds it, so what it is about to read is still
+    // there rather than freed underneath it.
+    const auto revisionWhenClosed = held->revision();
+
+    project.reset();
+    held.reset();
+
+    REQUIRE_FALSE (watching.expired());
+
+    render.release();
+
+    // The run about the project that has gone reaches its ending, and the panel
+    // shows one — the cancel the swap asked for, and nothing after it.
+    REQUIRE (fixture.settled());
+    pumpMessages (settleMs);
+
+    REQUIRE (endingsIn (fixture.panel) == 1);
+
+    // What the render read after the producer had closed the project is the
+    // project it entered, still saying what it said.
+    REQUIRE (render.readWhenReleased() == revisionWhenClosed);
+
+    // And the project the render was holding is put down once the last call is
+    // out of it — on the message thread, which is the only thread that may put
+    // one down, and not on the service thread that let the call out.
+    REQUIRE (pumpUntil ([&] { return watching.expired(); }, runTimeoutMs));
+    REQUIRE (render.putDownOn() == std::this_thread::get_id());
+}
+
+TEST_CASE ("a Collaborator that has gone answers no tool call either", "[collab]")
+{
+    const TempProject project;
+    Session session { project.editFile() };
+
+    static_cast<void> (buildTrack (session));
+
+    const Json calls = Json::array ({ duet::testing::toolCall ("list_tracks") });
+
+    duet::testing::RunEnding ending;
+    CollaboratorPanel panel;
+    const Harness harness { "call-tools", std::vector<std::string> { calls.dump() } };
+
+    {
+        // Both hosts stop the service before the Collaborator goes, which is
+        // what makes this safe in the shipping path. The service is owned
+        // separately in both of them, though, so what a service that was not
+        // stopped would dispatch is what this asks: the handler is the
+        // Collaborator's own, and it goes with it.
+        Collaborator bridge { *harness,
+                              panel,
+                              [] { return OpeningContext {}; },
+                              Collaborator::MessageThread { duet::testing::messageThreadMarshal(),
+                                                            duet::testing::messageThreadPost() } };
+
+        bridge.setSession (duet::testing::lent (session), project.folder());
+    }
+
+    // The run is the service's own here, there being no Collaborator left to
+    // ask for one.
+    harness->setTaskRunListener (&ending);
+    harness->start();
+
+    REQUIRE (harness->startRun ("what is in this project?", {}).started);
+    REQUIRE (pumpUntil ([&] { return ending.hasEnded(); }, runTimeoutMs));
+
+    std::vector<Json> answered;
+
+    for (const auto& report : harness.reports())
+        if (report.at ("tag") == "tool")
+            answered.push_back (report.at ("payload").at ("response"));
+
+    REQUIRE (answered.size() == 1);
+    REQUIRE (answered.at (0).contains ("error"));
+    REQUIRE (answered.at (0).at ("error").at ("code") == duet::collab::rpcError::methodNotFound);
+}
+
 TEST_CASE ("a project that has gone answers no tool call at all", "[collab]")
 {
     const TempProject folder;
@@ -582,7 +824,7 @@ TEST_CASE ("a project that has gone answers no tool call at all", "[collab]")
     buildTrack (session);
 
     PanelOnService fixture { "run-commentary", { "the project is open" } };
-    fixture.bridge.setSession (&session, folder.folder());
+    fixture.bridge.setSession (duet::testing::lent (session), folder.folder());
 
     // The vocabulary is the open project's, and it answers while one is open.
     REQUIRE (fixture.bridge.tools().call (Json { { "tool", "list_tracks" } }).succeeded);
@@ -609,7 +851,7 @@ TEST_CASE ("an ordinary build keeps no trace of a run at all", "[collab]")
     const Json calls = Json::array ({ duet::testing::toolCall ("list_tracks") });
 
     PanelOnService fixture { "call-tools", { calls.dump() } };
-    fixture.bridge.setSession (&session, project.folder());
+    fixture.bridge.setSession (duet::testing::lent (session), project.folder());
 
     // What the Target Producer's build does: the call is answered, and nothing
     // about it is kept for anyone to read.
@@ -669,7 +911,7 @@ TEST_CASE ("a real run's Suggestion arrives as a card and as ghosts, and changes
         { duet::testing::toolCommentary ("Try this."), turnaroundOn (bass, riff, 3.0, -4.0) });
 
     PanelOnService fixture { "call-tools", { calls.dump() } };
-    fixture.bridge.setSession (&session, project.folder());
+    fixture.bridge.setSession (duet::testing::lent (session), project.folder());
 
     Suggestions suggestions;
     suggestions.setSource (&fixture.bridge.suggestionSurfaces());
@@ -719,7 +961,7 @@ TEST_CASE ("a Suggestion that arrives while the transport rolls does not interru
     const Json calls = Json::array ({ turnaroundOn (bass, riff, 3.0, -4.0) });
 
     PanelOnService fixture { "call-tools", { calls.dump() } };
-    fixture.bridge.setSession (&session, project.folder());
+    fixture.bridge.setSession (duet::testing::lent (session), project.folder());
 
     session.useNoAudioDevice();
     session.startPlayback();
@@ -749,7 +991,7 @@ TEST_CASE ("a rejection with a reason is answered in the card the rejected one s
                                       Json::array ({ turnaroundOn (bass, riff, 5.0, -2.0) }) });
 
     PanelOnService fixture { "call-tools", { calls.dump() } };
-    fixture.bridge.setSession (&session, project.folder());
+    fixture.bridge.setSession (duet::testing::lent (session), project.folder());
 
     Suggestions suggestions;
     suggestions.setSource (&fixture.bridge.suggestionSurfaces());
@@ -809,7 +1051,7 @@ TEST_CASE ("the redo control on a stale Suggestion asks once more against curren
                                       Json::array ({ turnaroundOn (bass, riff, 5.0, -2.0) }) });
 
     PanelOnService fixture { "call-tools", { calls.dump() } };
-    fixture.bridge.setSession (&session, project.folder());
+    fixture.bridge.setSession (duet::testing::lent (session), project.folder());
 
     Suggestions suggestions;
     suggestions.setSource (&fixture.bridge.suggestionSurfaces());
@@ -862,7 +1104,7 @@ TEST_CASE ("accepting from the card lands as one Action, and the History says wh
     const Json calls = Json::array ({ turnaroundOn (bass, riff, 3.0, -4.0) });
 
     PanelOnService fixture { "call-tools", { calls.dump() } };
-    fixture.bridge.setSession (&session, project.folder());
+    fixture.bridge.setSession (duet::testing::lent (session), project.folder());
 
     Suggestions suggestions;
     suggestions.setSource (&fixture.bridge.suggestionSurfaces());

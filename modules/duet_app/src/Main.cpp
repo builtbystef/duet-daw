@@ -528,7 +528,7 @@ private:
 
         // The Collaborator first: its manager is what the shell's Suggestions
         // read, and the shell reads them as it takes the project.
-        collaborator.setSession (&project->session(), renderFolder);
+        collaborator.setSession (project->sessionHandle(), renderFolder);
         shell.setSession (&project->session());
         shell.setTimelineClock (clock.get());
         shell.viewStateChanged();

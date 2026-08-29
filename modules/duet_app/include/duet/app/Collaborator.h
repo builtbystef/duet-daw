@@ -19,7 +19,9 @@
 #include <filesystem>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <string>
+#include <vector>
 
 namespace duet::app
 {
@@ -63,6 +65,18 @@ public:
     */
     using OpeningContextSource = std::function<duet::collab::OpeningContext()>;
 
+    /** How a track of one project is rendered for the tools that measure and
+        estimate over its audio.
+
+        The project's own detached offline render, unless the host names
+        another. It is a seam because it is the one part of answering a tool
+        call that is not the message thread's, and therefore the one part that
+        can still be running when a project is closed: what asserts that a
+        render outliving its project reads nothing that has gone is a render
+        held deliberately still.
+    */
+    using TrackRendererFor = std::function<duet::collab::TrackRenderer (duet::model::Session&)>;
+
     /** The two ways this object reaches the message thread, which is neither of
         the threads it is called on.
     */
@@ -83,7 +97,8 @@ public:
     Collaborator (duet::collab::CollaboratorService& collaboratorService,
                   duet::gui::CollaboratorPanel& conversationPanel,
                   OpeningContextSource openingContext,
-                  MessageThread threadAccess);
+                  MessageThread threadAccess,
+                  TrackRendererFor trackRenderer = {});
 
     ~Collaborator() override;
 
@@ -103,8 +118,15 @@ public:
         Called on the message thread, which is also where a read runs, so a read
         of the project that has gone is a read that never starts rather than one
         that races.
+
+        A hold and not a pointer, because a call can be inside a render when
+        this is called, and this returns at once: the producer waits for nothing
+        here, and the render goes on reading the project it entered until it
+        stops. The project it took is put down on the message thread, once the
+        last call is out of it.
     */
-    void setSession (duet::model::Session* openProject, std::filesystem::path renderFolder);
+    void setSession (std::shared_ptr<duet::model::Session> openProject,
+                     std::filesystem::path renderFolder);
 
     /** The Duet Loop of the open project, and nothing when none is open.
 
@@ -155,7 +177,9 @@ private:
     /** Holds what a run's `suggest` call made, and puts its card in the
         conversation where the producer asked for it.
     */
-    void holdSuggestion (const std::string& runId, const std::string& suggestionId);
+    void holdSuggestion (duet::collab::SuggestTool& madeBy,
+                         const std::string& runId,
+                         const std::string& suggestionId);
 
     //==============================================================================
     void commentaryDelta (const std::string& runId,
@@ -187,20 +211,59 @@ private:
     /** The read a tool makes, refused once the project it was to read has gone. */
     [[nodiscard]] duet::collab::ProjectReadMarshal readMarshalFor (duet::model::Session* project);
 
+    /** One open project and everything built over it: the renders its
+        measurements are kept in, and the four tool objects that read it.
+
+        Held together and by a hold, because a tool call in flight is inside all
+        of it at once. The swap that closes a project lets go of this and
+        returns; whatever call is still inside goes on reading a project nobody
+        has destroyed, and the last one out is what lets it go.
+    */
+    struct OpenProject
+    {
+        std::shared_ptr<duet::model::Session> project;
+        std::unique_ptr<duet::collab::TrackRenders> renders;
+        std::unique_ptr<duet::collab::ProjectTools> reads;
+        std::unique_ptr<duet::collab::TrackAnalysis> measured;
+        std::unique_ptr<duet::collab::ContentEstimates> estimated;
+        std::unique_ptr<duet::collab::SuggestTool> writes;
+    };
+
+    /** A hold on the open project, or nothing when none is open. Taken by the
+        service thread, which is not the thread that swaps it.
+    */
+    [[nodiscard]] std::shared_ptr<OpenProject> heldProject() const;
+
+    /** Puts down every retired project no call is inside any more.
+
+        Called on the message thread alone, which is where a project must be put
+        down: the engine's own teardown is the message thread's work, and the
+        service thread that let the last call out of one cannot do it.
+    */
+    void putDownWhatIsFinishedWith();
+
     duet::collab::CollaboratorService& service;
     duet::gui::CollaboratorPanel& panel;
     OpeningContextSource openingContextOf;
     MessageThread messageThread;
+    TrackRendererFor trackRendererFor;
 
     duet::collab::ToolRegistry registry;
     duet::collab::EstimateLedger ledger;
 
+    /** The project the marshal checks a read against: the one the producer has
+        open, and null between projects. The message thread's alone.
+    */
     duet::model::Session* session = nullptr;
-    std::unique_ptr<duet::collab::TrackRenders> renders;
-    std::unique_ptr<duet::collab::ProjectTools> reads;
-    std::unique_ptr<duet::collab::TrackAnalysis> measured;
-    std::unique_ptr<duet::collab::ContentEstimates> estimated;
-    std::unique_ptr<duet::collab::SuggestTool> writes;
+
+    mutable std::mutex openMutex;
+    std::shared_ptr<OpenProject> open;
+
+    /** The projects a swap has closed that a call was still inside. Emptied as
+        each one is finished with, on the message thread.
+    */
+    std::vector<std::shared_ptr<OpenProject>> retired;
+
     std::unique_ptr<duet::collab::SuggestionManager> suggestions;
 
     /** Declared after the manager so that it goes before it: it reads the
