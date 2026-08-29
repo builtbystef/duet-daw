@@ -1,4 +1,5 @@
 #include <duet/app/Collaborator.h>
+#include <duet/app/MessageThreadMarshal.h>
 #include <duet/app/OpeningContext.h>
 #include <duet/app/ProjectLifecycle.h>
 #include <duet/app/PropertyStorageSettings.h>
@@ -113,28 +114,19 @@ namespace
 
     /** Runs one piece of work on the message thread and waits for it to have
         run: what the Collaborator service's thread reads the project through.
+
+        The protocol, and why the bounded wait needs one, is
+        `duet::app::boundedMarshal`'s.
     */
     void runOnMessageThread (const std::function<void()>& work)
     {
-        if (juce::MessageManager::getInstance()->isThisTheMessageThread())
-        {
-            work();
-            return;
-        }
+        static const auto marshal = duet::app::boundedMarshal (
+            [] { return juce::MessageManager::getInstance()->isThisTheMessageThread(); },
+            [] (std::function<void()> posted)
+            { juce::MessageManager::callAsync (std::move (posted)); },
+            marshalTimeoutMs);
 
-        juce::WaitableEvent done;
-
-        juce::MessageManager::callAsync (
-            [&work, &done]
-            {
-                work();
-                done.signal();
-            });
-
-        // Bounded, because the caller is the service thread and a tool read
-        // that never comes back is a run that never ends. What a read that did
-        // not run answers is that the project could not be read.
-        done.wait (marshalTimeoutMs);
+        marshal (work);
     }
 } // namespace
 

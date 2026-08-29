@@ -44,6 +44,14 @@ public:
     /** Adds a tool, replacing one of the same name. */
     void add (std::string name, Tool tool);
 
+    /** Forgets every tool.
+
+        A tool is a callable over the object that answers it, so a registry
+        outliving those objects answers a call by reaching into freed memory.
+        Whoever owns both clears the registry when it takes the objects away.
+    */
+    void clear();
+
     /** Answers a `tool.call` request's params.
 
         Params without a tool name are `invalidParams`; a name that is not in

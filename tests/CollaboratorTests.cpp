@@ -19,7 +19,6 @@ using duet::collab::Estimate;
 using duet::collab::Json;
 using duet::collab::OpeningContext;
 using duet::collab::RpcOutcome;
-using duet::collab::RunStart;
 using duet::collab::SelectionKind;
 using duet::collab::ToolCall;
 using duet::gui::CollaboratorPanel;
@@ -437,6 +436,32 @@ TEST_CASE ("a run that was handed no guess carries no mark, and its tools read t
 
     REQUIRE_FALSE (answered.is_discarded());
     REQUIRE (duet::testing::trackEntry (answered, bass).at ("name") == "Bass");
+}
+
+TEST_CASE ("a project that has gone answers no tool call at all", "[collab]")
+{
+    const TempProject folder;
+    const auto project = openProject (folder);
+    auto& session = project->session();
+
+    buildTrack (session);
+
+    PanelOnService fixture { "run-commentary", { "the project is open" } };
+    fixture.bridge.setSession (&session, folder.folder());
+
+    // The vocabulary is the open project's, and it answers while one is open.
+    REQUIRE (fixture.bridge.tools().call (Json { { "tool", "list_tracks" } }).succeeded);
+
+    // Detaching is what New, Open and Save As all do, and what the app rests in
+    // when opening a project failed. The tools are destroyed by it, so a
+    // registry that still held their handlers would answer this out of freed
+    // memory rather than refuse it.
+    fixture.bridge.setSession (nullptr, {});
+
+    const auto afterwards = fixture.bridge.tools().call (Json { { "tool", "list_tracks" } });
+
+    REQUIRE_FALSE (afterwards.succeeded);
+    REQUIRE (afterwards.error.code == duet::collab::rpcError::unknownTool);
 }
 
 TEST_CASE ("an ordinary build keeps no trace of a run at all", "[collab]")

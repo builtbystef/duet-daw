@@ -25,6 +25,8 @@ namespace
 
 void ToolRegistry::add (std::string name, Tool tool) { tools[std::move (name)] = std::move (tool); }
 
+void ToolRegistry::clear() { tools.clear(); }
+
 RpcOutcome ToolRegistry::call (const Json& params) const
 {
     ToolCall toolCall;

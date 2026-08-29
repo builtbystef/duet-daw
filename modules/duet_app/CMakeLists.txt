@@ -11,6 +11,7 @@
 # its host supplies, so it links no JUCE either and the tests drive it headless.
 add_library(duet_app_core STATIC
     src/Collaborator.cpp
+    src/MessageThreadMarshal.cpp
     src/OpeningContext.cpp
     src/ProjectLifecycle.cpp
     src/PropertyStorageSettings.cpp

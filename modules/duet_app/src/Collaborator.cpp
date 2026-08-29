@@ -78,6 +78,13 @@ void Collaborator::setSession (duet::model::Session* openProject,
         service.cancelRun (shownRun);
 
     surfaces.setManager (nullptr, nullptr);
+
+    // The registry holds a callable over each of these, so it must forget them
+    // before they go: a `tool.call` answered from a handler whose object has
+    // been destroyed is a use-after-free, and a project is detached on every
+    // New, Open and Save As, and stays detached when opening one fails.
+    registry.clear();
+
     suggestions.reset();
     writes.reset();
     estimated.reset();

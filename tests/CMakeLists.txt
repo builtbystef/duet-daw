@@ -35,6 +35,7 @@ add_executable(duet_tests
     GraphiteTokenTests.cpp
     HarmonyRoutinesTests.cpp
     MasterMixerTests.cpp
+    MessageThreadMarshalTests.cpp
     MidiOpsTests.cpp
     MixerOpsTests.cpp
     MixerViewTests.cpp

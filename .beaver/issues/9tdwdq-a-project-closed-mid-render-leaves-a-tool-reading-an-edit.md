@@ -6,7 +6,7 @@ priority: medium
 depends_on:
     - 7tw2tz
 created: 2026-08-28T22:18:40Z
-updated: 2026-08-28T22:27:53Z
+updated: 2026-08-29T06:22:13Z
 ---
 
 ## What is wrong
@@ -45,3 +45,7 @@ It is a real dangling reference all the same.
 **claude** — 2026-08-28T22:27:53Z
 
 Also in scope, found in the same place: `Collaborator::setSession` calls `ToolRegistry::add` on the message thread while the service thread may be inside `ToolRegistry::call` for a tool of the same project. The registry is a `std::map` and neither side takes a lock, so a project swap during a tool call is a data race on the container as well as on what the tools read. Whatever closes the render window should close this one — the two have the same shape and the same fix.
+
+**claude** — 2026-08-29T06:22:13Z
+
+Correction (2026-08-29): this issue's body states that 'every project read is safe: the marshal the tools are given checks that the project it was built for is still the open one, so a read of a project that has gone never starts.' That is not what the code does. ProjectTools::read dereferences its own marshal and session members before the marshal's guard is ever reached, so the guard protects the Session and does nothing for a destroyed ProjectTools. Collaborator::setSession destroys the tool objects while ToolRegistry keeps the [this] lambdas they registered, and the registry has no removal. Recorded in full on 7tw2tz. Do not close this as already-handled on the strength of that sentence.

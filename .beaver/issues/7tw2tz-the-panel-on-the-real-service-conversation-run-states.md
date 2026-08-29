@@ -11,7 +11,7 @@ depends_on:
     - 4jipx2
 parent: js437t
 created: 2026-08-12T04:03:44Z
-updated: 2026-08-28T22:53:32Z
+updated: 2026-08-29T07:02:25Z
 ---
 
 ## What to build
@@ -128,3 +128,77 @@ all 466 CTest entries pass.
 
 **This issue's closure waits for your review.** Close it to approve, or note the
 changes you want and remove the `needs-review` label.
+
+**claude** — 2026-08-29T06:22:04Z
+
+Review (2026-08-29, at 7739848, independent of the implementing session). Two
+use-after-frees in code this commit introduces, both verified against the
+source, neither covered by a test. Closure is blocked on them.
+
+1. `Main.cpp:116-137`, `runOnMessageThread`. The `callAsync` lambda captures
+   `work` and `done` by reference, and `done.wait (marshalTimeoutMs)` is
+   bounded on purpose — the comment beside it says a read that did not run
+   answers that the project could not be read. When the wait expires the frame
+   dies with the lambda still queued, so the message thread later calls a
+   destroyed `std::function` and signals a destroyed `WaitableEvent`. `work`
+   also refers transitively to `ProjectTools::read`'s stack, which by then
+   belongs to a returned frame. A modal FileChooser, a long save, a plugin scan
+   or a slow render is enough to reach it. Fix: own the state through a
+   `shared_ptr` the posted lambda holds.
+
+2. `Collaborator.cpp:80-102`, `setSession`. `reads`/`measured`/`estimated`/
+   `writes` are reset while `ToolRegistry` keeps the `[this]` lambdas
+   `ProjectTools::addTo` registered — the registry has `add` and no removal,
+   and `ProjectTools.h:73-74` states that this object must outlive the registry
+   it was added to. `ToolRegistry::add` overwrites, so a successful re-attach
+   is safe; what is not is `setSession (nullptr, {})`, which `detachProject()`
+   runs on every New / Open / Save As (`Main.cpp:404, 455, 476, 507`) and which
+   is the resting state when attach fails. A `tool.call` arriving then is a
+   definite use-after-free, and `cancelRun` does not synchronously guarantee
+   none is in flight.
+
+Also noted, not blocking: the failure line can now show internal text
+("The sidecar stopped answering.") since it passes the reason through
+verbatim — the reversal of 4jipx2 is justified, but the responsibility moved to
+a surface that cannot normalise it; `ShellHost::openingContext()` is untested
+because it sits in Main.cpp, the one target duet_tests cannot link; recording is
+not asserted though the criterion names it; the Release half of the dev-trace
+criterion is asserted by a tautology; History is a pull with no subscription, so
+an accept or reject from the arrangement or mixer will not show until the next
+run ends, which 2suzzi should know before it inherits it.
+
+On the four decisions: (a) the no-JUCE claim for duet_app_core verifies — no
+JUCE target or include anywhere in it, and duet_tests drives it headless; sound.
+(c) DUET_DEVELOPMENT_BUILD PUBLIC on duet_gui is right for the ODR reason given,
+though a project-wide fact now lives in the GUI module. (d) History empty in the
+app until 2suzzi is accurate and honestly disclosed.
+
+**claude** — 2026-08-29T07:02:25Z
+
+Both use-after-frees are fixed, each with a test that fails without its fix.
+
+1. The marshal. `duet::app::boundedMarshal` in duet_app_core replaces the
+   reference-capturing `callAsync` in Main.cpp, and TestSupport's twin of it can
+   move onto the same function. An expired wait now *abandons* the read under
+   the lock the posted call takes before it reads anything: a read that has not
+   started never starts, and one already running is waited for, which is the
+   only part that cannot be abandoned safely. Placed in duet_app_core rather
+   than Main.cpp precisely so it can be tested — tests/MessageThreadMarshalTests
+   .cpp drives it with a message thread that runs nothing until told to.
+   Without the abandon check that suite SEGVs, which is the bug demonstrated
+   rather than argued.
+
+2. The registry. `ToolRegistry::clear()` is new, and `Collaborator::setSession`
+   calls it where the tool objects are reset. The test is
+   "a project that has gone answers no tool call at all" in CollaboratorTests
+   .cpp: it opens a project, calls `list_tracks`, detaches with
+   `setSession (nullptr, {})`, and requires `unknownTool`. Without the fix it
+   returns -32603 rather than -32002 — the dead handler is entered and reads
+   freed memory that happens to still be mapped, which is what makes this the
+   kind of bug that survives a test suite.
+
+Checks on the whole tree afterwards: clang-format clean, 496/496 CTest entries
+pass, duet_app links.
+
+Not fixed, and not this issue's: the findings numbered 3-10 in the review note
+above stand as recorded. Closure is still yours.
