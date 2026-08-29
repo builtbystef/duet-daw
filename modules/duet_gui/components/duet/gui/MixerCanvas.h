@@ -1,6 +1,7 @@
 #pragma once
 
 #include <duet/gui/Appearance.h>
+#include <duet/gui/Browser.h>
 #include <duet/gui/Mixer.h>
 
 #include <juce_gui_basics/juce_gui_basics.h>
@@ -13,7 +14,9 @@ namespace duet::gui
     30 Hz message-thread timer is the sole caller of the model's published meter
     reads and limits those reads to visible strips.
 */
-class MixerCanvas final : public juce::Component, private juce::Timer
+class MixerCanvas final : public juce::Component,
+                          public juce::DragAndDropTarget,
+                          private juce::Timer
 {
 public:
     MixerCanvas (Appearance& lookAndScale,
@@ -31,6 +34,19 @@ public:
     void mouseWheelMove (const juce::MouseEvent& event,
                          const juce::MouseWheelDetails& wheel) override;
     bool keyPressed (const juce::KeyPress& key) override;
+
+    //==============================================================================
+    /** The left dock a drop onto this surface comes out of, or nothing for a
+        surface nothing can be dropped on. It is read and never owned.
+    */
+    void setBrowser (Browser* dock) { browser = dock; }
+
+    /** What a drag out of the browser does when it lands on a strip: the device
+        goes into that strip's insert chain at the place it was dropped, and a
+        drop between two plugins means between those two.
+    */
+    [[nodiscard]] bool isInterestedInDragSource (const SourceDetails& details) override;
+    void itemDropped (const SourceDetails& details) override;
 
     [[nodiscard]] Mixer& model() noexcept { return mixer; }
     [[nodiscard]] const Mixer& model() const noexcept { return mixer; }
@@ -63,6 +79,7 @@ private:
 
     Appearance& appearance;
     Mixer& mixer;
+    Browser* browser = nullptr;
     std::function<void (duet::model::PluginRef)> openEditor;
     std::function<void()> modelChanged;
     Drag drag = Drag::none;

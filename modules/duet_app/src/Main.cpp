@@ -327,6 +327,7 @@ private:
         settingsWindow = std::make_unique<duet::gui::SettingsWindow> (
             appearance,
             settings,
+            shell.browser(),
             defaultProjectsDirectory(),
             [this] (bool accelerated) { shell.setHardwareAccelerated (accelerated); },
             [this] { settingsWindow.reset(); });
@@ -502,6 +503,7 @@ private:
         // the surfaces are told so before they are asked to draw again.
         collaborator.setSession (nullptr, {});
         pluginEditors.setSession (nullptr);
+        shell.browser().setSampleImporter ({});
         shell.setTimelineClock (nullptr);
         shell.setSession (nullptr);
         clock.reset();
@@ -525,6 +527,11 @@ private:
 
         clock = std::make_unique<duet::gui::SessionClock> (project->session());
         pluginEditors.setSession (&project->session());
+
+        // A sample dropped out of the browser is an import, and the facade is
+        // what copies one into the project folder (ADR 0005).
+        shell.browser().setSampleImporter ([project] (const std::filesystem::path& file)
+                                           { return project->importAudioFile (file); });
 
         // The Collaborator first: its manager is what the shell's Suggestions
         // read, and the shell reads them as it takes the project.
@@ -633,7 +640,7 @@ private:
     */
     duet::gui::ViewState view;
     duet::gui::PluginEditorManager pluginEditors { settings };
-    duet::gui::MainShell shell { appearance, view };
+    duet::gui::MainShell shell { appearance, view, settings };
 
     /** The DAW half of the AI seam, and what puts it on the panel. The service
         is declared first so that it is built first and torn down last: the

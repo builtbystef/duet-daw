@@ -1,0 +1,253 @@
+#pragma once
+
+#include <duet/gui/TimelineGeometry.h>
+
+#include <duet/model/Session.h>
+
+#include <cstdint>
+#include <filesystem>
+#include <functional>
+#include <map>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <vector>
+
+namespace duet::gui
+{
+class Settings;
+
+/** What putting an item into the project does.
+
+    A sample becomes a clip; an instrument is what a MIDI track plays; an effect
+    goes into a chain. Whether Duet ships the device or the producer's machine
+    does is not this: a scanned VST3 is inserted exactly as a built-in is (spec
+    535bbo), so both are the same two kinds here.
+*/
+enum class BrowserItemKind : std::uint8_t
+{
+    sample,
+    instrument,
+    effect
+};
+
+/** Which of the browser's sections one is. */
+enum class BrowserSectionKind : std::uint8_t
+{
+    favourites,
+    instruments,
+    effects,
+    plugins,
+    samples
+};
+
+/** One thing the producer can put into the project, as the dock shows it. */
+struct BrowserItem
+{
+    BrowserItemKind kind = BrowserItemKind::sample;
+
+    /** What the dock calls it, and what a search matches against. */
+    std::string name;
+
+    /** What a favourite is remembered by and what a drag carries: stable for as
+        long as the thing it names is where it is.
+    */
+    std::string identity;
+
+    /** Which built-in this is, and nothing for a sample or a scanned VST3. */
+    std::optional<duet::model::BuiltinPlugin> builtin;
+
+    /** The app-global identifier of a scanned VST3, and empty for the rest. */
+    std::string pluginIdentifier;
+
+    /** The audio file, for a sample, and empty for the rest. */
+    std::filesystem::path file;
+
+    bool favourite = false;
+};
+
+/** One of the dock's sections and what is under it. */
+struct BrowserSection
+{
+    BrowserSectionKind kind = BrowserSectionKind::samples;
+    std::string name;
+
+    /** What the producer's choice to open or close this section is remembered
+        by, so that clearing a search restores the tree they had.
+    */
+    std::string identity;
+
+    /** The folder this section lists, for a sample folder, and empty for the
+        rest.
+    */
+    std::filesystem::path folder;
+
+    bool expanded = false;
+    std::vector<BrowserItem> items;
+};
+
+/** The left dock, without the painting: everything the producer can put into a
+    project, and what dropping one of them does.
+
+    The sample folders and the favourites are the producer's rather than the
+    project's, so they live in the app-global store and follow them between
+    projects (spec 535bbo). What is on disk is read when this is refreshed and
+    not while a surface paints: a sample folder is a tree of the producer's own,
+    and reading it is the one expensive thing here.
+
+    Every drop ends in one Action on the vocabulary layer, and a drop that has
+    nowhere to land does nothing at all — an instrument has no meaning on an
+    audio track, and cancelling is the whole of what happens (ADR 0004).
+*/
+class Browser
+{
+public:
+    /** @param store  the app-global store the folders and the favourites live in
+    */
+    explicit Browser (Settings& store);
+
+    ~Browser() = default;
+
+    Browser (const Browser& other) = delete;
+    Browser& operator= (const Browser& other) = delete;
+
+    //==============================================================================
+    /** The project a drop edits, or nothing while none is open. */
+    void setSession (duet::model::Session* openProject);
+
+    /** How a dropped sample gets into the project folder, so that the clip made
+        of it refers to the project's own copy and the folder stays
+        self-contained (ADR 0005).
+
+        The persistence facade is what copies it, and the browser is a view-model
+        that does not know one, so the host hands the import over as this. A
+        browser with none inserts the file where it lies.
+    */
+    void setSampleImporter (
+        std::function<std::filesystem::path (const std::filesystem::path&)> importIntoProject);
+
+    /** Calls back after every change to what the browser shows — a folder, a
+        favourite, a search, a rescan — so that the surface drawing it does not
+        have to be told twice by whoever made the change. One callback at a
+        time, the dock being the one surface that draws this.
+    */
+    void onChanged (std::function<void()> callback);
+
+    /** Reads the sample folders and the scanned plugin list again.
+
+        What is on disk changes without Duet asking, and so does the plugin list
+        — a rescan is a producer gesture — so this is how the dock learns of it,
+        and it is why a rescan needs no restart.
+    */
+    void refresh();
+
+    //==============================================================================
+    /** The folders the producer has chosen, in the order they chose them. */
+    [[nodiscard]] std::vector<std::filesystem::path> sampleFolders() const;
+
+    /** Adds a folder to the browser and to the next launch. A folder that is
+        already there is not added twice.
+    */
+    void addSampleFolder (const std::filesystem::path& folder);
+
+    void removeSampleFolder (const std::filesystem::path& folder);
+
+    //==============================================================================
+    /** Filters every section down to what matches, and hides the sections that
+        match nothing. An empty search is the whole tree again, opened as the
+        producer had it.
+    */
+    void setSearch (std::string_view text);
+    [[nodiscard]] const std::string& search() const { return searchText; }
+
+    /** The sections to draw, in the order the dock shows them. */
+    [[nodiscard]] std::vector<BrowserSection> sections() const;
+
+    /** The item one identity names, and nothing when the browser no longer has
+        it — which is what a drag that outlived a refresh carries.
+    */
+    [[nodiscard]] std::optional<BrowserItem> item (std::string_view identity) const;
+
+    //==============================================================================
+    /** Opens or closes a section. A sample folder starts closed — a sample
+        library is the one section that can hold thousands of things — and the
+        four device sections start open. What the producer changes stands for
+        the run, so clearing a search puts the tree back as they had it.
+    */
+    void setExpanded (std::string_view sectionIdentity, bool shouldBeExpanded);
+    [[nodiscard]] bool isExpanded (std::string_view sectionIdentity) const;
+
+    /** Puts an item in the favourites section, or takes it out again. Both
+        outlive the project and the app.
+    */
+    void toggleFavourite (std::string_view itemIdentity);
+    [[nodiscard]] bool isFavourite (std::string_view itemIdentity) const;
+
+    //==============================================================================
+    /** Whether dropping this item on this track would do anything. An
+        instrument needs a MIDI track, a sample needs an audio track, and an
+        effect goes on any of them and on the Master.
+    */
+    [[nodiscard]] bool canDropOnTrack (const BrowserItem& item, duet::model::TrackRef track) const;
+
+    /** Drops a sample on a track at a place on the timeline, as one Action.
+
+        The file is imported into the project first, so the clip refers to the
+        project's own copy, and the clip starts on the grid unless Alt is held.
+        noClip when the drop had nowhere to land, and then nothing was done.
+    */
+    duet::model::ClipRef dropSample (const BrowserItem& item,
+                                     duet::model::TrackRef track,
+                                     double atBeats,
+                                     GridSpec grid,
+                                     bool altHeld);
+
+    /** Drops an instrument or an effect on a track, as one Action: an
+        instrument becomes what the track plays, in place of the one it had, and
+        an effect goes on the end of the chain.
+    */
+    duet::model::PluginRef dropDevice (const BrowserItem& item, duet::model::TrackRef track);
+
+    /** The same, at a position in a strip's insert chain — which is what
+        dropping between two plugins means. An instrument ignores the position:
+        what a MIDI track plays is at the head of its chain.
+    */
+    duet::model::PluginRef
+        dropDeviceAt (const BrowserItem& item, duet::model::TrackRef track, int position);
+
+    //==============================================================================
+    /** The extensions a sample folder's readable content has. */
+    [[nodiscard]] static const std::vector<std::string>& sampleExtensions();
+
+private:
+    [[nodiscard]] std::vector<duet::model::PluginInfo> chainOf (duet::model::TrackRef track) const;
+    [[nodiscard]] std::vector<BrowserItem> pluginItems() const;
+    [[nodiscard]] std::vector<std::string> favouriteIdentities() const;
+    void writeFolders (const std::vector<std::filesystem::path>& folders);
+    [[nodiscard]] std::vector<BrowserItem> matching (const std::vector<BrowserItem>& items) const;
+    void notifyChanged() const;
+    [[nodiscard]] static bool expandedByDefault (BrowserSectionKind kind);
+    void appendSection (std::vector<BrowserSection>& into,
+                        BrowserSectionKind kind,
+                        std::string name,
+                        const std::string& identity,
+                        std::filesystem::path folder,
+                        const std::vector<BrowserItem>& items) const;
+
+    /** One sample folder as the last refresh read it. */
+    struct ScannedFolder
+    {
+        std::filesystem::path folder;
+        std::vector<BrowserItem> items;
+    };
+
+    Settings* settings = nullptr;
+    duet::model::Session* session = nullptr;
+    std::function<std::filesystem::path (const std::filesystem::path&)> importer;
+    std::function<void()> changed;
+    std::vector<ScannedFolder> scanned;
+    std::vector<duet::model::KnownPluginInfo> plugins;
+    std::map<std::string, bool, std::less<>> expansion;
+    std::string searchText;
+};
+} // namespace duet::gui

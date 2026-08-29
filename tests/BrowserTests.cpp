@@ -1,0 +1,477 @@
+#include <duet/gui/Browser.h>
+#include <duet/model/Session.h>
+#include <duet/persistence/Project.h>
+
+#include <duet/testing/RenderHarness.h>
+#include <duet/testing/TestSupport.h>
+
+#include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_floating_point.hpp>
+
+#include <algorithm>
+#include <filesystem>
+#include <fstream>
+#include <memory>
+#include <optional>
+#include <string>
+#include <vector>
+
+using Catch::Matchers::WithinAbs;
+using duet::gui::Browser;
+using duet::gui::BrowserItem;
+using duet::gui::BrowserItemKind;
+using duet::gui::BrowserSection;
+using duet::gui::BrowserSectionKind;
+using duet::gui::GridSpec;
+using duet::model::BuiltinPlugin;
+using duet::model::Session;
+using duet::model::TrackKind;
+using duet::model::TrackRef;
+using duet::testing::StoredSettings;
+using duet::testing::TempProject;
+
+namespace
+{
+/** The section one kind names, and none when the browser is not showing it. */
+[[nodiscard]] std::optional<BrowserSection> sectionOf (const Browser& browser,
+                                                       BrowserSectionKind kind)
+{
+    const auto sections = browser.sections();
+    const auto found = std::ranges::find (sections, kind, &BrowserSection::kind);
+
+    return found == sections.end() ? std::nullopt : std::optional { *found };
+}
+
+/** The section one sample folder has, and none when the browser is not showing
+    that folder.
+*/
+[[nodiscard]] std::optional<BrowserSection> folderSection (const Browser& browser,
+                                                           const std::filesystem::path& folder)
+{
+    const auto sections = browser.sections();
+    const auto found = std::ranges::find (sections, folder, &BrowserSection::folder);
+
+    return found == sections.end() ? std::nullopt : std::optional { *found };
+}
+
+/** What a section holds, and nothing for a section the browser is not showing:
+    every helper here answers for an absent section rather than reaching into
+    one, so that a missing section fails the assertion that named it.
+*/
+[[nodiscard]] std::vector<BrowserItem> itemsOf (const std::optional<BrowserSection>& section)
+{
+    return section.has_value() ? section->items : std::vector<BrowserItem> {};
+}
+
+[[nodiscard]] std::vector<std::string> namesOf (const std::optional<BrowserSection>& section)
+{
+    std::vector<std::string> names;
+
+    for (const auto& item : itemsOf (section))
+        names.push_back (item.name);
+
+    return names;
+}
+
+[[nodiscard]] std::string identityOf (const std::optional<BrowserSection>& section)
+{
+    return section.has_value() ? section->identity : std::string {};
+}
+
+[[nodiscard]] bool isExpanded (const std::optional<BrowserSection>& section)
+{
+    return section.has_value() && section->expanded;
+}
+
+[[nodiscard]] bool holds (const std::optional<BrowserSection>& section, const std::string& name)
+{
+    const auto names = namesOf (section);
+
+    return std::ranges::find (names, name) != names.end();
+}
+
+/** The item a section shows under a name. */
+[[nodiscard]] BrowserItem itemNamed (const std::optional<BrowserSection>& section,
+                                     const std::string& name)
+{
+    const auto items = itemsOf (section);
+    const auto found = std::ranges::find (items, name, &BrowserItem::name);
+
+    REQUIRE (found != items.end());
+    return *found;
+}
+
+/** A file in a sample folder of the producer's, outside any project. What the
+    browser shows is what a folder holds, so a name and an extension are the
+    whole of what a listed file has to be.
+*/
+void writeSample (const std::filesystem::path& folder, const std::string& fileName)
+{
+    std::filesystem::create_directories (folder);
+    std::ofstream stream { folder / fileName, std::ios::binary };
+    stream << "not really audio";
+}
+
+/** A browser over a real project, with the import the host gives it. */
+struct OpenBrowser
+{
+    explicit OpenBrowser (const std::filesystem::path& folder)
+        : project (duet::persistence::Project::create (folder))
+    {
+        REQUIRE (project != nullptr);
+        browser.setSession (&project->session());
+        browser.setSampleImporter ([this] (const std::filesystem::path& file)
+                                   { return project->importAudioFile (file); });
+    }
+
+    [[nodiscard]] Session& session() const { return project->session(); }
+
+    StoredSettings store;
+    std::unique_ptr<duet::persistence::Project> project;
+    Browser browser { store };
+};
+} // namespace
+
+TEST_CASE ("the browser lists the devices Duet ships and each chosen sample folder")
+{
+    const TempProject temp;
+    StoredSettings store;
+    Browser browser { store };
+    const auto loops = temp.folder() / "loops";
+    const auto empty = temp.folder() / "empty";
+    writeSample (loops, "reverse crash.wav");
+    std::filesystem::create_directories (empty);
+
+    browser.addSampleFolder (loops);
+    browser.addSampleFolder (empty);
+
+    REQUIRE (namesOf (sectionOf (browser, BrowserSectionKind::instruments))
+             == std::vector<std::string> { "4OSC", "Sampler" });
+    REQUIRE (namesOf (sectionOf (browser, BrowserSectionKind::effects))
+             == std::vector<std::string> { "EQ", "Compressor", "Reverb" });
+    REQUIRE (sectionOf (browser, BrowserSectionKind::plugins).has_value());
+    REQUIRE (sectionOf (browser, BrowserSectionKind::favourites).has_value());
+    REQUIRE (namesOf (folderSection (browser, loops))
+             == std::vector<std::string> { "reverse crash.wav" });
+
+    // A folder with nothing readable under it is a section with nothing in it,
+    // which is what tells the producer the folder is theirs and empty.
+    const auto nothing = folderSection (browser, empty);
+    REQUIRE (nothing.has_value());
+    REQUIRE (namesOf (nothing).empty());
+}
+
+TEST_CASE ("a search filters every section and hides the ones that match nothing")
+{
+    const TempProject temp;
+    StoredSettings store;
+    Browser browser { store };
+    const auto loops = temp.folder() / "loops";
+    writeSample (loops, "reverse crash.wav");
+    writeSample (loops, "kick.wav");
+    browser.addSampleFolder (loops);
+
+    browser.setExpanded (identityOf (folderSection (browser, loops)), true);
+    browser.setExpanded (identityOf (sectionOf (browser, BrowserSectionKind::effects)), false);
+
+    browser.setSearch ("rev");
+
+    REQUIRE (namesOf (sectionOf (browser, BrowserSectionKind::effects))
+             == std::vector<std::string> { "Reverb" });
+    REQUIRE (namesOf (folderSection (browser, loops))
+             == std::vector<std::string> { "reverse crash.wav" });
+
+    // Nothing among the instruments is called anything like "rev", so that
+    // section is not there at all rather than there and empty.
+    REQUIRE_FALSE (sectionOf (browser, BrowserSectionKind::instruments).has_value());
+
+    browser.setSearch ("");
+
+    REQUIRE (sectionOf (browser, BrowserSectionKind::instruments).has_value());
+    REQUIRE (isExpanded (folderSection (browser, loops)));
+    REQUIRE_FALSE (isExpanded (sectionOf (browser, BrowserSectionKind::effects)));
+    REQUIRE (namesOf (folderSection (browser, loops)).size() == 2);
+}
+
+TEST_CASE ("a favourite outlives the app and the project it was made in")
+{
+    const TempProject temp;
+    StoredSettings store;
+    const auto loops = temp.folder() / "loops";
+    writeSample (loops, "kick.wav");
+    std::string sample;
+
+    {
+        Browser browser { store };
+        browser.addSampleFolder (loops);
+        const auto reverb = itemNamed (sectionOf (browser, BrowserSectionKind::effects), "Reverb");
+        sample = itemNamed (folderSection (browser, loops), "kick.wav").identity;
+
+        browser.toggleFavourite (reverb.identity);
+        browser.toggleFavourite (sample);
+
+        REQUIRE (namesOf (sectionOf (browser, BrowserSectionKind::favourites))
+                 == std::vector<std::string> { "Reverb", "kick.wav" });
+        REQUIRE (itemNamed (sectionOf (browser, BrowserSectionKind::effects), "Reverb").favourite);
+    }
+
+    // The same store read again is the next launch, in whatever project the
+    // producer opens next.
+    Browser relaunched { store };
+    REQUIRE (relaunched.sampleFolders() == std::vector<std::filesystem::path> { loops });
+    REQUIRE (namesOf (sectionOf (relaunched, BrowserSectionKind::favourites))
+             == std::vector<std::string> { "Reverb", "kick.wav" });
+
+    relaunched.toggleFavourite (sample);
+    REQUIRE (namesOf (sectionOf (relaunched, BrowserSectionKind::favourites))
+             == std::vector<std::string> { "Reverb" });
+}
+
+TEST_CASE ("adding and removing a sample folder shows at once and at the next launch")
+{
+    const TempProject temp;
+    StoredSettings store;
+    const auto loops = temp.folder() / "loops";
+    const auto stabs = temp.folder() / "stabs";
+    writeSample (loops, "kick.wav");
+    writeSample (stabs, "stab.wav");
+    Browser browser { store };
+
+    browser.addSampleFolder (loops);
+    REQUIRE (folderSection (browser, loops).has_value());
+
+    browser.addSampleFolder (stabs);
+    browser.addSampleFolder (stabs);
+    REQUIRE (browser.sampleFolders() == std::vector<std::filesystem::path> { loops, stabs });
+
+    browser.removeSampleFolder (loops);
+    REQUIRE_FALSE (folderSection (browser, loops).has_value());
+    REQUIRE (folderSection (browser, stabs).has_value());
+
+    const Browser relaunched { store };
+    REQUIRE (relaunched.sampleFolders() == std::vector<std::filesystem::path> { stabs });
+}
+
+TEST_CASE ("a sample dropped on a track lands on the grid, as one Action, inside the project")
+{
+    const TempProject temp;
+    OpenBrowser open { temp.folder() / "project" };
+    const auto loops = temp.folder() / "loops";
+    std::filesystem::create_directories (loops);
+    std::filesystem::copy_file (temp.writeTone ("loop.wav", 2.0, 440.0), loops / "loop.wav");
+    open.browser.addSampleFolder (loops);
+
+    TrackRef track = duet::model::noTrack;
+    open.session().performAction (
+        "Track", [&] (auto& ops) { track = ops.createTrack (TrackKind::audio, "Audio"); });
+    const auto actionsBefore = open.session().undoNames().size();
+
+    const auto item = itemNamed (folderSection (open.browser, loops), "loop.wav");
+    const auto clip = open.browser.dropSample (item, track, 3.4, GridSpec { 1.0, 4.0 }, false);
+
+    REQUIRE (clip != duet::model::noClip);
+    REQUIRE (open.session().undoNames().size() == actionsBefore + 1);
+
+    const auto clips = open.session().track (track).clips;
+    REQUIRE (clips.size() == 1);
+    REQUIRE_THAT (open.session().beatsAtSeconds (clips.front().startSeconds),
+                  WithinAbs (3.0, 0.001));
+    INFO ("stored source reference: " << clips.front().sourceReference);
+    REQUIRE (clips.front().sourceReference == "audio/loop.wav");
+    REQUIRE_THAT (clips.front().lengthSeconds, WithinAbs (2.0, 0.05));
+
+    REQUIRE (open.session().undo());
+    REQUIRE (open.session().track (track).clips.empty());
+}
+
+TEST_CASE ("a sample dropped with Alt held lands where it was dropped")
+{
+    const TempProject temp;
+    OpenBrowser open { temp.folder() / "project" };
+    const auto loops = temp.folder() / "loops";
+    std::filesystem::create_directories (loops);
+    std::filesystem::copy_file (temp.writeTone ("loop.wav", 1.0, 440.0), loops / "loop.wav");
+    open.browser.addSampleFolder (loops);
+
+    TrackRef track = duet::model::noTrack;
+    open.session().performAction (
+        "Track", [&] (auto& ops) { track = ops.createTrack (TrackKind::audio, "Audio"); });
+
+    const auto item = itemNamed (folderSection (open.browser, loops), "loop.wav");
+    REQUIRE (open.browser.dropSample (item, track, 3.4, GridSpec { 1.0, 4.0 }, true)
+             != duet::model::noClip);
+
+    const auto clips = open.session().track (track).clips;
+    REQUIRE (clips.size() == 1);
+    REQUIRE_THAT (open.session().beatsAtSeconds (clips.front().startSeconds),
+                  WithinAbs (3.4, 0.001));
+}
+
+TEST_CASE ("an instrument dropped on a MIDI track becomes what it plays, in one Action")
+{
+    const TempProject temp;
+    OpenBrowser open { temp.folder() / "project" };
+    TrackRef midi = duet::model::noTrack;
+    TrackRef audio = duet::model::noTrack;
+    open.session().performAction ("Tracks",
+                                  [&] (auto& ops)
+                                  {
+                                      midi = ops.createTrack (TrackKind::midi, "Keys");
+                                      audio = ops.createTrack (TrackKind::audio, "Audio");
+                                  });
+
+    const auto synth =
+        itemNamed (sectionOf (open.browser, BrowserSectionKind::instruments), "4OSC");
+    const auto actionsBefore = open.session().undoNames().size();
+
+    REQUIRE (open.browser.canDropOnTrack (synth, midi));
+    REQUIRE (open.browser.dropDevice (synth, midi) != duet::model::noPlugin);
+    REQUIRE (open.session().undoNames().size() == actionsBefore + 1);
+
+    auto plugins = open.session().track (midi).plugins;
+    REQUIRE (plugins.size() == 1);
+    REQUIRE (plugins.front().builtin == BuiltinPlugin::synth);
+
+    // A second instrument is what the track plays now, and not a second
+    // instrument in the chain.
+    const auto sampler =
+        itemNamed (sectionOf (open.browser, BrowserSectionKind::instruments), "Sampler");
+    REQUIRE (open.browser.dropDevice (sampler, midi) != duet::model::noPlugin);
+    plugins = open.session().track (midi).plugins;
+    REQUIRE (plugins.size() == 1);
+    REQUIRE (plugins.front().builtin == BuiltinPlugin::sampler);
+
+    // An audio track has nothing to drive an instrument, so the drop is
+    // cancelled and the project is left as it was.
+    const auto actionsBeforeInvalid = open.session().undoNames().size();
+    REQUIRE_FALSE (open.browser.canDropOnTrack (synth, audio));
+    REQUIRE (open.browser.dropDevice (synth, audio) == duet::model::noPlugin);
+    REQUIRE (open.browser.dropDevice (synth, duet::model::noTrack) == duet::model::noPlugin);
+    REQUIRE (open.session().undoNames().size() == actionsBeforeInvalid);
+    REQUIRE (open.session().track (audio).plugins.empty());
+}
+
+TEST_CASE ("an effect dropped between two plugins of a chain goes in at that position")
+{
+    const TempProject temp;
+    OpenBrowser open { temp.folder() / "project" };
+    TrackRef track = duet::model::noTrack;
+    open.session().performAction ("Chain",
+                                  [&] (auto& ops)
+                                  {
+                                      track = ops.createTrack (TrackKind::audio, "Audio");
+                                      ops.addPlugin (track, BuiltinPlugin::eq, 0);
+                                      ops.addPlugin (track, BuiltinPlugin::compressor, 1);
+                                  });
+
+    const auto reverb = itemNamed (sectionOf (open.browser, BrowserSectionKind::effects), "Reverb");
+    const auto actionsBefore = open.session().undoNames().size();
+
+    REQUIRE (open.browser.dropDeviceAt (reverb, track, 1) != duet::model::noPlugin);
+    REQUIRE (open.session().undoNames().size() == actionsBefore + 1);
+
+    const auto plugins = open.session().track (track).plugins;
+    REQUIRE (plugins.size() == 3);
+    REQUIRE (plugins[0].builtin == BuiltinPlugin::eq);
+    REQUIRE (plugins[1].builtin == BuiltinPlugin::reverb);
+    REQUIRE (plugins[2].builtin == BuiltinPlugin::compressor);
+
+    // Dropped on the track rather than into its chain, an effect goes last.
+    const auto eq = itemNamed (sectionOf (open.browser, BrowserSectionKind::effects), "EQ");
+    REQUIRE (open.browser.dropDevice (eq, track) != duet::model::noPlugin);
+    REQUIRE (open.session().track (track).plugins.back().builtin == BuiltinPlugin::eq);
+
+    // The Master is a strip with a chain like any other, and an instrument is
+    // the one thing that has no meaning on it.
+    REQUIRE (open.browser.dropDevice (reverb, duet::model::masterChannel) != duet::model::noPlugin);
+    REQUIRE (open.session().master().plugins.back().builtin == BuiltinPlugin::reverb);
+    REQUIRE (open.browser.dropDevice (
+                 itemNamed (sectionOf (open.browser, BrowserSectionKind::instruments), "4OSC"),
+                 duet::model::masterChannel)
+             == duet::model::noPlugin);
+}
+
+TEST_CASE ("a dropped instrument plays what its track is sent, and a dropped effect is heard")
+{
+    const TempProject temp;
+    Session session { temp.editFile() };
+    session.useNoAudioDevice();
+    session.suppressDeviceRebuild();
+    StoredSettings store;
+    Browser browser { store };
+    browser.setSession (&session);
+
+    // Two beats at the project's own 120 bpm is one second in, and the clip
+    // runs a second past the note, so that what a reverb adds has somewhere to
+    // be heard.
+    TrackRef track = duet::model::noTrack;
+    session.performAction ("Track",
+                           [&] (auto& ops)
+                           {
+                               track = ops.createTrack (TrackKind::midi, "Keys");
+                               const auto clip = ops.insertMidiClip (track, "notes", 0.0, 3.0);
+                               ops.addNote (clip, 69, 2.0, 2.0, 100);
+                           });
+
+    const auto synth = itemNamed (sectionOf (browser, BrowserSectionKind::instruments), "4OSC");
+    REQUIRE (browser.dropDevice (synth, track) != duet::model::noPlugin);
+
+    const auto dry = duet::testing::renderProject (session, temp.folder());
+    REQUIRE (dry.readable());
+    REQUIRE_THAT (dry.pitchHzBetween (1.2, 1.9), WithinAbs (440.0, 2.0));
+
+    // The tail is what says the effect is in the chain: sound after the note
+    // has stopped, where the instrument on its own left silence.
+    REQUIRE (dry.isSilentBetween (2.4, 2.9));
+
+    const auto reverb = itemNamed (sectionOf (browser, BrowserSectionKind::effects), "Reverb");
+    REQUIRE (browser.dropDevice (reverb, track) != duet::model::noPlugin);
+
+    const auto wet = duet::testing::renderProject (session, temp.folder());
+    REQUIRE (wet.readable());
+    REQUIRE_FALSE (wet.isSilentBetween (2.4, 2.9));
+}
+
+TEST_CASE ("the browser shows what the scan found, reflects a rescan, and inserts a VST3")
+{
+    const TempProject temp;
+    OpenBrowser open { temp.folder() / "project" };
+    const auto pluginDirectory = temp.folder() / "vst3";
+    std::filesystem::create_directory (pluginDirectory);
+
+    REQUIRE_FALSE (
+        holds (sectionOf (open.browser, BrowserSectionKind::plugins), "Duet Good VST3 Fixture"));
+
+    for (const auto* fixture : { DUET_GOOD_VST3_FIXTURE, DUET_CRASHING_VST3_FIXTURE })
+        std::filesystem::copy (fixture,
+                               pluginDirectory / std::filesystem::path { fixture }.filename(),
+                               std::filesystem::copy_options::recursive
+                                   | std::filesystem::copy_options::overwrite_existing);
+
+    REQUIRE (open.session().scanVst3Plugins (pluginDirectory).completed);
+
+    // The scan happened under the browser, and a refresh is all it takes: no
+    // restart, and what the scan rejected never appears.
+    open.browser.refresh();
+
+    REQUIRE (
+        holds (sectionOf (open.browser, BrowserSectionKind::plugins), "Duet Good VST3 Fixture"));
+    REQUIRE_FALSE (holds (sectionOf (open.browser, BrowserSectionKind::plugins),
+                          "Duet Crashing VST3 Fixture"));
+
+    TrackRef track = duet::model::noTrack;
+    open.session().performAction (
+        "Track", [&] (auto& ops) { track = ops.createTrack (TrackKind::audio, "Audio"); });
+    const auto fixture =
+        itemNamed (sectionOf (open.browser, BrowserSectionKind::plugins), "Duet Good VST3 Fixture");
+    REQUIRE (fixture.kind == BrowserItemKind::effect);
+    const auto actionsBefore = open.session().undoNames().size();
+
+    REQUIRE (open.browser.dropDevice (fixture, track) != duet::model::noPlugin);
+    REQUIRE (open.session().undoNames().size() == actionsBefore + 1);
+
+    const auto plugins = open.session().track (track).plugins;
+    REQUIRE (plugins.size() == 1);
+    REQUIRE (plugins.front().externalIdentifier == fixture.pluginIdentifier);
+    REQUIRE_FALSE (plugins.front().missing);
+}

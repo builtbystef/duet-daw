@@ -1,5 +1,6 @@
 #include <duet/gui/ArrangementCanvas.h>
 
+#include <duet/gui/BrowserCanvas.h>
 #include <duet/gui/CollaboratorPainting.h>
 #include <duet/gui/GraphiteLookAndFeel.h>
 #include <duet/gui/MainShell.h>
@@ -779,6 +780,44 @@ void ArrangementCanvas::mouseUp (const juce::MouseEvent& event)
     resizingTrack = duet::model::noTrack;
     rubberBanding = false;
     clipDragged = false;
+    repaint();
+}
+
+//==============================================================================
+bool ArrangementCanvas::isInterestedInDragSource (const SourceDetails& details)
+{
+    return browser != nullptr && browserDrag::identityOf (details.description).has_value();
+}
+
+void ArrangementCanvas::itemDropped (const SourceDetails& details)
+{
+    const auto identity = browserDrag::identityOf (details.description);
+
+    if (browser == nullptr || ! identity.has_value())
+        return;
+
+    const auto dragged = browser->item (*identity);
+    const auto row = trackAt (details.localPosition.y - timelineArea().getY());
+
+    // A drop with nothing under it is a drop on empty space: it is cancelled,
+    // and nothing is said about it.
+    if (! dragged.has_value() || ! row.has_value())
+        return;
+
+    if (dragged->kind == BrowserItemKind::sample)
+    {
+        const auto beats = view.geometry().xToBeats (details.localPosition.x
+                                                     - appearance.scaled (trackHeaderWidth));
+
+        browser->dropSample (*dragged,
+                             row->track,
+                             beats,
+                             view.geometry().gridFor(),
+                             juce::ModifierKeys::currentModifiers.isAltDown());
+    }
+    else
+        browser->dropDevice (*dragged, row->track);
+
     repaint();
 }
 

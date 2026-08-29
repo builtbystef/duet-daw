@@ -2,6 +2,7 @@
 
 #include <duet/gui/Appearance.h>
 #include <duet/gui/ArrangementView.h>
+#include <duet/gui/Browser.h>
 #include <duet/gui/CollaboratorPanel.h>
 #include <duet/gui/Mixer.h>
 #include <duet/gui/PianoRoll.h>
@@ -21,6 +22,7 @@ namespace duet::gui
 {
 class AcceleratedSurface;
 class ArrangementCanvas;
+class BrowserCanvas;
 class CollaboratorPanelCanvas;
 class PianoRollCanvas;
 class TimelineClock;
@@ -61,7 +63,9 @@ namespace surfaceId
     The docked surfaces are empty until their own slices fill them in; the
     arrangement is the first that is not.
 */
-class MainShell final : public juce::Component, private Appearance::Listener
+class MainShell final : public juce::Component,
+                        public juce::DragAndDropContainer,
+                        private Appearance::Listener
 {
 public:
     /** @param lookAndScale  the palette and the interface scale the shell is
@@ -69,8 +73,11 @@ public:
         @param projectView   the layout of the open project. The shell writes the
                              producer's gestures into it and lays itself out from
                              it; the persistence facade is what saves it.
+        @param store         the app-global store the browser's sample folders
+                             and favourites live in, they being the producer's
+                             rather than the project's
     */
-    MainShell (Appearance& lookAndScale, ViewState& projectView);
+    MainShell (Appearance& lookAndScale, ViewState& projectView, Settings& store);
 
     ~MainShell() override;
 
@@ -106,6 +113,14 @@ public:
         made here.
     */
     [[nodiscard]] CollaboratorPanel& collaborator() { return collaboratorPanel; }
+
+    /** The left dock's own state, so that the host can give it what only the
+        host has: the project a drop edits, and the import that puts a dropped
+        sample inside the project folder. The Settings window reads the same one
+        to manage the sample folders, which is what makes a folder added there
+        show in the dock at once.
+    */
+    [[nodiscard]] Browser& browser() { return browserModel; }
 
     /** What the next message to the Collaborator is about, as the arrangement
         answers it: the producer's own selection, or the clip or track they asked
@@ -179,7 +194,6 @@ public:
     static constexpr int dividerThickness = 6;
 
 private:
-    class Dock;
     class TransportStrip;
     class BottomPanel;
     class Divider;
@@ -208,6 +222,7 @@ private:
     ArrangementView arrangementView { view };
     PianoRoll pianoRoll { view, arrangementView.selection() };
     Mixer mixer;
+    Browser browserModel;
     TransportBar transport { view };
 
     /** The Collaborator panel's own state. What answers it is the host's, the
@@ -225,7 +240,7 @@ private:
     juce::TextButton duetButton { "Duet" };
     std::unique_ptr<TransportStrip> transportStrip;
     std::unique_ptr<ArrangementCanvas> arrangement;
-    std::unique_ptr<Dock> browser;
+    std::unique_ptr<BrowserCanvas> browserDock;
     std::unique_ptr<CollaboratorPanelCanvas> collaboratorDock;
     std::unique_ptr<BottomPanel> bottom;
     std::unique_ptr<Divider> browserDivider;

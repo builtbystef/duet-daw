@@ -1,5 +1,6 @@
 #include <duet/gui/MixerCanvas.h>
 
+#include <duet/gui/BrowserCanvas.h>
 #include <duet/gui/CollaboratorPainting.h>
 #include <duet/gui/GraphiteLookAndFeel.h>
 #include <duet/gui/Tokens.h>
@@ -410,6 +411,43 @@ bool MixerCanvas::keyPressed (const juce::KeyPress& key)
     pluginDropPosition = -1;
     repaint();
     return true;
+}
+
+//==============================================================================
+bool MixerCanvas::isInterestedInDragSource (const SourceDetails& details)
+{
+    return browser != nullptr && browserDrag::identityOf (details.description).has_value();
+}
+
+void MixerCanvas::itemDropped (const SourceDetails& details)
+{
+    const auto identity = browserDrag::identityOf (details.description);
+
+    if (browser == nullptr || ! identity.has_value())
+        return;
+
+    const auto dragged = browser->item (*identity);
+    const auto strips = mixer.strips();
+    const auto index = stripIndexAt (details.localPosition);
+
+    if (! dragged.has_value() || index < 0 || index >= static_cast<int> (strips.size()))
+        return;
+
+    const auto& strip = strips[static_cast<std::size_t> (index)];
+    const auto chain = static_cast<int> (strip.plugins.size());
+
+    // Above the chain is the strip rather than a place in it, and that is the
+    // end of the chain: an effect dropped on a strip goes after what is there.
+    const auto position = details.localPosition.y < appearance.scaled (chainTop)
+                              ? chain
+                              : std::clamp ((details.localPosition.y - appearance.scaled (chainTop))
+                                                / appearance.scaled (pluginRowHeight),
+                                            0,
+                                            chain);
+
+    browser->dropDeviceAt (*dragged, strip.channel, position);
+    modelChanged();
+    repaint();
 }
 
 void MixerCanvas::showRoutingMenu (duet::model::TrackRef channel, juce::Component* target)

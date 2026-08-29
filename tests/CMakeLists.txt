@@ -23,6 +23,7 @@ add_executable(duet_tests
     AutomationLaneTests.cpp
     AutomationOpsTests.cpp
     AutosaveTests.cpp
+    BrowserTests.cpp
     ClipOpsTests.cpp
     CollaboratorLoopLiveTests.cpp
     CollaboratorPanelTests.cpp

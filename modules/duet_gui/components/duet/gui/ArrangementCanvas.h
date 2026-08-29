@@ -2,6 +2,7 @@
 
 #include <duet/gui/Appearance.h>
 #include <duet/gui/ArrangementView.h>
+#include <duet/gui/Browser.h>
 
 #include <juce_audio_utils/juce_audio_utils.h>
 #include <juce_gui_basics/juce_gui_basics.h>
@@ -26,6 +27,7 @@ namespace duet::gui
     read of a value the audio thread put there.
 */
 class ArrangementCanvas final : public juce::Component,
+                                public juce::DragAndDropTarget,
                                 private juce::Timer,
                                 private juce::ChangeListener
 {
@@ -53,6 +55,20 @@ public:
     void mouseDrag (const juce::MouseEvent& event) override;
     void mouseUp (const juce::MouseEvent& event) override;
     void perform (Command command);
+
+    //==============================================================================
+    /** The left dock a drop onto this surface comes out of, or nothing for a
+        surface nothing can be dropped on. It is read and never owned.
+    */
+    void setBrowser (Browser* dock) { browser = dock; }
+
+    /** What a drag out of the browser does when it lands here: a sample becomes
+        a clip on the track under the pointer, snapped to the grid unless Alt is
+        held, and a device goes on that track. A drop with nowhere to land is
+        cancelled, and cancelling is the whole of what happens (spec 535bbo).
+    */
+    [[nodiscard]] bool isInterestedInDragSource (const SourceDetails& details) override;
+    void itemDropped (const SourceDetails& details) override;
 
     [[nodiscard]] ArrangementView& model() noexcept { return view; }
     [[nodiscard]] const ArrangementView& model() const noexcept { return view; }
@@ -149,6 +165,7 @@ private:
 
     Appearance& appearance;
     ArrangementView& view;
+    Browser* browser = nullptr;
     std::function<void()> askCollaborator;
     std::unique_ptr<Ruler> ruler;
     juce::AudioFormatManager audioFormats;

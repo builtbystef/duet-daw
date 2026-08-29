@@ -7,6 +7,8 @@
 # what the window's components do with the view-models beneath them. Never what
 # any of it looks like: paint stays untested (spec 535bbo).
 add_executable(duet_gui_tests
+    GuiSettingsHome.cpp
+    BrowserCanvasTests.cpp
     CollaboratorPanelCanvasTests.cpp
     GraphiteLookTests.cpp
     MainShellTests.cpp

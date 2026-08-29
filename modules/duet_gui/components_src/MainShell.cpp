@@ -1,5 +1,7 @@
 #include <duet/gui/MainShell.h>
 
+#include <duet/gui/BrowserCanvas.h>
+
 #include <duet/gui/AcceleratedSurface.h>
 #include <duet/gui/ArrangementCanvas.h>
 #include <duet/gui/CollaboratorPanelCanvas.h>
@@ -89,48 +91,6 @@ namespace
         return juceKeyCode;
     }
 } // namespace
-
-//==============================================================================
-/** One of the interface's areas, empty until its own slice fills it in.
-
-    It is a real surface from this slice on — it has its place in the window, its
-    name, and the Graphite ground and hairline every panel is drawn on — and it
-    carries its title so that a window of empty docks can still be read.
-*/
-class MainShell::Dock final : public juce::Component
-{
-public:
-    Dock (Appearance& lookAndScale, const char* areaId, juce::String areaTitle)
-        : appearance (lookAndScale), title (std::move (areaTitle))
-    {
-        setComponentID (areaId);
-    }
-
-    ~Dock() override = default;
-
-    void paint (juce::Graphics& g) override
-    {
-        const auto area = getLocalBounds();
-
-        g.setColour (toJuce (appearance.colour (ColourToken::surfaceDefault)));
-        g.fillRect (area);
-
-        g.setColour (toJuce (appearance.colour (ColourToken::borderDefault)));
-        g.drawRect (area, 1);
-
-        g.setColour (toJuce (appearance.colour (ColourToken::textMuted)));
-        g.setFont (interFont (appearance.scaled (typography::eyebrow)));
-        g.drawText (title,
-                    area.reduced (appearance.scaled (metrics::panelPadding)),
-                    juce::Justification::topLeft);
-    }
-
-private:
-    Appearance& appearance;
-    juce::String title;
-
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (Dock)
-};
 
 //==============================================================================
 /** The live transport strip. Fixed child bounds keep changing digits from
@@ -357,6 +317,9 @@ public:
         addChildComponent (*mixer);
     }
 
+    /** The dock a device dropped into a strip's insert chain comes out of. */
+    void setBrowser (Browser* dock) { mixer->setBrowser (dock); }
+
     ~BottomPanel() override = default;
 
     /** Puts the surface the view says is in front in front, and lays it out.
@@ -446,8 +409,8 @@ private:
 };
 
 //==============================================================================
-MainShell::MainShell (Appearance& lookAndScale, ViewState& projectView)
-    : appearance (lookAndScale), view (projectView)
+MainShell::MainShell (Appearance& lookAndScale, ViewState& projectView, Settings& store)
+    : appearance (lookAndScale), view (projectView), browserModel (store)
 {
     shortcuts.add (panelShortcuts());
     shortcuts.add (timelineShortcuts());
@@ -468,7 +431,13 @@ MainShell::MainShell (Appearance& lookAndScale, ViewState& projectView)
             perform (Command::showPianoRoll);
         },
         [this] { askCollaborator(); });
-    browser = std::make_unique<Dock> (appearance, surfaceId::browser, "Browser");
+    browserDock = std::make_unique<BrowserCanvas> (appearance, browserModel);
+    browserDock->setComponentID (surfaceId::browser);
+
+    // The shell is the container a drag out of the dock is carried across, and
+    // the arrangement is one of the two surfaces it can land on. The other is
+    // the mixer, which the bottom panel holds.
+    arrangement->setBrowser (&browserModel);
 
     // A Suggestion is shown as ghosts on the surfaces it would change, and read
     // from one place by all of them.
@@ -492,6 +461,7 @@ MainShell::MainShell (Appearance& lookAndScale, ViewState& projectView)
         [this] { viewStateChanged(); },
         [this] (BottomTab tab)
         { perform (tab == BottomTab::mixer ? Command::showMixer : Command::showPianoRoll); });
+    bottom->setBrowser (&browserModel);
 
     browserDivider = std::make_unique<Divider> (true, [this] (int x) { dragBrowserDivider (x); });
     collaboratorDivider =
@@ -500,7 +470,7 @@ MainShell::MainShell (Appearance& lookAndScale, ViewState& projectView)
 
     for (auto* child : std::initializer_list<juce::Component*> { transportStrip.get(),
                                                                  arrangement.get(),
-                                                                 browser.get(),
+                                                                 browserDock.get(),
                                                                  collaboratorDock.get(),
                                                                  bottom.get(),
                                                                  browserDivider.get(),
@@ -550,12 +520,14 @@ void MainShell::resized()
 
     if (view.browserVisible())
     {
-        browser->setBounds (area.removeFromLeft (view.browserWidthPx()));
-        browserDivider->setBounds (juce::Rectangle<int> {
-            browser->getRight() - divider / 2, browser->getY(), divider, browser->getHeight() });
+        browserDock->setBounds (area.removeFromLeft (view.browserWidthPx()));
+        browserDivider->setBounds (juce::Rectangle<int> { browserDock->getRight() - divider / 2,
+                                                          browserDock->getY(),
+                                                          divider,
+                                                          browserDock->getHeight() });
     }
 
-    browser->setVisible (view.browserVisible());
+    browserDock->setVisible (view.browserVisible());
     browserDivider->setVisible (view.browserVisible());
 
     if (view.collaboratorVisible())
@@ -691,6 +663,7 @@ void MainShell::setSession (duet::model::Session* openProject)
     pianoRoll.setSession (openProject);
     mixer.setSession (openProject);
     transport.setSession (openProject);
+    browserModel.setSession (openProject);
 
     // Whatever was pending goes with the project it was made against, so the
     // surfaces are told what there is to draw before they are laid out.

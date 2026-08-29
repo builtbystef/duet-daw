@@ -44,7 +44,7 @@ struct OpenShell
     StoredSettings store;
     Appearance appearance { store, true };
     ViewState view;
-    MainShell shell { appearance, view };
+    MainShell shell { appearance, view, store };
 };
 
 /** The texts of a menu's items, in the order it offers them. */

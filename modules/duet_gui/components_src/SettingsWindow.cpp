@@ -9,6 +9,7 @@
 
 #include <array>
 #include <initializer_list>
+#include <memory>
 #include <utility>
 
 namespace duet::gui
@@ -16,7 +17,7 @@ namespace duet::gui
 namespace
 {
     constexpr int windowWidth = 420;
-    constexpr int windowHeight = 330;
+    constexpr int windowHeight = 470;
     constexpr int labelWidth = 130;
     constexpr int tabBarHeight = 28;
     constexpr double scaleStep = 0.05;
@@ -54,17 +55,24 @@ namespace
         return static_cast<int> (autosaveChoices.size());
     }
 
+    /** How tall the sample-folder list is, in logical units: enough rows to see
+        a small library's folders without the tab growing with the list.
+    */
+    constexpr int sampleFolderListHeight = 84;
+
     /** The Interface tab. */
     class InterfaceTab final : public juce::Component,
                                private Appearance::Listener,
-                               private juce::FilenameComponentListener
+                               private juce::FilenameComponentListener,
+                               private juce::ListBoxModel
     {
     public:
         InterfaceTab (Appearance& lookAndScale,
                       Settings& store,
+                      Browser& dock,
                       const std::filesystem::path& defaultProjectsDirectory,
                       std::function<void (bool)> renderingChanged)
-            : appearance (lookAndScale), settings (store),
+            : appearance (lookAndScale), settings (store), browser (dock),
               reportRendering (std::move (renderingChanged)),
               projectsDirectory (
                   "projectsDirectory",
@@ -122,6 +130,26 @@ namespace
                     setAutosaveInterval (settings, autosaveChoices.at (chosen).first);
             };
 
+            sampleFoldersLabel.setText ("Sample folders", juce::dontSendNotification);
+            sampleFolderList.setModel (this);
+            sampleFolderList.setRowHeight (appearance.scaled (metrics::rowHeight));
+
+            addFolder.setButtonText ("Add...");
+            addFolder.onClick = [this] { chooseSampleFolder(); };
+
+            removeFolder.setButtonText ("Remove");
+            removeFolder.onClick = [this]
+            {
+                const auto chosen = sampleFolderList.getSelectedRow();
+                const auto folders = browser.sampleFolders();
+
+                if (chosen >= 0 && chosen < static_cast<int> (folders.size()))
+                {
+                    browser.removeSampleFolder (folders[static_cast<std::size_t> (chosen)]);
+                    sampleFoldersChanged();
+                }
+            };
+
             renderingButton.setButtonText ("Hardware acceleration");
             renderingButton.setToggleState (hardwareAccelerationEnabled (settings),
                                             juce::dontSendNotification);
@@ -139,11 +167,15 @@ namespace
                                                                          &scaleLabel,
                                                                          &projectsLabel,
                                                                          &autosaveLabel,
+                                                                         &sampleFoldersLabel,
                                                                          &renderingLabel,
                                                                          &themeBox,
                                                                          &scaleSlider,
                                                                          &projectsDirectory,
                                                                          &autosaveBox,
+                                                                         &sampleFolderList,
+                                                                         &addFolder,
+                                                                         &removeFolder,
                                                                          &renderingButton })
                 addAndMakeVisible (*child);
 
@@ -183,10 +215,77 @@ namespace
             layOutRow (scaleLabel, scaleSlider);
             layOutRow (projectsLabel, projectsDirectory);
             layOutRow (autosaveLabel, autosaveBox);
+
+            auto folders = area.removeFromTop (appearance.scaled (sampleFolderListHeight));
+            sampleFoldersLabel.setBounds (folders.removeFromLeft (labels));
+            auto buttons = folders.removeFromBottom (rowHeight);
+            addFolder.setBounds (
+                buttons.removeFromLeft (buttons.getWidth() / 2).reduced (0, gap / 2));
+            removeFolder.setBounds (buttons.reduced (0, gap / 2));
+            sampleFolderList.setBounds (folders);
+            sampleFolderList.setRowHeight (rowHeight);
+            area.removeFromTop (gap);
+
             layOutRow (renderingLabel, renderingButton);
         }
 
     private:
+        //==============================================================================
+        int getNumRows() override { return static_cast<int> (browser.sampleFolders().size()); }
+
+        void paintListBoxItem (int rowNumber,
+                               juce::Graphics& g,
+                               int width,
+                               int height,
+                               bool rowIsSelected) override
+        {
+            const auto folders = browser.sampleFolders();
+
+            if (rowNumber < 0 || rowNumber >= static_cast<int> (folders.size()))
+                return;
+
+            if (rowIsSelected)
+            {
+                g.setColour (toJuce (appearance.colour (ColourToken::surfaceInteractive)));
+                g.fillRect (0, 0, width, height);
+            }
+
+            g.setColour (toJuce (appearance.colour (ColourToken::textPrimary)));
+            g.setFont (interFont (appearance.scaled (typography::body)));
+            g.drawText (juce::String { folders[static_cast<std::size_t> (rowNumber)].string() },
+                        juce::Rectangle<int> { 0, 0, width, height },
+                        juce::Justification::centredLeft,
+                        true);
+        }
+
+        void chooseSampleFolder()
+        {
+            folderChooser = std::make_unique<juce::FileChooser> ("Choose a sample folder");
+            folderChooser->launchAsync (juce::FileBrowserComponent::openMode
+                                            | juce::FileBrowserComponent::canSelectDirectories,
+                                        [this] (const juce::FileChooser& chooser)
+                                        {
+                                            const auto chosen = chooser.getResult();
+
+                                            if (chosen == juce::File {})
+                                                return;
+
+                                            browser.addSampleFolder (
+                                                chosen.getFullPathName().toStdString());
+                                            sampleFoldersChanged();
+                                        });
+        }
+
+        /** What this list shows is the browser's own folders, so the change is
+            already in the dock by the time this runs: all that is left is the
+            list itself.
+        */
+        void sampleFoldersChanged()
+        {
+            sampleFolderList.updateContent();
+            sampleFolderList.repaint();
+        }
+
         void filenameComponentChanged (juce::FilenameComponent* component) override
         {
             if (component == &projectsDirectory)
@@ -209,6 +308,7 @@ namespace
 
         Appearance& appearance;
         Settings& settings;
+        Browser& browser;
         std::function<void (bool)> reportRendering;
         juce::Label themeLabel;
         juce::Label scaleLabel;
@@ -219,6 +319,11 @@ namespace
         juce::Slider scaleSlider;
         juce::FilenameComponent projectsDirectory;
         juce::ComboBox autosaveBox;
+        juce::Label sampleFoldersLabel;
+        juce::ListBox sampleFolderList;
+        juce::TextButton addFolder;
+        juce::TextButton removeFolder;
+        std::unique_ptr<juce::FileChooser> folderChooser;
         juce::ToggleButton renderingButton;
     };
 
@@ -228,16 +333,19 @@ namespace
     public:
         SettingsContent (Appearance& lookAndScale,
                          Settings& store,
+                         Browser& dock,
                          const std::filesystem::path& defaultProjectsDirectory,
                          std::function<void (bool)> renderingChanged)
             : appearance (lookAndScale)
         {
-            tabs.addTab (
-                "Interface",
-                juce::Colours::transparentBlack,
-                new InterfaceTab {
-                    appearance, store, defaultProjectsDirectory, std::move (renderingChanged) },
-                true);
+            tabs.addTab ("Interface",
+                         juce::Colours::transparentBlack,
+                         new InterfaceTab { appearance,
+                                            store,
+                                            dock,
+                                            defaultProjectsDirectory,
+                                            std::move (renderingChanged) },
+                         true);
 
             addAndMakeVisible (tabs);
             appearance.addListener (this);
@@ -280,6 +388,7 @@ namespace
 
 SettingsWindow::SettingsWindow (Appearance& lookAndScale,
                                 Settings& store,
+                                Browser& dock,
                                 const std::filesystem::path& defaultProjectsDirectory,
                                 std::function<void (bool)> renderingChanged,
                                 std::function<void()> onClose)
@@ -292,7 +401,7 @@ SettingsWindow::SettingsWindow (Appearance& lookAndScale,
     setUsingNativeTitleBar (true);
     setContentOwned (
         new SettingsContent {
-            lookAndScale, store, defaultProjectsDirectory, std::move (renderingChanged) },
+            lookAndScale, store, dock, defaultProjectsDirectory, std::move (renderingChanged) },
         true);
     setResizable (true, false);
     centreWithSize (getWidth(), getHeight());
