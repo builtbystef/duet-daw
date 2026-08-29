@@ -6,7 +6,7 @@ priority: medium
 depends_on:
     - 7tw2tz
 created: 2026-08-28T22:18:40Z
-updated: 2026-08-29T06:22:13Z
+updated: 2026-08-29T07:23:57Z
 ---
 
 ## What is wrong
@@ -49,3 +49,21 @@ Also in scope, found in the same place: `Collaborator::setSession` calls `ToolRe
 **claude** — 2026-08-29T06:22:13Z
 
 Correction (2026-08-29): this issue's body states that 'every project read is safe: the marshal the tools are given checks that the project it was built for is still the open one, so a read of a project that has gone never starts.' That is not what the code does. ProjectTools::read dereferences its own marshal and session members before the marshal's guard is ever reached, so the guard protects the Session and does nothing for a destroyed ProjectTools. Collaborator::setSession destroys the tool objects while ToolRegistry keeps the [this] lambdas they registered, and the registry has no removal. Recorded in full on 7tw2tz. Do not close this as already-handled on the strength of that sentence.
+
+**claude** — 2026-08-29T07:23:57Z
+
+One more of the same shape, found while reviewing 7tw2tz and left for this
+issue because the fix is the same fix: `~Collaborator` clears the panel source,
+the run listener, the estimate ledger and the life token, but not the
+`"tool.call"` method handler it registered on the service in its constructor.
+The handler captures `this`. A service that outlives its Collaborator — and
+`CollaboratorService` is owned separately in both hosts — dispatches that
+handler into freed memory.
+
+Both call sites happen to stop the service first, so nothing has been seen to
+fail. `CollaboratorService::Impl` already answers an unregistered method with
+methodNotFound (src/CollaboratorService.cpp:490), so the fix is
+`service.setMethodHandler ("tool.call", {})` in the destructor, beside the
+three unregistrations already there. What it wants is a seam to demonstrate it
+on: the sidecar double only issues `tool.call` from inside a run, so there is
+no deterministic way today to make one arrive after the Collaborator has gone.

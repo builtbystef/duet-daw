@@ -1,17 +1,15 @@
 ---
 id: 2suzzi
 title: 'Suggestions end to end: from a Task Run to ghosts, cherry-pick, revision, stale'
-state: in-progress
+state: done
 priority: medium
-labels:
-    - needs-review
 depends_on:
     - aw5t9l
     - 7tw2tz
     - 0wdwin
 parent: js437t
 created: 2026-08-12T04:03:58Z
-updated: 2026-08-29T07:02:43Z
+updated: 2026-08-29T07:12:21Z
 ---
 
 ## What to build
@@ -242,3 +240,18 @@ the model calls `get_track_analysis` four times and is refused each time with
 `unknownTool`. The sidecar advertises the tool and the registry in that case's
 fixture does not hold it. Every tool is registered under the ordinary
 `setSession` path, so this is that case's harness and not the shipping app.
+
+**claude** — 2026-08-29T07:12:13Z
+
+Reviewed and approved. All ten criteria met, criterion 10 verified against the
+real provider: the live Duet Loop case runs end to end on gpt-5.6-terra — a
+Suggestion made from a spoken request, its ghost shown, one row cherry-picked,
+the rest left, staleness detected against an edit derived from the Suggestion's
+own operations, and Undo returning the arrangement.
+
+The one concern the 7tw2tz review raised against this slice — History being a
+pull with no subscription — does not stand at HEAD: `Collaborator` constructs
+its `SuggestionSurfaces` with a `refreshHistory` callback
+(modules/duet_app/include/duet/app/Collaborator.h:209), so an accept or reject
+made in the arrangement or mixer reaches History without waiting for the next
+run to end.

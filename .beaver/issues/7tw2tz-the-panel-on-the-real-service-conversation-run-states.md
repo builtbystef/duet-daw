@@ -1,17 +1,15 @@
 ---
 id: 7tw2tz
 title: 'The panel on the real service: conversation, run states, estimate marks, development trace'
-state: in-progress
+state: done
 priority: medium
-labels:
-    - needs-review
 depends_on:
     - oocnng
     - 2z0y5u
     - 4jipx2
 parent: js437t
 created: 2026-08-12T04:03:44Z
-updated: 2026-08-29T07:02:25Z
+updated: 2026-08-29T07:24:17Z
 ---
 
 ## What to build
@@ -202,3 +200,34 @@ pass, duet_app links.
 
 Not fixed, and not this issue's: the findings numbered 3-10 in the review note
 above stand as recorded. Closure is still yours.
+
+**claude** — 2026-08-29T07:24:17Z
+
+The recording half of the fourth criterion is asserted now, at a5c1c86.
+
+"the producer keeps recording while a run is in flight" in CollaboratorTests
+.cpp arms a track from the MIDI input a session without an audio device offers,
+starts the take, and drives it block by block from the case itself — there is no
+device to push them — with the message loop the run's reports arrive on given a
+turn between every block. `isRecording()` is asked between the blocks rather
+than only at the end, so a take a run stopped partway reads differently from one
+it never touched; the playhead is further on than the run found it; Record Take
+lands one clip holding every note played in, before the run and while it was in
+flight; and the run is still in flight on the far side of the take's own Action.
+
+Checked by cutting the take deliberately: a `stopRecording()` inserted after
+Send fails the sampling assertion 0 == 8, so the case is not passing by
+accident.
+
+Whole tree afterwards: clang-format clean, lint clean on the file, 497/497 CTest
+entries pass.
+
+On the rest of the standing findings. #6, the `"tool.call"` handler that
+`~Collaborator` leaves registered, is real and is now recorded on 9tdwdq, whose
+shape and fix it shares — the sidecar double only issues a tool call from inside
+a run, so there is no seam here to demonstrate it on today. #3 (the failure line
+passes the service's reason verbatim), #5 (chip and run disagree about the
+focused track), #7 and #8 are judgment about surfaces this issue built rather
+than criteria it failed, and are left as recorded.
+
+Every acceptance criterion is met.
