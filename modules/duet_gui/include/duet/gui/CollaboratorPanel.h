@@ -248,7 +248,7 @@ public:
         js437t). Empty, or naming a Suggestion this conversation never showed,
         and the card is a new one at the end.
     */
-    void showSuggestion (std::string id, std::string summary, std::string revises = {});
+    void showSuggestion (std::string id, std::string summary, const std::string& revises = {});
 
     //==============================================================================
     /** The raw tool-call trace of the run on now, or of the last one there was.
