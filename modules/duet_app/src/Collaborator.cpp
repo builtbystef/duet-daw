@@ -303,7 +303,7 @@ void Collaborator::holdSuggestion (const std::string& runId, const std::string& 
             if (const auto held = suggestions->suggestion (id); held.has_value())
                 revises = held->revises;
 
-            panel.showSuggestion (id, std::move (summary), std::move (revises));
+            panel.showSuggestion (id, std::move (summary), revises);
         });
 }
 

@@ -17,6 +17,7 @@ using Catch::Matchers::WithinAbs;
 using duet::app::SuggestionSurfaces;
 using duet::collab::Json;
 using duet::collab::RunStart;
+using duet::gui::GhostFaderDrawing;
 using duet::gui::Mixer;
 using duet::gui::Suggestions;
 using duet::model::BuiltinPlugin;
@@ -367,10 +368,13 @@ TEST_CASE ("two Suggestions render their ghosts apart and resolve independently"
 
     // Each Suggestion's mark stands on the strip it is about, so the two are
     // told apart by where they are drawn.
-    REQUIRE (mixer.ghostFader (made.keys).has_value());
-    REQUIRE_THAT (mixer.ghostFader (made.keys)->db, WithinAbs (proposedLevelDb, 1e-9));
-    REQUIRE (mixer.ghostFader (made.pad).has_value());
-    REQUIRE_THAT (mixer.ghostFader (made.pad)->db, WithinAbs (-12.0, 1e-9));
+    const auto keysGhost = mixer.ghostFader (made.keys);
+    const auto padGhost = mixer.ghostFader (made.pad);
+
+    REQUIRE (keysGhost.has_value());
+    REQUIRE_THAT (keysGhost.value_or (GhostFaderDrawing {}).db, WithinAbs (proposedLevelDb, 1e-9));
+    REQUIRE (padGhost.has_value());
+    REQUIRE_THAT (padGhost.value_or (GhostFaderDrawing {}).db, WithinAbs (-12.0, 1e-9));
 
     // Resolving one says nothing about the other, in every respect.
     REQUIRE (made.suggestions.accept (second));

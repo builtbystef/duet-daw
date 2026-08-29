@@ -1,12 +1,13 @@
 ---
 id: q1mnpd
 title: Three clang-tidy errors on main in the Collaborator's sources
-state: todo
+state: done
+assignee: claude
 priority: medium
 labels:
     - maintenance
 created: 2026-08-29T01:22:32Z
-updated: 2026-08-29T07:04:59Z
+updated: 2026-08-29T08:23:05Z
 ---
 
 ## What is wrong
@@ -55,3 +56,32 @@ Worth recording that this issue's own hypothesis is what happened: a sweep is
 only as wide as the compile database it runs against, so one taken after a
 partial build reports fewer errors than the tree holds. The count grew here
 after a full build, not because anything got worse.
+
+**claude** — 2026-08-29T08:23:05Z
+
+Done (2026-08-29). The whole-tree sweep now exits zero: `./scripts/lint.sh` with
+no arguments, run against a compile database from a full build, reports nothing.
+The full suite is green (497/497) and the format check passes.
+
+Two errors were left when this issue was last touched, and one more appeared
+once the tree was fully built:
+
+- tests/SuggestionSurfacesTests.cpp — `ghostFader()` was called twice per
+  assertion, so `bugprone-unchecked-optional-access` could not see the
+  `has_value()` guard covering the `->` read. Each optional is now bound to a
+  local once and read through `value_or (GhostFaderDrawing {})`, which is the
+  idiom SuggestionViewTests.cpp already uses for the same call.
+- modules/duet_app/src/Collaborator.cpp:306 — `std::move (revises)` at the
+  `showSuggestion` call (`performance-move-const-arg`). This one was a
+  consequence of this issue's own earlier fix: `revises` became a
+  `const std::string&` parameter, which makes the caller's move a no-op. The
+  move is gone; nothing else changed.
+
+Neither change alters behaviour. The test binds values it already read; the
+Collaborator drops a move that was already not happening.
+
+The compile-database hypothesis is now recorded where it prevents a repeat, in
+AGENTS.md under "While iterating": a sweep only covers what the compile database
+holds, so one run after a single-target build reads clean while the tree is not.
+That is why three iterations in a row reported a clean sweep against a failing
+main, and why this one built everything before sweeping.

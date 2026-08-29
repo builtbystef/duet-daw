@@ -78,7 +78,7 @@ Every check above is the one to run before a commit. Measured on the dev machine
 
 - Build one target, not all of them — `cmake --build --preset linux-debug -j 4 --target duet_tests` while a test is red, `--target duet_app` while the shell is.
 - Probe the engine before reading it — `cmake --build --preset linux-debug -j 4 --target duet_scratch` builds the disposable program in `tests/scratch/`. A short probe has repeatedly been cheaper than reading vendored engine sources, and the ordinary build never reaches it.
-- Lint the file you changed — `./scripts/lint.sh modules/duet_model/src/Session.cpp`, a few seconds — and sweep everything once at the end.
+- Lint the file you changed — `./scripts/lint.sh modules/duet_model/src/Session.cpp`, a few seconds — and sweep everything once at the end. Build everything first: the sweep reads the compile database, so one taken after a single-target build reports only the files that build reached, and reads as clean while the tree is not (measured 2026-08-29, issue q1mnpd).
 - Format is cheap; run it whenever. It reads `git ls-files`, so `git add -N` a new file before the format check or it passes without having seen it.
 
 ## Project docs & tracker
