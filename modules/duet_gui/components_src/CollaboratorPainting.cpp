@@ -13,6 +13,11 @@ namespace
 {
     // Logical units: the interface scale is what turns one into a pixel.
     constexpr int ghostBadgeSize = 9;
+
+    /** How large the badge is drawn on a menu entry. A menu measures its own
+        images, so this is the shape's own size and not a logical unit.
+    */
+    constexpr float menuBadgeSize = 12.0F;
     constexpr int ghostPadding = 4;
     constexpr float ghostBorderWidth = 1.2F;
     constexpr float dashLength = 4.0F;
@@ -50,26 +55,53 @@ namespace
     }
 } // namespace
 
+namespace
+{
+    /** The four-pointed star, in an area: one shape, whether it is filled onto a
+        surface or handed to a menu as an image.
+    */
+    [[nodiscard]] juce::Path badgePath (juce::Rectangle<float> area)
+    {
+        const auto centre = area.getCentre();
+        const auto arm = area.getWidth() / 2.0F;
+        const auto waist = arm * 0.24F;
+
+        juce::Path star;
+
+        star.startNewSubPath (centre.x, centre.y - arm);
+        star.lineTo (centre.x + waist, centre.y - waist);
+        star.lineTo (centre.x + arm, centre.y);
+        star.lineTo (centre.x + waist, centre.y + waist);
+        star.lineTo (centre.x, centre.y + arm);
+        star.lineTo (centre.x - waist, centre.y + waist);
+        star.lineTo (centre.x - arm, centre.y);
+        star.lineTo (centre.x - waist, centre.y - waist);
+        star.closeSubPath();
+
+        return star;
+    }
+} // namespace
+
 void paintCollaboratorBadge (juce::Graphics& g, juce::Rectangle<float> area, juce::Colour ink)
 {
-    const auto centre = area.getCentre();
-    const auto arm = area.getWidth() / 2.0F;
-    const auto waist = arm * 0.24F;
-
-    juce::Path star;
-
-    star.startNewSubPath (centre.x, centre.y - arm);
-    star.lineTo (centre.x + waist, centre.y - waist);
-    star.lineTo (centre.x + arm, centre.y);
-    star.lineTo (centre.x + waist, centre.y + waist);
-    star.lineTo (centre.x, centre.y + arm);
-    star.lineTo (centre.x - waist, centre.y + waist);
-    star.lineTo (centre.x - arm, centre.y);
-    star.lineTo (centre.x - waist, centre.y - waist);
-    star.closeSubPath();
-
     g.setColour (ink);
-    g.fillPath (star);
+    g.fillPath (badgePath (area));
+}
+
+juce::PopupMenu::Item askCollaboratorItem (const Appearance& appearance, int itemId)
+{
+    const auto teal = toJuce (appearance.colour (ColourToken::collaborator));
+    auto badge = std::make_unique<juce::DrawablePath>();
+
+    badge->setPath (badgePath (juce::Rectangle<float> { menuBadgeSize, menuBadgeSize }));
+    badge->setFill (teal);
+
+    juce::PopupMenu::Item entry { "Ask Collaborator" };
+
+    entry.itemID = itemId;
+    entry.image = std::move (badge);
+
+    return entry;
 }
 
 void paintGhostClip (juce::Graphics& g,

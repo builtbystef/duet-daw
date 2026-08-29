@@ -320,21 +320,27 @@ juce::Rectangle<int> PianoRollCanvas::velocityArea() const
     return area;
 }
 
-void PianoRollCanvas::showNoteMenu()
+juce::PopupMenu PianoRollCanvas::noteMenu()
 {
     juce::PopupMenu menu;
     menu.addItem (1, "Delete");
     menu.addItem (2, "Quantize");
-    menu.showMenuAsync ({},
-                        [safe = juce::Component::SafePointer { this }] (int result)
-                        {
-                            if (safe == nullptr)
-                                return;
-                            if (result == 1)
-                                safe->view.deleteSelected();
-                            else if (result == 2)
-                                safe->view.quantizeSelected();
-                            safe->repaint();
-                        });
+
+    return menu;
+}
+
+void PianoRollCanvas::showNoteMenu()
+{
+    noteMenu().showMenuAsync ({},
+                              [safe = juce::Component::SafePointer { this }] (int result)
+                              {
+                                  if (safe == nullptr)
+                                      return;
+                                  if (result == 1)
+                                      safe->view.deleteSelected();
+                                  else if (result == 2)
+                                      safe->view.quantizeSelected();
+                                  safe->repaint();
+                              });
 }
 } // namespace duet::gui

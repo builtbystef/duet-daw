@@ -23,6 +23,16 @@ namespace duet::gui
 */
 void paintCollaboratorBadge (juce::Graphics& g, juce::Rectangle<float> area, juce::Colour ink);
 
+/** The entry that asks the Collaborator about the thing a context menu was
+    opened on: the words with the ✦ before them, in the Collaborator's own
+    teal.
+
+    Menus on other surfaces build their entry through here, so that neither the
+    badge nor the reserved hue is named outside this file. The badge is the
+    item's own image, the star being drawn rather than typed.
+*/
+[[nodiscard]] juce::PopupMenu::Item askCollaboratorItem (const Appearance& appearance, int itemId);
+
 /** One ghost clip on the timeline: a teal wash under a dashed teal border,
     three rings of soft glow around it, and the ✦ before its name — and, while
     it is being auditioned, the border solid and the wash and the name gone,

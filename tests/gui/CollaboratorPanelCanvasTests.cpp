@@ -5,6 +5,7 @@
 #include <duet/gui/CollaboratorPanelCanvas.h>
 #include <duet/gui/MainShell.h>
 #include <duet/gui/MixerCanvas.h>
+#include <duet/gui/PianoRollCanvas.h>
 #include <duet/gui/ViewState.h>
 #include <duet/model/Session.h>
 
@@ -171,6 +172,63 @@ struct OpenShell
         panel->refresh();
     }
 
+    /** The arrangement, which is where a clip and a track are asked about. */
+    [[nodiscard]] duet::gui::ArrangementCanvas& arrangement() const
+    {
+        auto* found = dynamic_cast<duet::gui::ArrangementCanvas*> (
+            shell.findChildWithID (duet::gui::surfaceId::arrangement));
+
+        REQUIRE (found != nullptr);
+        return *found;
+    }
+
+    /** Puts the pointer on a clip, and presses it there when asked to. */
+    void pointerOverClip (duet::model::ClipRef clip, bool press) const
+    {
+        auto& canvas = arrangement();
+
+        for (const auto& row : canvas.model().tracks())
+            for (const auto& drawing : row.clips)
+                if (drawing.clip == clip)
+                {
+                    // The middle of the clip: its edges are where a trim starts.
+                    const auto x =
+                        appearance.scaled (duet::gui::ArrangementCanvas::trackHeaderWidth)
+                        + drawing.x + drawing.width / 2;
+                    const auto y = appearance.scaled (duet::gui::ArrangementCanvas::rulerHeight)
+                                   + row.y + row.height / 2;
+                    const auto point =
+                        juce::Point<float> { static_cast<float> (x), static_cast<float> (y) };
+                    const auto now = juce::Time::getCurrentTime();
+                    const juce::MouseEvent event {
+                        juce::Desktop::getInstance().getMainMouseSource(),
+                        point,
+                        {},
+                        1.0F,
+                        0.0F,
+                        0.0F,
+                        0.0F,
+                        0.0F,
+                        &canvas,
+                        &canvas,
+                        now,
+                        point,
+                        now,
+                        1,
+                        false
+                    };
+
+                    if (press)
+                        canvas.mouseDown (event);
+                    else
+                        canvas.mouseMove (event);
+
+                    return;
+                }
+
+        FAIL ("no clip of that ref is on the timeline");
+    }
+
     [[nodiscard]] juce::TextEditor& composer() const
     {
         auto* editor =
@@ -187,6 +245,27 @@ struct OpenShell
     MainShell shell { appearance, view };
     CollaboratorPanelCanvas* panel = nullptr;
 };
+
+/** The words the Collaborator's own menu entry carries. */
+constexpr const char* askEntry = "Ask Collaborator";
+
+/** What a menu holds of an entry of that text: whether it is there at all, and
+    whether it carries an image, which is how the ✦ badge is drawn on one.
+*/
+struct MenuEntry
+{
+    bool offered = false;
+    bool badged = false;
+};
+
+[[nodiscard]] MenuEntry entryNamed (const juce::PopupMenu& menu, const juce::String& text)
+{
+    for (juce::PopupMenu::MenuItemIterator item { menu }; item.next();)
+        if (item.getItem().text == text)
+            return { true, item.getItem().image != nullptr };
+
+    return {};
+}
 
 [[nodiscard]] std::filesystem::path editFile (const std::string& name)
 {
@@ -497,5 +576,195 @@ TEST_CASE ("a run that succeeds comes back with a Suggestion, and every surface 
     REQUIRE (session.undoNames().size() == undoBefore + 1);
     REQUIRE (arrangement->model().ghosts().empty());
     REQUIRE_FALSE (mixer->model().ghostFader (track).has_value());
+    std::filesystem::remove (file);
+}
+
+TEST_CASE ("the ✦ entry is on a clip's and a track's menu, and on no menu the Collaborator "
+           "cannot be asked from")
+{
+    OpenShell open;
+    const auto file = editFile ("collaborator-ask-menu");
+    duet::model::Session session { file };
+
+    session.performAction ("Something to ask about",
+                           [&] (auto& ops)
+                           {
+                               const auto track =
+                                   ops.createTrack (duet::model::TrackKind::midi, "Drums");
+                               static_cast<void> (ops.insertMidiClip (track, "Verse", 0.0, 4.0));
+                           });
+    open.shell.setSession (&session);
+
+    auto& arrangement = open.arrangement();
+    const auto onAClip = entryNamed (arrangement.clipMenu(), askEntry);
+    const auto onATrack = entryNamed (arrangement.trackMenu(), askEntry);
+
+    REQUIRE (onAClip.offered);
+    REQUIRE (onATrack.offered);
+
+    // The badge is drawn rather than typed, so the entry carries it as its own
+    // image rather than as a character in its text.
+    REQUIRE (onAClip.badged);
+    REQUIRE (onATrack.badged);
+
+    // The Collaborator is asked about the things the Tool Vocabulary names. The
+    // empty timeline and one MIDI note are not among them.
+    REQUIRE_FALSE (entryNamed (arrangement.emptyTimelineMenu(), askEntry).offered);
+
+    open.shell.perform (Command::showPianoRoll);
+
+    auto* pianoRoll = dynamic_cast<duet::gui::PianoRollCanvas*> (
+        surfaceOf (open.shell, duet::gui::surfaceId::pianoRoll));
+
+    REQUIRE (pianoRoll != nullptr);
+    REQUIRE_FALSE (entryNamed (pianoRoll->noteMenu(), askEntry).offered);
+    std::filesystem::remove (file);
+}
+
+TEST_CASE ("asking about a clip from its menu opens the panel, waits for the producer, and "
+           "chips what they send with that clip")
+{
+    OpenShell open;
+    const auto file = editFile ("collaborator-ask-clip");
+    duet::model::Session session { file };
+    duet::model::TrackRef drums = duet::model::noTrack;
+    duet::model::ClipRef drop = duet::model::noClip;
+
+    session.performAction ("Two clips",
+                           [&] (auto& ops)
+                           {
+                               drums = ops.createTrack (duet::model::TrackKind::midi, "Drums");
+                               static_cast<void> (ops.insertMidiClip (drums, "Verse", 0.0, 4.0));
+                               drop = ops.insertMidiClip (drums, "Drop", 8.0, 4.0);
+                           });
+    open.shell.setSession (&session);
+    open.shell.perform (Command::toggleCollaborator);
+
+    REQUIRE_FALSE (open.view.collaboratorVisible());
+
+    open.arrangement().clipMenuChosen (
+        drop, drums, duet::gui::ArrangementCanvas::askCollaboratorId);
+
+    // The panel is open, the keyboard is in the composer, and nothing has been
+    // said: the ask is the producer's to write.
+    REQUIRE (open.view.collaboratorVisible());
+    REQUIRE (open.panel->isVisible());
+    REQUIRE (open.panel->model().composerWantsKeyboard());
+    REQUIRE (open.panel->model().conversation().empty());
+
+    REQUIRE (open.shell.askContext().clips == std::vector<duet::model::ClipRef> { drop });
+    REQUIRE (open.shell.currentSelectionContext() == duet::gui::clipSelected ("Drop"));
+
+    open.type ("what's wrong here");
+    open.click (duet::gui::collaboratorId::send);
+
+    REQUIRE (open.panel->model().conversation().back().context == "Drop");
+    std::filesystem::remove (file);
+}
+
+TEST_CASE ("asking about a track from its menu makes that track the context, whatever is selected")
+{
+    OpenShell open;
+    const auto file = editFile ("collaborator-ask-track");
+    duet::model::Session session { file };
+    duet::model::TrackRef drums = duet::model::noTrack;
+    duet::model::TrackRef keys = duet::model::noTrack;
+    duet::model::ClipRef verse = duet::model::noClip;
+
+    session.performAction ("A clip and another track",
+                           [&] (auto& ops)
+                           {
+                               drums = ops.createTrack (duet::model::TrackKind::midi, "Drums");
+                               keys = ops.createTrack (duet::model::TrackKind::midi, "Keys");
+                               verse = ops.insertMidiClip (drums, "Verse", 0.0, 4.0);
+                           });
+    open.shell.setSession (&session);
+
+    auto& arrangement = open.arrangement();
+    arrangement.model().selection().click ({ duet::gui::SelectionKind::clip, verse },
+                                           arrangement.model().allClipItems(),
+                                           false,
+                                           false);
+
+    arrangement.trackMenuChosen (keys, duet::gui::ArrangementCanvas::askCollaboratorId);
+
+    REQUIRE (open.shell.askContext().track == keys);
+    REQUIRE (open.shell.askContext().clips.empty());
+    REQUIRE (open.shell.currentSelectionContext() == trackSelected ("Keys"));
+
+    // The chips above the composer follow the implicit context exactly as they
+    // follow a selection.
+    duet::gui::CollaboratorPanel withTheTrackSelected;
+    withTheTrackSelected.setSelectionContext (trackSelected ("Keys"));
+
+    open.panel->refresh();
+
+    REQUIRE (open.panel->model().quickPrompts() == withTheTrackSelected.quickPrompts());
+    std::filesystem::remove (file);
+}
+
+TEST_CASE ("a clip answers a click by being selected and nothing else, and offers nothing on hover")
+{
+    OpenShell open;
+    const auto file = editFile ("collaborator-no-hover");
+    duet::model::Session session { file };
+    duet::model::ClipRef verse = duet::model::noClip;
+
+    session.performAction ("A clip",
+                           [&] (auto& ops)
+                           {
+                               const auto track =
+                                   ops.createTrack (duet::model::TrackKind::midi, "Drums");
+                               verse = ops.insertMidiClip (track, "Verse", 0.0, 4.0);
+                           });
+    open.shell.setSession (&session);
+    open.shell.perform (Command::toggleCollaborator);
+
+    auto& arrangement = open.arrangement();
+    const auto children = arrangement.getNumChildComponents();
+
+    open.pointerOverClip (verse, false);
+
+    // Nothing appears over a clip the pointer is merely on: the ask is on the
+    // menu and nowhere else.
+    REQUIRE (arrangement.getNumChildComponents() == children);
+
+    open.pointerOverClip (verse, true);
+
+    REQUIRE (arrangement.model().selection().items()
+             == std::vector<duet::gui::SelectedItem> { { duet::gui::SelectionKind::clip, verse } });
+    REQUIRE_FALSE (open.view.collaboratorVisible());
+    REQUIRE_FALSE (open.panel->model().composerWantsKeyboard());
+    REQUIRE (open.panel->model().conversation().empty());
+    std::filesystem::remove (file);
+}
+
+TEST_CASE ("a context menu dismissed without a choice changes neither the context nor the keyboard")
+{
+    OpenShell open;
+    const auto file = editFile ("collaborator-ask-dismissed");
+    duet::model::Session session { file };
+    duet::model::TrackRef drums = duet::model::noTrack;
+    duet::model::ClipRef drop = duet::model::noClip;
+
+    session.performAction ("Two clips",
+                           [&] (auto& ops)
+                           {
+                               drums = ops.createTrack (duet::model::TrackKind::midi, "Drums");
+                               static_cast<void> (ops.insertMidiClip (drums, "Verse", 0.0, 4.0));
+                               drop = ops.insertMidiClip (drums, "Drop", 8.0, 4.0);
+                           });
+    open.shell.setSession (&session);
+    open.shell.perform (Command::toggleCollaborator);
+
+    const auto before = open.shell.currentSelectionContext();
+
+    open.arrangement().clipMenuChosen (drop, drums, 0);
+    open.arrangement().trackMenuChosen (drums, 0);
+
+    REQUIRE (open.shell.currentSelectionContext() == before);
+    REQUIRE (open.shell.askContext().clips.empty());
+    REQUIRE_FALSE (open.view.collaboratorVisible());
+    REQUIRE_FALSE (open.panel->model().composerWantsKeyboard());
     std::filesystem::remove (file);
 }

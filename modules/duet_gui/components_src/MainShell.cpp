@@ -459,13 +459,15 @@ MainShell::MainShell (Appearance& lookAndScale, ViewState& projectView)
         transport,
         [this] (Command command) { perform (command); },
         [this] { viewStateChanged(); });
-    arrangement = std::make_unique<ArrangementCanvas> (appearance,
-                                                       arrangementView,
-                                                       [this] (duet::model::ClipRef clip)
-                                                       {
-                                                           pianoRoll.openClip (clip);
-                                                           perform (Command::showPianoRoll);
-                                                       });
+    arrangement = std::make_unique<ArrangementCanvas> (
+        appearance,
+        arrangementView,
+        [this] (duet::model::ClipRef clip)
+        {
+            pianoRoll.openClip (clip);
+            perform (Command::showPianoRoll);
+        },
+        [this] { askCollaborator(); });
     browser = std::make_unique<Dock> (appearance, surfaceId::browser, "Browser");
 
     // A Suggestion is shown as ghosts on the surfaces it would change, and read
@@ -685,7 +687,6 @@ void MainShell::setTimelineClock (TimelineClock* projectClock)
 
 void MainShell::setSession (duet::model::Session* openProject)
 {
-    session = openProject;
     arrangementView.setSession (openProject);
     pianoRoll.setSession (openProject);
     mixer.setSession (openProject);
@@ -698,37 +699,38 @@ void MainShell::setSession (duet::model::Session* openProject)
     viewStateChanged();
 }
 
+void MainShell::askCollaborator()
+{
+    // The answer arrives in the panel, so an ask from a menu opens it rather
+    // than leaving the producer to; what to ask is theirs to write, so the
+    // keyboard goes to the composer and nothing is sent.
+    view.setCollaboratorVisible (true);
+    collaboratorPanel.focusComposer();
+    viewStateChanged();
+    collaboratorDock->refresh();
+}
+
 SelectionContext MainShell::currentSelectionContext() const
 {
-    const auto& selected = arrangementView.selection();
+    const auto asked = arrangementView.askContext();
 
-    if (! selected.empty() && selected.focusedKind() == SelectionKind::clip)
-        return clipsSelected (static_cast<int> (selected.items().size()));
+    switch (asked.scope)
+    {
+        case AskScope::clips:
+            return asked.clips.size() == 1 ? clipSelected (asked.name)
+                                           : clipsSelected (static_cast<int> (asked.clips.size()));
 
-    if (session != nullptr)
-        if (const auto track = session->track (arrangementView.focusedTrack());
-            track.track != duet::model::noTrack)
-            return trackSelected (track.name);
+        case AskScope::track:
+            return trackSelected (asked.name);
+
+        case AskScope::nothing:
+            break;
+    }
 
     return noSelection();
 }
 
-std::vector<duet::model::ClipRef> MainShell::selectedClips() const
-{
-    const auto& selected = arrangementView.selection();
-
-    if (selected.empty() || selected.focusedKind() != SelectionKind::clip)
-        return {};
-
-    std::vector<duet::model::ClipRef> clips;
-
-    for (const auto& item : selected.items())
-        clips.push_back (item.ref);
-
-    return clips;
-}
-
-duet::model::TrackRef MainShell::focusedTrack() const { return arrangementView.focusedTrack(); }
+AskContext MainShell::askContext() const { return arrangementView.askContext(); }
 
 void MainShell::setPluginEditorAction (std::function<void (duet::model::PluginRef)> openEditor)
 {

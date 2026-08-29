@@ -165,8 +165,10 @@ private:
 //==============================================================================
 ArrangementCanvas::ArrangementCanvas (Appearance& lookAndScale,
                                       ArrangementView& arrangement,
-                                      std::function<void (duet::model::ClipRef)> showPianoRoll)
-    : appearance (lookAndScale), view (arrangement), openPianoRoll (std::move (showPianoRoll))
+                                      std::function<void (duet::model::ClipRef)> showPianoRoll,
+                                      std::function<void()> askTheCollaborator)
+    : appearance (lookAndScale), view (arrangement),
+      askCollaborator (std::move (askTheCollaborator)), openPianoRoll (std::move (showPianoRoll))
 {
     setComponentID (surfaceId::arrangement);
     audioFormats.registerBasicFormats();
@@ -1000,13 +1002,30 @@ void ArrangementCanvas::showClipMenu (duet::model::ClipRef clip)
                          [clip] (const auto& candidate) { return candidate.clip == clip; }))
             targetTrack = row.track;
 
+    clipMenu().showMenuAsync (
+        {},
+        [safe = juce::Component::SafePointer { this }, clip, targetTrack] (int result)
+        {
+            if (safe != nullptr)
+                safe->clipMenuChosen (clip, targetTrack, result);
+        });
+}
+
+juce::PopupMenu ArrangementCanvas::colourMenu()
+{
     juce::PopupMenu colours;
     constexpr std::array<const char*, duet::gui::trackColourCount> colourNames {
         "Orange", "Coral", "Mint", "Cyan", "Yellow", "Red", "Purple", "Blue"
     };
+
     for (std::size_t index = 0; index < colourNames.size(); ++index)
         colours.addItem (100 + static_cast<int> (index), colourNames.at (index));
 
+    return colours;
+}
+
+juce::PopupMenu ArrangementCanvas::clipMenu() const
+{
     juce::PopupMenu menu;
     menu.addItem (1, "Cut");
     menu.addItem (2, "Copy");
@@ -1014,83 +1033,125 @@ void ArrangementCanvas::showClipMenu (duet::model::ClipRef clip)
     menu.addItem (4, "Duplicate");
     menu.addItem (5, "Delete");
     menu.addItem (6, "Rename");
-    menu.addSubMenu ("Colour", colours);
-    menu.showMenuAsync (
-        {},
-        [safe = juce::Component::SafePointer { this }, clip, targetTrack] (int result)
-        {
-            if (safe == nullptr || result == 0)
-                return;
-            if (result == 1)
-                safe->view.cutSelected();
-            else if (result == 2)
-                safe->view.copySelected();
-            else if (result == 3)
-            {
-                safe->view.focusTrack (targetTrack);
-                safe->view.perform (Command::paste);
-            }
-            else if (result == 4)
-                safe->view.duplicateSelected();
-            else if (result == 5)
-                safe->view.deleteSelected();
-            else if (result == 6)
-                safe->beginClipRename (clip);
-            else if (result >= 100 && result < 108)
-                safe->view.setSelectedClipColour (
-                    static_cast<duet::model::TrackColour> (result - 100));
-            safe->repaint();
-        });
+    menu.addSubMenu ("Colour", colourMenu());
+    menu.addSeparator();
+    menu.addItem (askCollaboratorItem (appearance, askCollaboratorId));
+
+    return menu;
+}
+
+void ArrangementCanvas::clipMenuChosen (duet::model::ClipRef clip,
+                                        duet::model::TrackRef track,
+                                        int result)
+{
+    if (result == 0)
+        return;
+
+    if (result == 1)
+        view.cutSelected();
+    else if (result == 2)
+        view.copySelected();
+    else if (result == 3)
+    {
+        view.focusTrack (track);
+        view.perform (Command::paste);
+    }
+    else if (result == 4)
+        view.duplicateSelected();
+    else if (result == 5)
+        view.deleteSelected();
+    else if (result == 6)
+        beginClipRename (clip);
+    else if (result == askCollaboratorId)
+    {
+        // What the ask is about is this surface's to say; opening the panel and
+        // handing the producer the keyboard is the shell's.
+        view.askAboutClip (clip);
+
+        if (askCollaborator)
+            askCollaborator();
+    }
+    else if (result >= 100 && result < 108)
+        view.setSelectedClipColour (static_cast<duet::model::TrackColour> (result - 100));
+
+    repaint();
 }
 
 void ArrangementCanvas::showEmptyTimelineMenu (duet::model::TrackRef track, double atBeats)
 {
+    emptyTimelineMenu().showMenuAsync (
+        {},
+        [safe = juce::Component::SafePointer { this }, track, atBeats] (int result)
+        {
+            if (safe != nullptr)
+                safe->emptyTimelineMenuChosen (track, atBeats, result);
+        });
+}
+
+juce::PopupMenu ArrangementCanvas::emptyTimelineMenu()
+{
     juce::PopupMenu menu;
     menu.addItem (1, "Paste");
-    menu.showMenuAsync ({},
-                        [safe = juce::Component::SafePointer { this }, track, atBeats] (int result)
-                        {
-                            if (safe != nullptr && result == 1)
-                            {
-                                (void) safe->view.paste (atBeats, track);
-                                safe->repaint();
-                            }
-                        });
+
+    return menu;
+}
+
+void ArrangementCanvas::emptyTimelineMenuChosen (duet::model::TrackRef track,
+                                                 double atBeats,
+                                                 int result)
+{
+    if (result != 1)
+        return;
+
+    static_cast<void> (view.paste (atBeats, track));
+    repaint();
 }
 
 void ArrangementCanvas::showTrackMenu (duet::model::TrackRef track)
 {
-    juce::PopupMenu colours;
-    constexpr std::array<const char*, duet::gui::trackColourCount> colourNames {
-        "Orange", "Coral", "Mint", "Cyan", "Yellow", "Red", "Purple", "Blue"
-    };
+    trackMenu().showMenuAsync ({},
+                               [safe = juce::Component::SafePointer { this }, track] (int result)
+                               {
+                                   if (safe != nullptr)
+                                       safe->trackMenuChosen (track, result);
+                               });
+}
 
-    for (std::size_t index = 0; index < colourNames.size(); ++index)
-        colours.addItem (100 + static_cast<int> (index), colourNames.at (index));
-
+juce::PopupMenu ArrangementCanvas::trackMenu() const
+{
     juce::PopupMenu menu;
     menu.addItem (1, "Rename");
     menu.addItem (2, "Duplicate");
     menu.addItem (3, "Delete");
-    menu.addSubMenu ("Colour", colours);
-    menu.showMenuAsync ({},
-                        [safe = juce::Component::SafePointer { this }, track] (int result)
-                        {
-                            if (safe == nullptr || result == 0)
-                                return;
+    menu.addSubMenu ("Colour", colourMenu());
+    menu.addSeparator();
+    menu.addItem (askCollaboratorItem (appearance, askCollaboratorId));
 
-                            if (result == 1)
-                                safe->beginRename (track);
-                            else if (result == 2)
-                                safe->view.duplicateTrack (track);
-                            else if (result == 3)
-                                safe->view.deleteTrack (track);
-                            else if (result >= 100 && result < 108)
-                                safe->view.setTrackColour (
-                                    track, static_cast<duet::model::TrackColour> (result - 100));
+    return menu;
+}
 
-                            safe->repaint();
-                        });
+void ArrangementCanvas::trackMenuChosen (duet::model::TrackRef track, int result)
+{
+    if (result == 0)
+        return;
+
+    if (result == 1)
+        beginRename (track);
+    else if (result == 2)
+        view.duplicateTrack (track);
+    else if (result == 3)
+        view.deleteTrack (track);
+    else if (result == askCollaboratorId)
+    {
+        view.askAboutTrack (track);
+
+        if (askCollaborator)
+            askCollaborator();
+    }
+    else if (result >= 100 && result < 108)
+        view.setTrackColour (track, static_cast<duet::model::TrackColour> (result - 100));
+
+    repaint();
 }
 
 //==============================================================================

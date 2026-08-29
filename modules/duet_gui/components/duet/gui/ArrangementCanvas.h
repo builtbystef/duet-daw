@@ -30,9 +30,16 @@ class ArrangementCanvas final : public juce::Component,
                                 private juce::ChangeListener
 {
 public:
+    /** @param askTheCollaborator  what the Collaborator's own menu entry does
+                                    once this surface has said what the ask is
+                                    about: the shell opens the panel and puts
+                                    the keyboard in the composer, neither of
+                                    which is this surface's to do.
+    */
     ArrangementCanvas (Appearance& lookAndScale,
                        ArrangementView& arrangement,
-                       std::function<void (duet::model::ClipRef)> showPianoRoll = {});
+                       std::function<void (duet::model::ClipRef)> showPianoRoll = {},
+                       std::function<void()> askTheCollaborator = {});
 
     ~ArrangementCanvas() override;
 
@@ -49,6 +56,25 @@ public:
 
     [[nodiscard]] ArrangementView& model() noexcept { return view; }
     [[nodiscard]] const ArrangementView& model() const noexcept { return view; }
+
+    //==============================================================================
+    /** The context menus this surface offers, and what choosing an entry does.
+
+        They are built and answered apart so that what a menu holds is a thing a
+        test can read: a popup on screen is JUCE's, and what the entries mean is
+        this surface's. Zero is the menu dismissed, and does nothing.
+    */
+    [[nodiscard]] juce::PopupMenu clipMenu() const;
+    void clipMenuChosen (duet::model::ClipRef clip, duet::model::TrackRef track, int result);
+    [[nodiscard]] juce::PopupMenu trackMenu() const;
+    void trackMenuChosen (duet::model::TrackRef track, int result);
+    [[nodiscard]] static juce::PopupMenu emptyTimelineMenu();
+    void emptyTimelineMenuChosen (duet::model::TrackRef track, double atBeats, int result);
+
+    /** The Collaborator's entry, on the menus of the things it can be asked
+        about: a clip and a track, and nothing else (spec js437t, story 9).
+    */
+    static constexpr int askCollaboratorId = 7;
 
     //==============================================================================
     /** The chrome's measurements, in logical units. */
@@ -118,10 +144,12 @@ private:
     void showTrackMenu (duet::model::TrackRef track);
     void showClipMenu (duet::model::ClipRef clip);
     void showEmptyTimelineMenu (duet::model::TrackRef track, double atBeats);
+    [[nodiscard]] static juce::PopupMenu colourMenu();
     void commitRename();
 
     Appearance& appearance;
     ArrangementView& view;
+    std::function<void()> askCollaborator;
     std::unique_ptr<Ruler> ruler;
     juce::AudioFormatManager audioFormats;
     juce::AudioThumbnailCache thumbnailCache { 32 };

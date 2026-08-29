@@ -27,6 +27,11 @@ public:
     void mouseWheelMove (const juce::MouseEvent& event,
                          const juce::MouseWheelDetails& wheel) override;
 
+    /** What a note's context menu holds. Built apart from the popup it is shown
+        in, so that what it offers is a thing a test can read.
+    */
+    [[nodiscard]] static juce::PopupMenu noteMenu();
+
 private:
     void timerCallback() override;
     [[nodiscard]] std::optional<PianoNoteDrawing> noteAt (juce::Point<int> point) const;

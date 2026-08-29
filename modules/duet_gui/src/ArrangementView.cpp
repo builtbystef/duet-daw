@@ -390,6 +390,93 @@ std::vector<SelectedItem> ArrangementView::allClipItems() const
     return items;
 }
 
+//==============================================================================
+void ArrangementView::askAboutClip (duet::model::ClipRef clip)
+{
+    Ask asked;
+
+    // Asking about one of the things the producer gathered is asking about the
+    // things they gathered; asking about anything else is asking about it alone.
+    if (currentSelection.focusedKind() == SelectionKind::clip
+        && currentSelection.contains ({ SelectionKind::clip, clip }))
+        for (const auto& item : currentSelection.items())
+            asked.clips.push_back (item.ref);
+    else
+        asked.clips.push_back (clip);
+
+    asked.selectionThen = currentSelection.items();
+    asked.focusedThen = focusedTrackRef;
+    ask = std::move (asked);
+}
+
+void ArrangementView::askAboutTrack (duet::model::TrackRef track)
+{
+    ask = Ask { {}, track, currentSelection.items(), focusedTrackRef };
+}
+
+AskContext ArrangementView::askContext() const
+{
+    AskContext asked;
+
+    // An ask stands until the producer's own hand moves: a selection or a track
+    // focused since is them saying what they are working on now.
+    if (ask.has_value() && ask->selectionThen == currentSelection.items()
+        && ask->focusedThen == focusedTrackRef)
+    {
+        if (! ask->clips.empty())
+        {
+            asked.scope = AskScope::clips;
+            asked.clips = ask->clips;
+        }
+        else if (ask->track != duet::model::noTrack)
+        {
+            asked.scope = AskScope::track;
+            asked.track = ask->track;
+        }
+    }
+
+    // Clips first, because a clip selection is what the producer made
+    // deliberately; the track they are working on otherwise.
+    if (asked.scope == AskScope::nothing)
+    {
+        if (! currentSelection.empty() && currentSelection.focusedKind() == SelectionKind::clip)
+        {
+            asked.scope = AskScope::clips;
+
+            for (const auto& item : currentSelection.items())
+                asked.clips.push_back (item.ref);
+        }
+        else if (focusedTrackRef != duet::model::noTrack)
+        {
+            asked.scope = AskScope::track;
+            asked.track = focusedTrackRef;
+        }
+    }
+
+    if (asked.scope == AskScope::clips && asked.clips.size() == 1)
+        asked.name = clipName (asked.clips.front());
+    else if (asked.scope == AskScope::track)
+        asked.name = trackName (asked.track);
+
+    return asked;
+}
+
+std::string ArrangementView::clipName (duet::model::ClipRef clip) const
+{
+    const auto info = clipInfo (clip);
+
+    return info.has_value() ? info->name : std::string {};
+}
+
+std::string ArrangementView::trackName (duet::model::TrackRef track) const
+{
+    if (session != nullptr)
+        return session->track (track).name;
+
+    return {};
+}
+
+//==============================================================================
 void ArrangementView::rubberBand (SelectionRect rectangle, bool ctrlHeld)
 {
     std::vector<SelectedItem> intersected;

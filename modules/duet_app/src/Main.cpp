@@ -1,4 +1,5 @@
 #include <duet/app/Collaborator.h>
+#include <duet/app/OpeningContext.h>
 #include <duet/app/ProjectLifecycle.h>
 #include <duet/app/PropertyStorageSettings.h>
 #include <duet/model/Session.h>
@@ -575,35 +576,20 @@ private:
     */
     [[nodiscard]] duet::collab::OpeningContext openingContext() const
     {
-        duet::collab::OpeningContext context;
+        duet::app::ProducerMoment moment;
 
-        if (const auto clips = shell.selectedClips(); ! clips.empty())
-        {
-            context.selection = duet::collab::SelectionKind::clips;
-
-            for (const auto clip : clips)
-                context.selectionIds.push_back (duet::collab::toolId::forClip (clip));
-        }
-        else if (const auto track = shell.focusedTrack(); track != duet::model::noTrack)
-        {
-            context.selection = duet::collab::SelectionKind::tracks;
-            context.selectionIds.push_back (duet::collab::toolId::forTrack (track));
-        }
+        moment.asked = shell.askContext();
 
         if (clock != nullptr)
         {
-            // Bars and beats as the producer reads them: both count from one.
-            const auto perBar = std::max (1.0, clock->beatsPerBar());
-            const auto beats = std::max (0.0, clock->playheadBeats());
-
-            context.playheadBar = static_cast<int> (std::floor (beats / perBar)) + 1;
-            context.playheadBeat = std::fmod (beats, perBar) + 1.0;
+            moment.playheadBeats = clock->playheadBeats();
+            moment.beatsPerBar = clock->beatsPerBar();
         }
 
         if (const auto* project = lifecycle.projectOrNull())
-            context.transportPlaying = project->session().isPlaying();
+            moment.transportPlaying = project->session().isPlaying();
 
-        return context;
+        return duet::app::openingContextOf (moment);
     }
 
     void showLifecycleError (const char* title)

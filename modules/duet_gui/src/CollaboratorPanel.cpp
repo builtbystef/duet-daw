@@ -43,6 +43,11 @@ namespace
 //==============================================================================
 SelectionContext noSelection() { return {}; }
 
+SelectionContext clipSelected (std::string name)
+{
+    return { SelectionScope::clips, 1, std::move (name) };
+}
+
 SelectionContext clipsSelected (int count) { return { SelectionScope::clips, count, {} }; }
 
 SelectionContext trackSelected (std::string name)
@@ -55,10 +60,15 @@ std::string contextChipText (const SelectionContext& context)
     switch (context.scope)
     {
         case SelectionScope::clips:
+            // One clip is a thing with a name, and naming it is what tells the
+            // producer which thing the Collaborator was asked about.
+            if (context.clipCount == 1 && ! context.name.empty())
+                return context.name;
+
             return spelled (context.clipCount) + (context.clipCount == 1 ? " clip" : " clips");
 
         case SelectionScope::track:
-            return context.trackName;
+            return context.name;
 
         case SelectionScope::nothing:
             break;
@@ -72,6 +82,10 @@ void CollaboratorPanel::setSelectionContext (SelectionContext context)
 {
     selection = std::move (context);
 }
+
+void CollaboratorPanel::focusComposer() { composerFocus = true; }
+
+void CollaboratorPanel::composerLostKeyboard() { composerFocus = false; }
 
 void CollaboratorPanel::setComposerText (std::string text) { composer = std::move (text); }
 

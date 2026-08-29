@@ -91,10 +91,10 @@ public:
     void setTimelineClock (TimelineClock* projectClock);
     void setSession (duet::model::Session* openProject);
 
-    /** What the Collaborator panel's context chip records: the one current
-        selection, in the engine-free shape the panel reads. Clips first, because
-        a clip selection is what the producer made deliberately; the track they
-        are working on otherwise.
+    /** What the Collaborator panel's context chip records, in the engine-free
+        shape the panel reads: what the next message is about — the producer's
+        own selection, or the clip or track they asked about from its context
+        menu.
     */
     [[nodiscard]] SelectionContext currentSelectionContext() const;
 
@@ -107,17 +107,12 @@ public:
     */
     [[nodiscard]] CollaboratorPanel& collaborator() { return collaboratorPanel; }
 
-    /** The clips the producer has selected, and nothing when the selection is
-        not clips: what a Task Run's opening context names them by. The panel's
-        chip counts them and the run carries their ids, so the two answers come
-        from this one selection.
+    /** What the next message to the Collaborator is about, as the arrangement
+        answers it: the producer's own selection, or the clip or track they asked
+        about from its context menu. The panel's chip is made of it and so is a
+        Task Run's opening context, so both say the same thing.
     */
-    [[nodiscard]] std::vector<duet::model::ClipRef> selectedClips() const;
-
-    /** The track the producer last put their hand on, which is what a run
-        carries when no clip is selected.
-    */
-    [[nodiscard]] duet::model::TrackRef focusedTrack() const;
+    [[nodiscard]] AskContext askContext() const;
 
     /** The pending Suggestions all three surfaces read, so that the host can
         give them what makes one.
@@ -192,6 +187,12 @@ private:
     void appearanceChanged() override;
     void showDuetMenu();
 
+    /** What an "Ask Collaborator" entry does once the surface it was chosen on
+        has said what the ask is about: the panel opens if it was closed and the
+        keyboard goes to the composer, with nothing sent (spec js437t, story 9).
+    */
+    void askCollaborator();
+
     Appearance& appearance;
     ViewState& view;
 
@@ -232,7 +233,6 @@ private:
     std::unique_ptr<Divider> bottomDivider;
     std::unique_ptr<AcceleratedSurface> hardwareContext;
 
-    duet::model::Session* session = nullptr;
     std::function<void()> saveAction;
     std::function<void (duet::model::PluginRef)> pluginEditorAction;
     std::function<void (juce::PopupMenu&)> buildHostMenu;

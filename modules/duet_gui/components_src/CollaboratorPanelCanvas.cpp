@@ -923,6 +923,11 @@ void CollaboratorPanelCanvas::refresh()
         changed = true;
     }
 
+    // An ask from a clip's or a track's menu leaves the producer typing, so the
+    // keyboard is handed over here rather than by whatever asked.
+    if (panel.composerWantsKeyboard() && isShowing() && ! composer.hasKeyboardFocus (false))
+        composer.grabKeyboardFocus();
+
     const auto running = panel.taskRunning();
 
     card->setVisible (running);
@@ -969,6 +974,8 @@ void CollaboratorPanelCanvas::refresh()
 
 void CollaboratorPanelCanvas::returnFocusFromComposer()
 {
+    panel.composerLostKeyboard();
+
     // What is in the composer is the producer's, and Escape is them looking
     // away from it rather than throwing it away.
     if (lastFocused != nullptr && lastFocused != &composer)
@@ -984,7 +991,13 @@ void CollaboratorPanelCanvas::returnFocusFromComposer()
 void CollaboratorPanelCanvas::globalFocusChanged (juce::Component* focused)
 {
     if (focused != nullptr && focused != &composer)
+    {
         lastFocused = focused;
+
+        // The keyboard is the producer's to move: once it is elsewhere, the
+        // panel stops asking for it.
+        panel.composerLostKeyboard();
+    }
 }
 
 //==============================================================================

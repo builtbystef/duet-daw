@@ -2,6 +2,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+using duet::gui::clipSelected;
 using duet::gui::clipsSelected;
 using duet::gui::CollaboratorPanel;
 using duet::gui::EntryKind;
@@ -364,4 +365,44 @@ TEST_CASE ("a revision takes the place of the card it revises rather than standi
 
     REQUIRE (panel.conversation().size() == 3);
     REQUIRE (panel.conversation().back().suggestion == "sug-4");
+}
+
+TEST_CASE ("a message about one clip names that clip, and the chips are the clip chips")
+{
+    CollaboratorPanel panel;
+
+    panel.setSelectionContext (clipSelected ("Verse Bass"));
+    panel.setComposerText ("what's wrong here");
+    panel.send();
+
+    REQUIRE (panel.conversation().back().context == "Verse Bass");
+
+    // One clip and several are the same kind of thing to ask about, so the
+    // openings offered are the same ones.
+    panel.setSelectionContext (clipsSelected (2));
+
+    const auto withClips = panel.quickPrompts();
+
+    panel.setSelectionContext (clipSelected ("Verse Bass"));
+
+    REQUIRE (panel.quickPrompts() == withClips);
+}
+
+TEST_CASE ("an ask from a context menu leaves the keyboard in the composer and sends nothing")
+{
+    CollaboratorPanel panel;
+
+    REQUIRE_FALSE (panel.composerWantsKeyboard());
+
+    panel.focusComposer();
+
+    REQUIRE (panel.composerWantsKeyboard());
+    REQUIRE (panel.conversation().empty());
+    REQUIRE (panel.composerText().empty());
+
+    // The keyboard is the producer's to move, and the panel stops asking for it
+    // the moment they do.
+    panel.composerLostKeyboard();
+
+    REQUIRE_FALSE (panel.composerWantsKeyboard());
 }

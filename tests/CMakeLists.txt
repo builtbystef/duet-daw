@@ -19,6 +19,7 @@ add_executable(duet_tests
     AppearanceTests.cpp
     ArrangementTrackTests.cpp
     ArrangementViewTests.cpp
+    AskCollaboratorTests.cpp
     AutomationLaneTests.cpp
     AutomationOpsTests.cpp
     AutosaveTests.cpp

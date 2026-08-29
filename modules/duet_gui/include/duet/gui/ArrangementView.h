@@ -117,6 +117,42 @@ struct SelectionRect
     int height = 0;
 };
 
+/** What the Collaborator is being asked about: clips, one track, or nothing at
+    all.
+*/
+enum class AskScope : std::uint8_t
+{
+    nothing,
+    clips,
+    track
+};
+
+/** The thing the next message to the Collaborator is about.
+
+    Ordinarily it is the producer's own selection. It is the one clip or track
+    they asked from a context menu while that ask stands — the implicit context
+    (spec js437t, story 9) — which is what lets asking about *this thing here*
+    take one gesture and leave the selection where it was.
+*/
+struct AskContext
+{
+    AskScope scope = AskScope::nothing;
+
+    /** The clips it is about, in the order the timeline holds them. */
+    std::vector<duet::model::ClipRef> clips;
+
+    /** The track it is about, when a track is what it is about. */
+    duet::model::TrackRef track = duet::model::noTrack;
+
+    /** What to call it: the clip's name when it is one clip, the track's name
+        when it is a track, and empty when it is several clips — several clips
+        are not one thing to name, and what shows them is a count.
+    */
+    std::string name;
+
+    friend bool operator== (const AskContext& first, const AskContext& second) = default;
+};
+
 enum class ClipGestureKind : std::uint8_t
 {
     move,
@@ -240,6 +276,29 @@ public:
     */
     [[nodiscard]] duet::model::TrackRef focusedTrack() const { return focusedTrackRef; }
 
+    //==============================================================================
+    /** The producer asked the Collaborator about this clip, from its own context
+        menu: it becomes the implicit context of what they send next.
+
+        A clip inside the current selection asks about the whole of that
+        selection — the producer asking about one of the things they gathered
+        means the things they gathered — and a clip outside it asks about that
+        clip alone, leaving the selection untouched (spec js437t, story 9).
+    */
+    void askAboutClip (duet::model::ClipRef clip);
+
+    /** The same, from a track's context menu. */
+    void askAboutTrack (duet::model::TrackRef track);
+
+    /** What the next message to the Collaborator is about: the panel's chip and
+        quick prompts read it, and a Task Run's opening context is made of it.
+
+        An ask from a context menu stands until the producer's own hand moves —
+        a selection or a track focused since is them saying what they are
+        working on — and their selection is the answer at every other moment.
+    */
+    [[nodiscard]] AskContext askContext() const;
+
     void beginClipGesture (duet::model::ClipRef clip, ClipGestureKind kind);
     void updateClipGesture (double destinationBeats,
                             duet::model::TrackRef destinationTrack,
@@ -340,6 +399,21 @@ private:
     [[nodiscard]] std::optional<duet::model::ClipInfo> clipInfo (duet::model::ClipRef clip) const;
     [[nodiscard]] duet::model::TrackRef trackOf (duet::model::ClipRef clip) const;
 
+    /** The clip or track a context menu asked about, and what the producer had
+        selected at that moment: an ask is theirs until their own hand moves,
+        and comparing is what tells that it has.
+    */
+    struct Ask
+    {
+        std::vector<duet::model::ClipRef> clips;
+        duet::model::TrackRef track = duet::model::noTrack;
+        std::vector<SelectedItem> selectionThen;
+        duet::model::TrackRef focusedThen = duet::model::noTrack;
+    };
+
+    [[nodiscard]] std::string clipName (duet::model::ClipRef clip) const;
+    [[nodiscard]] std::string trackName (duet::model::TrackRef track) const;
+
     ViewState& view;
     TimelineGeometry timeline { view };
     AutomationLanes lanes { view, timeline };
@@ -349,6 +423,7 @@ private:
     std::optional<Gesture> gesture;
     std::vector<ClipboardClip> clipboard;
     duet::model::TrackRef focusedTrackRef = duet::model::noTrack;
+    std::optional<Ask> ask;
     Suggestions* suggestions = nullptr;
     int heightPx = 0;
 };

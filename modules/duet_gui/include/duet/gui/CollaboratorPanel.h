@@ -28,14 +28,18 @@ struct SelectionContext
     /** How many clips, when clips are what is selected. */
     int clipCount = 0;
 
-    /** Which track, when a track is what is selected. */
-    std::string trackName;
+    /** What the one thing is called: the clip's name when it is one clip, the
+        track's name when it is a track. Empty for several clips, which are not
+        one thing to name — what shows them is the count.
+    */
+    std::string name;
 
     friend bool operator== (const SelectionContext& first,
                             const SelectionContext& second) = default;
 };
 
 [[nodiscard]] SelectionContext noSelection();
+[[nodiscard]] SelectionContext clipSelected (std::string name);
 [[nodiscard]] SelectionContext clipsSelected (int count);
 [[nodiscard]] SelectionContext trackSelected (std::string name);
 
@@ -184,6 +188,19 @@ public:
     /** What the shell says is selected right now. */
     void setSelectionContext (SelectionContext context);
     [[nodiscard]] const SelectionContext& selectionContext() const { return selection; }
+
+    //==============================================================================
+    /** The keyboard belongs in the composer: what an ask from a clip's or a
+        track's context menu leaves behind, so that the producer types straight
+        into it and nothing is sent for them (spec js437t, story 9).
+
+        The panel keeps the intent and the window keeps the focus: the canvas
+        hands the keyboard over while this is true, and says when the producer
+        has taken it somewhere else.
+    */
+    void focusComposer();
+    void composerLostKeyboard();
+    [[nodiscard]] bool composerWantsKeyboard() const { return composerFocus; }
 
     //==============================================================================
     /** The composer's text, as the producer has it. */
@@ -343,6 +360,7 @@ private:
     std::string composer;
     bool tracing = developmentBuild;
     bool running = false;
+    bool composerFocus = false;
 
     /** Which entry the commentary streaming now is extending, and none when the
         run has said nothing yet.
