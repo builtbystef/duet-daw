@@ -83,6 +83,13 @@ public:
                      double secondsPerChord,
                      const std::vector<std::vector<int>>& chords) const;
 
+    /** Writes white noise into that same place: every frequency at once, and
+        no note in it at all. What a routine that names things has to be asked,
+        since a confident answer here would be a wrong one.
+    */
+    [[nodiscard]] std::filesystem::path writeNoise (std::string_view fileName,
+                                                    double lengthSeconds) const;
+
 private:
     std::filesystem::path projectFolder;
 };

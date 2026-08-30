@@ -79,6 +79,7 @@ add_executable(duet_tests
     TransportBarTests.cpp
     TrackAnalysisTests.cpp
     TrackOpsTests.cpp
+    TranscriptionRoutinesTests.cpp
     ViewStateTests.cpp
     WindowGeometryTests.cpp)
 
@@ -88,6 +89,7 @@ target_link_libraries(duet_tests PRIVATE
     duet::collab
     duet::collab_analysis
     duet::collab_tools
+    duet::collab_transcription
     duet::gui
     duet::model
     duet::persistence

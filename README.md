@@ -23,4 +23,4 @@ Bug reports, feature requests, and discussion are welcome; outside code contribu
 
 ## License
 
-[GNU AGPL v3](LICENSE).
+[GNU AGPL v3](LICENSE). The third-party artifacts Duet redistributes beside its own binary, and the notices they oblige it to carry, are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

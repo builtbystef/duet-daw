@@ -151,6 +151,28 @@ std::filesystem::path TempProject::writeChords (std::string_view fileName,
     return file;
 }
 
+std::filesystem::path TempProject::writeNoise (std::string_view fileName,
+                                               double lengthSeconds) const
+{
+    const auto file = duet::persistence::audioDirectory (projectFolder) / fileName;
+    const auto numSamples = static_cast<int> (toneSampleRate * lengthSeconds);
+
+    // A seed of its own, so that the noise is the same noise on every run: a
+    // case that fails one time in ten is worth less than no case at all.
+    juce::Random source { 20260830 };
+    juce::AudioBuffer<float> buffer { 2, numSamples };
+
+    for (int sample = 0; sample < numSamples; ++sample)
+        for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
+            buffer.setSample (channel,
+                              sample,
+                              static_cast<float> (source.nextDouble() * 2.0 - 1.0) * toneAmplitude);
+
+    writeWav (file, buffer);
+
+    return file;
+}
+
 MessageLoop::MessageLoop() : initialiser (std::make_shared<juce::ScopedJuceInitialiser_GUI>()) {}
 
 MessageLoop::~MessageLoop() = default;

@@ -333,11 +333,13 @@ export const vocabulary: ToolDeclaration[] = [
         label: "Estimate audio content",
         description:
             "What is probably being played on an audio track, for the things no routine can measure outright: " +
-            "its key, and the chord in each of its bars. Every value comes back wrapped as " +
+            "its key, the chord in each of its bars, the notes it holds, and what it sounds like it is played " +
+            "on. Every value comes back wrapped as " +
             "an estimate, with the method and a confidence, because every one of them is a guess. Use it when the " +
             "project has not declared what you need and the answer matters; say plainly that you used it. " +
             "A track that gives nothing to read — silence, or nothing pitched — is answered with nothing rather " +
-            "than with a guess.",
+            "than with a guess. The notes and the instrument are read by a model this Duet may have been built " +
+            "without, and a build without it says so when you ask for them.",
         parameters: Type.Object({
             trackId,
             barRange,
@@ -346,6 +348,8 @@ export const vocabulary: ToolDeclaration[] = [
                     Type.Union([
                         Type.Literal("key"),
                         Type.Literal("chords"),
+                        Type.Literal("notes"),
+                        Type.Literal("instrument"),
                     ]),
                     { description: "What to estimate. Omit for all of it." },
                 ),

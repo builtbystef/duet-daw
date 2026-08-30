@@ -1,9 +1,11 @@
 #include "ProjectToolsHarness.h"
 
 #include <duet/collab/Analysis.h>
+#include <duet/collab/Transcription.h>
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <atomic>
 #include <cctype>
 #include <chrono>
@@ -111,6 +113,52 @@ struct ProgressionProject
                                                ledger };
 };
 
+/** A project of one audio track carrying two bars of white noise, at the same
+    tempo: what a routine that names an instrument has to be asked, since noise
+    is the material a confident answer would be a wrong answer about.
+*/
+struct NoiseProject
+{
+    NoiseProject()
+    {
+        const auto hiss = project.writeNoise ("hiss.wav", 2.0 * ProgressionProject::secondsPerBar);
+
+        session.useNoAudioDevice();
+        session.suppressDeviceRebuild();
+
+        session.performAction (
+            "Build the example",
+            [&] (auto& ops)
+            {
+                ops.setTempo (120.0);
+                ops.setTimeSignature (4, 4);
+                track = ops.createTrack (TrackKind::audio, "Hiss");
+                ops.insertAudioClip (
+                    track, "hiss", hiss, 0.0, 2.0 * ProgressionProject::secondsPerBar);
+            });
+    }
+
+    [[nodiscard]] ToolRunOptions options()
+    {
+        ToolRunOptions made;
+        made.estimated = &estimates;
+        made.ledger = &ledger;
+
+        return made;
+    }
+
+    TempProject project;
+    Session session { project.editFile() };
+    TrackRef track = duet::model::noTrack;
+    duet::collab::EstimateLedger ledger;
+    duet::collab::TrackRenders rendered { duet::collab::offlineTrackRenderer (session),
+                                          project.folder() };
+    duet::collab::ContentEstimates estimates { session,
+                                               duet::testing::messageThreadMarshal(),
+                                               rendered,
+                                               ledger };
+};
+
 /** The chords of the progression the criteria are worked on: C major, then G
     major, one to a bar.
 */
@@ -134,6 +182,33 @@ Json estimateCall (TrackRef track, const Json& aspects)
     arguments["aspects"] = aspects;
 
     return toolCall ("estimate_audio_content", arguments);
+}
+
+/** Whether this build can transcribe at all. Without the ML runtime the two
+    aspects that need it are not offered, and the cases about them say so
+    rather than failing.
+*/
+bool transcribes() { return duet::collab::transcription::available(); }
+
+/** The pitches a wrapped notes value holds, in the order they were named. */
+std::vector<int> pitchesOf (const Json& notes)
+{
+    std::vector<int> pitches;
+
+    for (const auto& note : notes.at ("value"))
+        pitches.push_back (note.at ("pitch").get<int>());
+
+    return pitches;
+}
+
+/** The first note of that pitch, and a null one when the value holds none. */
+Json noteOf (const Json& notes, int pitch)
+{
+    for (const auto& note : notes.at ("value"))
+        if (note.at ("pitch") == pitch)
+            return note;
+
+    return {};
 }
 
 /** The chord this result names at that bar, and empty when it names none. */
@@ -210,11 +285,10 @@ TEST_CASE ("the aspects argument is what is worked out, and nothing else", "[col
     ProgressionProject fixture { cThenG() };
 
     const ToolRun run { fixture.session,
-                        Json::array (
-                            { estimateCall (fixture.track, Json::array ({ "key" })),
-                              estimateCall (fixture.track, Json::array ({ "chords" })),
-                              estimateCall (fixture.track),
-                              estimateCall (fixture.track, Json::array ({ "instrument" })) }),
+                        Json::array ({ estimateCall (fixture.track, Json::array ({ "key" })),
+                                       estimateCall (fixture.track, Json::array ({ "chords" })),
+                                       estimateCall (fixture.track),
+                                       estimateCall (fixture.track, Json::array ({ "tempo" })) }),
                         fixture.options() };
 
     REQUIRE (run.finished());
@@ -222,17 +296,114 @@ TEST_CASE ("the aspects argument is what is worked out, and nothing else", "[col
     // An aspect that was not asked for is absent, rather than present and empty.
     REQUIRE (run.result (0).contains ("key"));
     REQUIRE_FALSE (run.result (0).contains ("chords"));
+    REQUIRE_FALSE (run.result (0).contains ("notes"));
 
     REQUIRE (run.result (1).contains ("chords"));
     REQUIRE_FALSE (run.result (1).contains ("key"));
 
-    // Asking for nothing in particular asks for everything this build knows.
+    // Asking for nothing in particular asks for everything this build knows,
+    // which is two of the four aspects without the transcription model and all
+    // four with it.
     REQUIRE (run.result (2).contains ("key"));
     REQUIRE (run.result (2).contains ("chords"));
+    REQUIRE (run.result (2).contains ("notes") == transcribes());
+    REQUIRE (run.result (2).contains ("instrument") == transcribes());
 
     // And an aspect this build cannot estimate at all is said so, rather than
     // answered with an empty result the model has to interpret.
     REQUIRE (run.error (3).at ("code") == duet::collab::rpcError::invalidParams);
+}
+
+TEST_CASE ("a rendered chord's notes cross wrapped, in the project's own beats", "[collab]")
+{
+    if (! transcribes())
+        SKIP ("this build has no transcription model");
+
+    ProgressionProject fixture { cThenG() };
+
+    const ToolRun run { fixture.session,
+                        Json::array ({ estimateCall (fixture.track, Json::array ({ "notes" })) }),
+                        fixture.options() };
+
+    REQUIRE (run.finished());
+
+    const auto& notes = run.result (0).at ("notes");
+
+    REQUIRE (isAnEstimate (notes));
+    REQUIRE (notes.at ("method") == duet::collab::transcription::notesMethod);
+    REQUIRE (notes.at ("confidence").get<double>() > 0.0);
+    REQUIRE (notes.at ("confidence").get<double>() <= 1.0);
+
+    const auto pitches = pitchesOf (notes);
+
+    for (const auto pitch : { 60, 64, 67, 71, 74 })
+        REQUIRE (std::find (pitches.begin(), pitches.end(), pitch) != pitches.end());
+
+    // A bar is four beats at this tempo, so the first chord begins the project
+    // and the second one begins bar two.
+    const auto middleC = noteOf (notes, 60);
+    const auto ledB = noteOf (notes, 71);
+
+    REQUIRE_FALSE (middleC.is_null());
+    REQUIRE_FALSE (ledB.is_null());
+    REQUIRE (middleC.at ("startBeats").get<double>() < 0.2);
+    REQUIRE (middleC.at ("lengthBeats").get<double>() > 3.0);
+    REQUIRE (ledB.at ("startBeats").get<double>() > 3.8);
+    REQUIRE (ledB.at ("startBeats").get<double>() < 4.2);
+
+    for (const auto& note : notes.at ("value"))
+    {
+        REQUIRE (note.at ("velocity").get<int>() >= 1);
+        REQUIRE (note.at ("velocity").get<int>() <= 127);
+    }
+}
+
+TEST_CASE ("what a track sounds like it is played on crosses wrapped, and noise crosses "
+           "unconfidently",
+           "[collab]")
+{
+    if (! transcribes())
+        SKIP ("this build has no transcription model");
+
+    ProgressionProject fixture { cThenG() };
+
+    const ToolRun run { fixture.session,
+                        Json::array (
+                            { estimateCall (fixture.track, Json::array ({ "instrument" })) }),
+                        fixture.options() };
+
+    REQUIRE (run.finished());
+
+    const auto& instrument = run.result (0).at ("instrument");
+
+    REQUIRE (isAnEstimate (instrument));
+    REQUIRE (instrument.at ("value").is_string());
+    REQUIRE_FALSE (instrument.at ("value").get<std::string>().empty());
+    REQUIRE (instrument.at ("method") == duet::collab::transcription::instrumentMethod);
+
+    const auto played = instrument.at ("confidence").get<double>();
+
+    REQUIRE (played > 0.5);
+    REQUIRE (played <= 1.0);
+
+    // The same aspect over a track that is nothing but hiss. It is answered,
+    // because the tool answers what it was asked, and the confidence is what
+    // says the answer is worth nothing.
+    NoiseProject hiss;
+
+    const ToolRun over { hiss.session,
+                         Json::array (
+                             { estimateCall (hiss.track, Json::array ({ "instrument" })) }),
+                         hiss.options() };
+
+    REQUIRE (over.finished());
+
+    const auto& named = over.result (0).at ("instrument");
+
+    REQUIRE (isAnEstimate (named));
+    REQUIRE_FALSE (named.at ("value").get<std::string>().empty());
+    REQUIRE (named.at ("confidence").get<double>() < 0.2);
+    REQUIRE (named.at ("confidence").get<double>() < played);
 }
 
 TEST_CASE ("a track with nothing to read is answered with nothing, not with a guess", "[collab]")
@@ -344,7 +515,9 @@ TEST_CASE ("a run's ledger names each estimated value, its method and its confid
 
     const auto entries = fixture.ledger.entries (run.id());
 
-    REQUIRE (entries.size() == 2);
+    // Every aspect this build can estimate, in the contract's own order, and
+    // not one of them bare.
+    REQUIRE (entries.size() == (transcribes() ? 4U : 2U));
     REQUIRE (entries.at (0).tool == "estimate_audio_content");
     REQUIRE (entries.at (0).field == "key");
     REQUIRE (entries.at (0).estimate.value == "C major");
@@ -354,6 +527,20 @@ TEST_CASE ("a run's ledger names each estimated value, its method and its confid
 
     REQUIRE (entries.at (1).field == "chords");
     REQUIRE (entries.at (1).estimate.method == duet::collab::analysis::chordMethod);
+
+    if (transcribes())
+    {
+        REQUIRE (entries.at (2).field == "notes");
+        REQUIRE (entries.at (2).estimate.method == duet::collab::transcription::notesMethod);
+        REQUIRE (entries.at (2).estimate.value.is_array());
+        REQUIRE_FALSE (entries.at (2).estimate.value.empty());
+
+        REQUIRE (entries.at (3).field == "instrument");
+        REQUIRE (entries.at (3).estimate.method == duet::collab::transcription::instrumentMethod);
+        REQUIRE (entries.at (3).estimate.value.is_string());
+        REQUIRE (entries.at (3).estimate.confidence > 0.0);
+        REQUIRE (entries.at (3).estimate.confidence <= 1.0);
+    }
 
     // What the ledger holds is what crossed the seam, so the two say the same
     // thing about the same value.
@@ -588,9 +775,10 @@ TEST_CASE ("the aspects the model may ask for are the aspects this build estimat
 {
     // The tool's parameters are the sidecar's, because that is what reaches the
     // model, and an aspect the model may ask for and never gets an answer to is
-    // worse than one it was never offered. The other two the contract names —
-    // the notes of a polyphonic part and its instrument — are offered again when
-    // the transcription model can answer them (issue bmrxnw).
+    // worse than one it was never offered. All four the contract names are
+    // offered now that the transcription model can answer the last two; a build
+    // without that model turns those two away with an error that says so, which
+    // is an answer and not a silence.
     const std::filesystem::path vocabulary =
         std::filesystem::path { DUET_SIDECAR_DIR } / "src" / "vocabulary.ts";
 
@@ -610,6 +798,6 @@ TEST_CASE ("the aspects the model may ask for are the aspects this build estimat
 
     REQUIRE (said.find (R"(Type.Literal("key"))") != std::string::npos);
     REQUIRE (said.find (R"(Type.Literal("chords"))") != std::string::npos);
-    REQUIRE (said.find (R"(Type.Literal("notes"))") == std::string::npos);
-    REQUIRE (said.find (R"(Type.Literal("instrument"))") == std::string::npos);
+    REQUIRE (said.find (R"(Type.Literal("notes"))") != std::string::npos);
+    REQUIRE (said.find (R"(Type.Literal("instrument"))") != std::string::npos);
 }
