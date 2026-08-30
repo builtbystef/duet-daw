@@ -4,8 +4,11 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <charconv>
 #include <cmath>
+#include <functional>
+#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string_view>
@@ -109,6 +112,27 @@ namespace
     */
     constexpr bool stoppingEveryTransport = true;
     constexpr bool leavingOtherTransportsRolling = false;
+
+    /** The shape one render is written in.
+
+        Defaulted to the shape ADR 0006 gives every measured render, so that the
+        renders which need that shape ask for nothing. An export is the one
+        render whose shape is the producer's, and it fills every field in.
+    */
+    struct RenderShape
+    {
+        /** The format to write, or nothing for the engine's WAV. */
+        juce::AudioFormat* format = nullptr;
+
+        int bitDepth = renderBitDepth;
+        double sampleRate = renderSampleRate;
+
+        /** The stretch to render, or nothing for the whole edit. */
+        std::optional<te::TimeRange> time;
+
+        bool normalise = false;
+        float normaliseToDb = 0.0F;
+    };
 
     /** What the engine's own render puts up around one, and takes down after.
 
@@ -220,7 +244,8 @@ namespace
                              bool useMasterPlugins,
                              bool ignoreMuteAndSolo,
                              bool stopEveryTransport,
-                             const std::function<bool()>& keepGoing)
+                             const RenderShape& shape,
+                             const std::function<bool (double)>& keepGoing)
     {
         if (tracksToRender.isZero())
             return false;
@@ -242,27 +267,35 @@ namespace
         if (! guards.areUp())
             return false;
 
+        auto& formats = edit.engine.getAudioFileFormatManager();
+
         te::Renderer::Parameters parameters { edit };
         parameters.destFile = file;
-        parameters.audioFormat = edit.engine.getAudioFileFormatManager().getWavFormat();
-        parameters.bitDepth = renderBitDepth;
-        parameters.sampleRateForAudio = renderSampleRate;
+        parameters.audioFormat = shape.format != nullptr ? shape.format : formats.getWavFormat();
+        parameters.bitDepth = shape.bitDepth;
+        parameters.sampleRateForAudio = shape.sampleRate;
         parameters.blockSizeForAudio = renderBlockSize;
-        parameters.time = { te::TimePosition(), edit.getLength() };
+        parameters.time =
+            shape.time.value_or (te::TimeRange { te::TimePosition(), edit.getLength() });
         parameters.tracksToDo = tracksToRender;
         parameters.usePlugins = true;
         parameters.useMasterPlugins = useMasterPlugins;
         parameters.canRenderInMono = false;
         parameters.ditheringEnabled = false;
+        parameters.shouldNormalise = shape.normalise;
+        parameters.normaliseToLevelDb = shape.normaliseToDb;
 
-        te::Renderer::RenderTask task { "Duet offline render", parameters, nullptr, nullptr };
+        // What the engine writes into as the blocks go by, and what a producer
+        // watching a progress bar is reading.
+        std::atomic<float> howFar { 0.0F };
+        te::Renderer::RenderTask task { "Duet offline render", parameters, &howFar, nullptr };
 
         while (task.runJob() == juce::ThreadPoolJob::jobNeedsRunningAgain)
         {
             // Asked between blocks, so that a render nobody is waiting for any
             // more stops rather than finishes. What it leaves behind is nothing:
             // a half-written file would be read as a whole one.
-            if (keepGoing && ! keepGoing())
+            if (keepGoing && ! keepGoing (static_cast<double> (howFar.load())))
             {
                 task.signalJobShouldExit();
                 file.deleteFile();
@@ -272,6 +305,64 @@ namespace
         }
 
         return file.existsAsFile();
+    }
+
+    /** A render that only wants to be asked whether to go on, as the one that
+        is also told how far it has got.
+
+        Nothing for a render nobody is waiting on, so the loop asks nothing at
+        all rather than asking a wrapper that always says yes.
+    */
+    std::function<bool (double)> ignoringProgress (const std::function<bool()>& keepGoing)
+    {
+        if (! keepGoing)
+            return {};
+
+        return [keepGoing] (double) { return keepGoing(); };
+    }
+
+    /** The format an export is written in. */
+    juce::AudioFormat* formatFor (te::Engine& engine, ExportFormat format)
+    {
+        auto& formats = engine.getAudioFileFormatManager();
+
+        switch (format)
+        {
+            case ExportFormat::aiff:
+                return formats.getAiffFormat();
+            case ExportFormat::flac:
+                return formats.getFlacFormat();
+            case ExportFormat::wav:
+                break;
+        }
+
+        return formats.getWavFormat();
+    }
+
+    /** The depth the format can actually write, nearest below what was asked
+        for: FLAC stops at 24 bits where WAV goes to 32, and a depth a format
+        cannot write is a file it will not write at all.
+
+        Nothing it can write that shallow leaves its shallowest, which is the
+        nearest thing to what was asked for that exists.
+    */
+    int depthFor (juce::AudioFormat* format, int wanted)
+    {
+        if (format == nullptr)
+            return wanted;
+
+        const auto possible = format->getPossibleBitDepths();
+
+        if (possible.isEmpty() || possible.contains (wanted))
+            return wanted;
+
+        auto best = possible[0];
+
+        for (const auto depth : possible)
+            if ((depth <= wanted && depth > best) || (best > wanted && depth < best))
+                best = depth;
+
+        return best;
     }
 
     /** Every track of an edit, as the bit set a render is asked for. */
@@ -1232,7 +1323,8 @@ bool Session::renderToFile (const std::filesystem::path& destination,
                                withMasterPlugins,
                                honouringMuteAndSolo,
                                stoppingEveryTransport,
-                               keepGoing);
+                               {},
+                               ignoringProgress (keepGoing));
 }
 
 bool Session::renderTrackToFile (TrackRef track,
@@ -1249,7 +1341,8 @@ bool Session::renderTrackToFile (TrackRef track,
                                withoutMasterPlugins,
                                ignoringMuteAndSolo,
                                stoppingEveryTransport,
-                               keepGoing);
+                               {},
+                               ignoringProgress (keepGoing));
 }
 
 bool Session::renderDetachedToFile (const std::filesystem::path& destination,
@@ -1266,7 +1359,8 @@ bool Session::renderDetachedToFile (const std::filesystem::path& destination,
                                withMasterPlugins,
                                honouringMuteAndSolo,
                                leavingOtherTransportsRolling,
-                               keepGoing);
+                               {},
+                               ignoringProgress (keepGoing));
 }
 
 bool Session::renderDetachedTrackToFile (TrackRef track,
@@ -1284,113 +1378,40 @@ bool Session::renderDetachedTrackToFile (TrackRef track,
                                withoutMasterPlugins,
                                ignoringMuteAndSolo,
                                leavingOtherTransportsRolling,
-                               keepGoing);
+                               {},
+                               ignoringProgress (keepGoing));
 }
 
-//==============================================================================
-bool Session::canHostVst3() const
+bool Session::exportToFile (const ExportOptions& options, const ExportProgress& progress)
 {
-    auto& formats = impl->engine.getPluginManager().pluginFormatManager;
+    if (options.destination.empty() || ! (options.endSeconds > options.startSeconds))
+        return false;
 
-    for (int index = 0; index < formats.getNumFormats(); ++index)
-        if (formats.getFormat (index)->getName() == "VST3")
-            return true;
+    // The detached copy, for the reason the header gives: an export is a read of
+    // the project, so the session it is taken from goes on playing, keeps its
+    // undo history, and gains no unsaved changes.
+    const DetachedProject copy { impl->engine, *impl->edit, toJuceFile (impl->editFile) };
 
-    return false;
-}
+    if (copy.get() == nullptr)
+        return false;
 
-bool Session::scansPluginsOutOfProcess() const
-{
-    return impl->engine.getPluginManager().usesSeparateProcessForScanning();
-}
+    RenderShape shape;
+    shape.format = formatFor (impl->engine, options.format);
+    shape.sampleRate = options.sampleRate;
+    shape.bitDepth = depthFor (shape.format, options.bitDepth);
+    shape.time = te::TimeRange { te::TimePosition::fromSeconds (options.startSeconds),
+                                 te::TimePosition::fromSeconds (options.endSeconds) };
+    shape.normalise = options.normalise;
+    shape.normaliseToDb = static_cast<float> (options.normaliseToDb);
 
-PluginScanResult Session::scanVst3Plugins (const std::filesystem::path& directory)
-{
-    PluginScanResult result;
-
-    if (! std::filesystem::is_directory (directory))
-        return result;
-
-    auto& manager = impl->engine.getPluginManager();
-    juce::AudioPluginFormat* vst3 = nullptr;
-
-    for (int index = 0; index < manager.pluginFormatManager.getNumFormats(); ++index)
-        if (auto* format = manager.pluginFormatManager.getFormat (index);
-            format->getName() == "VST3")
-        {
-            vst3 = format;
-            break;
-        }
-
-    if (vst3 == nullptr)
-        return result;
-
-    {
-        const auto deadMansPedal =
-            impl->engine.getPropertyStorage().getAppPrefsFolder().getChildFile (
-                "PluginScanDeadMansPedal.txt");
-        juce::PluginDirectoryScanner scanner { manager.knownPluginList,
-                                               *vst3,
-                                               juce::FileSearchPath {
-                                                   toJuceFile (directory).getFullPathName() },
-                                               true,
-                                               deadMansPedal };
-        juce::String scanning;
-
-        while (scanner.scanNextFile (true, scanning))
-        {
-        }
-
-        for (const auto& failed : scanner.getFailedFiles())
-            result.failedFiles.push_back (toPath (juce::File { failed }));
-    }
-
-    const auto normalDirectory = directory.lexically_normal();
-
-    for (const auto& bad : manager.knownPluginList.getBlacklistedFiles())
-    {
-        const auto path = toPath (juce::File { bad }).lexically_normal();
-        const auto relative = path.lexically_relative (normalDirectory);
-
-        if (! relative.empty() && *relative.begin() != "..")
-            result.badFiles.push_back (path);
-    }
-
-    // The manager normally persists this through its asynchronous change
-    // listener. A scan is synchronous, so put the completed list on disk before
-    // returning: a restart immediately after Scan must not scan known-good
-    // plugins again.
-    if (const auto xml = manager.knownPluginList.createXml())
-    {
-#if JUCE_64BIT
-        constexpr auto knownPluginsSetting = te::SettingID::knownPluginList64;
-#else
-        constexpr auto knownPluginsSetting = te::SettingID::knownPluginList;
-#endif
-
-        auto& storage = impl->engine.getPropertyStorage();
-        storage.setXmlProperty (knownPluginsSetting, *xml);
-        storage.getPropertiesFile().saveIfNeeded();
-    }
-
-    result.completed = true;
-    return result;
-}
-
-std::vector<KnownPluginInfo> Session::knownVst3Plugins() const
-{
-    std::vector<KnownPluginInfo> known;
-
-    for (const auto& description : impl->engine.getPluginManager().knownPluginList.getTypes())
-        if (description.pluginFormatName == "VST3")
-            known.push_back ({ description.createIdentifierString().toStdString(),
-                               description.name.toStdString(),
-                               description.manufacturerName.toStdString(),
-                               toPath (juce::File { description.fileOrIdentifier }),
-                               description.isInstrument,
-                               juce::File { description.fileOrIdentifier }.exists() });
-
-    return known;
+    return renderTracksToFile (*copy.get(),
+                               toJuceFile (options.destination),
+                               allTracksOf (*copy.get()),
+                               withMasterPlugins,
+                               honouringMuteAndSolo,
+                               leavingOtherTransportsRolling,
+                               shape,
+                               progress);
 }
 
 //==============================================================================

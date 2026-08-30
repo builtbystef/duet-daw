@@ -20,6 +20,7 @@ add_executable(duet_tests
     ArrangementTrackTests.cpp
     ArrangementViewTests.cpp
     AskCollaboratorTests.cpp
+    AudioMidiSettingsTests.cpp
     AutomationLaneTests.cpp
     AutomationOpsTests.cpp
     AutosaveTests.cpp
@@ -33,6 +34,8 @@ add_executable(duet_tests
     DemoWalkthroughTests.cpp
     DeviceRebuildTests.cpp
     EditVocabularyTests.cpp
+    ExportTests.cpp
+    ExportViewTests.cpp
     GraphiteTokenTests.cpp
     HarmonyRoutinesTests.cpp
     MasterMixerTests.cpp
@@ -46,6 +49,7 @@ add_executable(duet_tests
     PluginHostingTests.cpp
     PluginOpsTests.cpp
     PluginPresetTests.cpp
+    PluginScanTests.cpp
     ProjectLayoutTests.cpp
     ProjectToolsTests.cpp
     ProjectAndTransportOpsTests.cpp

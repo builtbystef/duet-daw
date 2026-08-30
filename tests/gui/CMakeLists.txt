@@ -10,6 +10,7 @@ add_executable(duet_gui_tests
     GuiSettingsHome.cpp
     BrowserCanvasTests.cpp
     CollaboratorPanelCanvasTests.cpp
+    DialogTests.cpp
     GraphiteLookTests.cpp
     MainShellTests.cpp
     TextTests.cpp

@@ -159,6 +159,55 @@ struct InputInfo
     InputKind kind = InputKind::audio;
 };
 
+/** One of the machine's MIDI inputs, as the MIDI tab lists it.
+
+    An input the producer has switched off is still here, switched off, which is
+    what makes the list something they can switch back on. Only an enabled one
+    can feed a track: `availableInputs` above lists what a track can record from,
+    and a disabled input is not in it.
+*/
+struct MidiInputInfo
+{
+    InputRef input = noInput;
+    std::string name;
+    bool enabled = false;
+};
+
+/** What the machine's audio device is doing, as the Audio tab shows it.
+
+    Empty and zero throughout when no device is open, which is what a machine
+    with no audio hardware looks like and what a session that gave its device up
+    looks like.
+*/
+struct AudioDeviceState
+{
+    std::string outputDevice;
+    std::string inputDevice;
+    double sampleRate = 0.0;
+    int bufferSize = 0;
+
+    /** How long a sample takes to reach the machine's output and to arrive from
+        its input, in milliseconds: what the tab reports as the latency, and
+        what the producer is choosing a buffer size against.
+    */
+    double outputLatencyMs = 0.0;
+    double inputLatencyMs = 0.0;
+};
+
+/** What the producer asked the audio device to become.
+
+    Every field is what they chose, and an empty name or a zero leaves that part
+    of the device where it was: a producer who changes only the buffer size is
+    not also choosing the device again.
+*/
+struct AudioDeviceChoice
+{
+    std::string outputDevice;
+    std::string inputDevice;
+    double sampleRate = 0.0;
+    int bufferSize = 0;
+};
+
 /** One note played into a session's MIDI input while it runs with no audio
     device. Seconds count from the start of that run.
 */
@@ -446,6 +495,61 @@ struct KnownPluginInfo
     bool isAvailable = false;
 };
 
+/** What an export is written as.
+
+    The three the interface offers: two uncompressed, and one that compresses
+    without losing anything. Nothing lossy is here — an export is what the
+    producer takes away, and a lossy master is something they make from it.
+*/
+enum class ExportFormat : std::uint8_t
+{
+    wav,
+    aiff,
+    flac
+};
+
+/** How loud a normalised export is brought to, in decibels of full scale.
+
+    A hair under full scale rather than at it: the peak sample is what
+    normalising places, and a converter reconstructing the waveform between two
+    samples can go above the loudest of them.
+*/
+inline constexpr double exportNormaliseTargetDb = -0.3;
+
+/** What an export of the project is: where it goes, what it is written as, and
+    what stretch of the timeline it holds.
+
+    Every one of these is the producer's own choice, which is what makes an
+    export different from the renders above: those have the one shape a
+    measurement needs (ADR 0006), and this has the shape that was asked for.
+
+    The stretch is in seconds, both ends counted from the start of the project,
+    and an export whose end is not after its start writes nothing.
+*/
+struct ExportOptions
+{
+    std::filesystem::path destination;
+    ExportFormat format = ExportFormat::wav;
+    int bitDepth = 24;
+    double sampleRate = renderSampleRate;
+    double startSeconds = 0.0;
+    double endSeconds = 0.0;
+
+    /** Brings the loudest sample of the export to the target level. Off leaves
+        the levels where the project put them.
+    */
+    bool normalise = false;
+    double normaliseToDb = exportNormaliseTargetDb;
+};
+
+/** How far an export has got, from zero to one, and whether it should go on.
+
+    Asked between blocks, so a producer who pressed Cancel waits for one block
+    rather than for the export. What a cancelled export leaves behind is
+    nothing: a half-written file would be read as a whole one.
+*/
+using ExportProgress = std::function<bool (double proportion)>;
+
 /** The result of scanning one directory for VST3 plugins.
 
     A crashing plugin is a completed scan with that file in badFiles: the child
@@ -457,6 +561,55 @@ struct PluginScanResult
     bool completed = false;
     std::vector<std::filesystem::path> failedFiles;
     std::vector<std::filesystem::path> badFiles;
+};
+
+/** A scan of one directory for VST3 plugins, taken one plugin at a time.
+
+    Scanning a plugin means launching it in a child process and waiting for what
+    it says about itself, and what that costs is the plugin's business. So a scan
+    is not one call: whoever is showing it steps it, draws what it says about the
+    plugin it is about to look at, and steps it again — which is what makes the
+    producer a watcher of a scan rather than the owner of a frozen window.
+
+    The scan is the app-global plugin list being filled in, so it lives as long
+    as the object does and what it found is kept whether or not it was run to the
+    end.
+*/
+class Vst3Scan
+{
+public:
+    ~Vst3Scan();
+
+    Vst3Scan (const Vst3Scan& other) = delete;
+    Vst3Scan& operator= (const Vst3Scan& other) = delete;
+
+    /** The plugin the next step will look at, and empty when there is none
+        left.
+    */
+    [[nodiscard]] std::filesystem::path nextPlugin() const;
+
+    /** How much of the directory has been looked at, from zero to one. */
+    [[nodiscard]] double progress() const;
+
+    /** Scans one plugin. False when there was nothing left to scan, which is
+        also what says the scan is over.
+    */
+    bool step();
+
+    /** What the scan has found so far: the modules that described no plugin,
+        and the ones the child scanner died on. Complete once the walk has
+        ended.
+    */
+    [[nodiscard]] PluginScanResult result() const;
+
+private:
+    friend class Session;
+
+    struct Impl;
+
+    explicit Vst3Scan (std::unique_ptr<Impl> made);
+
+    std::unique_ptr<Impl> impl;
 };
 
 /** A stretch of the timeline, in seconds. */
@@ -1126,6 +1279,22 @@ public:
                                     const std::filesystem::path& destination,
                                     const std::function<bool()>& keepGoing = {});
 
+    /** Writes a stretch of the project to a file the producer asked for, in the
+        format, depth and rate they asked for. False when nothing was written,
+        which is also what a cancelled export answers.
+
+        The render is made off a detached copy, like the two above it, and for a
+        reason the producer can hear: an export is not a gap in the session.
+        The transport goes on rolling, the undo history is where it was, and the
+        project has no more unsaved changes afterwards than it had before —
+        exporting is a read of the project, not an edit of it.
+
+        Belongs on a worker thread, with the message loop running, on the same
+        terms as the renders above: the copy is made and taken down on the
+        message thread, and the blocks in between are the worker's.
+    */
+    bool exportToFile (const ExportOptions& options, const ExportProgress& progress = {});
+
     //==============================================================================
     // External plugins.
 
@@ -1139,8 +1308,22 @@ public:
 
     /** Scans one directory recursively for VST3 plugins. Known good results and
         bad files are retained in the app-global plugin list.
+
+        The whole scan, in one call, for a caller with nothing to draw while it
+        runs. What the interface starts is the stepped one below.
     */
     [[nodiscard]] PluginScanResult scanVst3Plugins (const std::filesystem::path& directory);
+
+    /** The same scan, to be stepped a plugin at a time by whoever is showing it.
+        Nothing when this build cannot host VST3 at all, or when the directory is
+        not one.
+    */
+    [[nodiscard]] std::unique_ptr<Vst3Scan> beginVst3Scan (const std::filesystem::path& directory);
+
+    /** Where VST3 plugins live on this machine, as the format itself says: what
+        a scan the producer did not point anywhere looks in.
+    */
+    [[nodiscard]] std::vector<std::filesystem::path> vst3Directories() const;
 
     /** Every VST3 retained by scanning, including one whose file has since gone
         missing.
@@ -1387,6 +1570,42 @@ public:
         output latency — empty when no device could be opened.
     */
     [[nodiscard]] std::string audioDeviceDescription() const;
+
+    //==============================================================================
+    // The machine's audio hardware, as the Audio tab of the Settings window sets
+    // it. All of it is app-global: it is the producer's machine and not their
+    // project, so none of it is written into the project or its undo history.
+
+    /** The devices this machine offers, in the order its driver lists them. */
+    [[nodiscard]] std::vector<std::string> availableOutputDevices() const;
+    [[nodiscard]] std::vector<std::string> availableInputDevices() const;
+
+    /** The rates and buffer sizes the device that is open can be run at. Both
+        are empty when no device is open, there being nothing to ask.
+    */
+    [[nodiscard]] std::vector<double> availableSampleRates() const;
+    [[nodiscard]] std::vector<int> availableBufferSizes() const;
+
+    /** What the device is doing right now, latency included. */
+    [[nodiscard]] AudioDeviceState audioDevice() const;
+
+    /** Opens the device the producer chose, and returns empty.
+
+        What comes back otherwise is what went wrong, in the driver's own words,
+        and then nothing changed: the device that was running is still running.
+        A producer who chose a device their machine cannot open keeps the one
+        they could hear.
+    */
+    std::string setAudioDevice (const AudioDeviceChoice& choice);
+
+    /** Every MIDI input the machine has, switched on or off. */
+    [[nodiscard]] std::vector<MidiInputInfo> midiInputs() const;
+
+    /** Switches a MIDI input on or off. A switched-off input reaches no track:
+        it leaves `availableInputs`, and nothing it carries is played or
+        recorded.
+    */
+    void setMidiInputEnabled (InputRef input, bool enabled);
 
 private:
     friend class EditOps;

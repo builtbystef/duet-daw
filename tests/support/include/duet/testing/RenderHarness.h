@@ -67,6 +67,18 @@ class Render;
                                   duet::model::TrackRef track,
                                   const std::filesystem::path& folder);
 
+/** Exports the project the way the interface does — on a worker thread, with
+    the message loop running here — and reads back whatever it wrote.
+
+    An export is the producer's own render, so this takes the options rather
+    than making them, and it takes the destination from them: a Render over a
+    file that was never written answers `readable` false, which is what a
+    cancelled export leaves behind.
+*/
+[[nodiscard]] Render exportProject (duet::model::Session& session,
+                                    const duet::model::ExportOptions& options,
+                                    const duet::model::ExportProgress& progress = {});
+
 /** One offline render, read back into memory.
 
     Every stretch is given in seconds from the render's start, and a stretch that
@@ -151,6 +163,9 @@ private:
     friend Render renderProject (duet::model::Session&, const std::filesystem::path&);
     friend Render
         renderTrack (duet::model::Session&, duet::model::TrackRef, const std::filesystem::path&);
+    friend Render exportProject (duet::model::Session&,
+                                 const duet::model::ExportOptions&,
+                                 const duet::model::ExportProgress&);
 
     std::filesystem::path audio;
     double sampleRate = renderSampleRate;

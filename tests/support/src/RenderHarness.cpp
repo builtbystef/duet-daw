@@ -397,4 +397,20 @@ Render renderTrack (duet::model::Session& session,
 
     return render;
 }
+
+Render exportProject (duet::model::Session& session,
+                      const duet::model::ExportOptions& options,
+                      const duet::model::ExportProgress& progress)
+{
+    bool offTheMessageThread = false;
+
+    if (! renderOffTheMessageThread ([&] { return session.exportToFile (options, progress); },
+                                     offTheMessageThread))
+        return Render { options.destination };
+
+    Render render { options.destination };
+    render.offTheMessageThread = offTheMessageThread;
+
+    return render;
+}
 } // namespace duet::testing

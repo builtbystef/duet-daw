@@ -10,13 +10,16 @@
 add_library(duet_gui STATIC
     src/Appearance.cpp
     src/ArrangementView.cpp
+    src/AudioMidiSettings.cpp
     src/AutomationLanes.cpp
     src/Browser.cpp
     src/CollaboratorPanel.cpp
     src/AutosaveSettings.cpp
+    src/Export.cpp
     src/Mixer.cpp
     src/PianoRoll.cpp
     src/PluginPresets.cpp
+    src/PluginScan.cpp
     src/Rendering.cpp
     src/ProjectsSettings.cpp
     src/Selection.cpp
@@ -73,10 +76,12 @@ add_library(duet_gui_components STATIC
     components_src/CollaboratorPanelCanvas.cpp
     components_src/GraphiteLookAndFeel.cpp
     components_src/InterTypeface.cpp
+    components_src/ExportDialog.cpp
     components_src/MainShell.cpp
     components_src/MixerCanvas.cpp
     components_src/PianoRollCanvas.cpp
     components_src/PluginEditorManager.cpp
+    components_src/PluginScanDialog.cpp
     components_src/SettingsWindow.cpp)
 add_library(duet::gui_components ALIAS duet_gui_components)
 

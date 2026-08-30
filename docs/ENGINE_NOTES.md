@@ -908,3 +908,47 @@ a track, and the project's state digest was untouched.
 **Duet.** `Session::builtinPluginParameters` answers what a built-in has this
 way, so `suggest` can hold a parameter of a plugin an element is only adding to
 the plugin's own range without a second table of ranges to drift from the first.
+
+### `PluginDirectoryScanner::scanNextFile` scans a file and says whether another follows
+
+**The engine.** JUCE's scanner does two things in one call: it scans the file it
+is on, and it returns whether there is another after it. So the last plugin of a
+directory is scanned by the call that answers false, and a caller that treats
+false as "nothing was done" loses the last plugin of every scan it drives.
+`getNextPluginFileThatWillBeScanned` names the file the next call will look at,
+which is what a dialog showing a scan draws.
+
+**Where.** `juce::PluginDirectoryScanner::scanNextFile` /
+`getNextPluginFileThatWillBeScanned` / `getProgress`, driven through Tracktion's
+`PluginScanHelpers::CustomScanner`, which is what puts the scan in a child
+process.
+
+**Proved.** `zm174o`, on the dev machine 2026-08-29. A directory holding one
+plugin was fully scanned by a single call that returned false, and the plugin
+was in the known list afterwards.
+
+**Duet.** `duet::model::Vst3Scan::step` returns what the engine returned and
+marks the walk over on the false, having let that call scan its file;
+`duet::gui::PluginScan` counts steps taken rather than steps that said yes, and
+moves to the next directory on the false.
+
+### The plugin scan's child process is answered on its own thread
+
+**The engine.** Tracktion's out-of-process scan sends a request to a child and
+waits for the reply in a sleep loop, while the reply arrives on the
+`ChildProcessCoordinator`'s own connection thread rather than on the message
+thread. A scan therefore does not need a running message loop to make progress —
+but it does block whichever thread drives it for as long as the plugin takes to
+answer.
+
+**Where.** `PluginScanHelpers::PluginScanMasterProcess::waitForReply` (a
+`juce::Thread::sleep` loop over a lock-protected reply list);
+`PluginScanHelpers::CustomScanner::findPluginTypesFor`.
+
+**Proved.** `zm174o`, by reading the vendored sources while deciding where a
+watched scan should run.
+
+**Duet.** The plugin-scan dialog steps the scan on the message thread from a
+timer, one plugin per tick, so the loop turns between plugins and the producer
+watches the scan rather than a frozen window. Nothing in Duet drives a scan from
+a worker thread, so nothing depends on the reply thread.

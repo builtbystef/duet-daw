@@ -7,10 +7,15 @@
 #include <duet/persistence/Project.h>
 
 #include <duet/gui/Appearance.h>
+#include <duet/gui/AudioMidiSettings.h>
 #include <duet/gui/AutosaveSettings.h>
+#include <duet/gui/Export.h>
+#include <duet/gui/ExportDialog.h>
 #include <duet/gui/GraphiteLookAndFeel.h>
 #include <duet/gui/MainShell.h>
 #include <duet/gui/PluginEditorManager.h>
+#include <duet/gui/PluginScan.h>
+#include <duet/gui/PluginScanDialog.h>
 #include <duet/gui/ProjectsSettings.h>
 #include <duet/gui/Rendering.h>
 #include <duet/gui/SessionClock.h>
@@ -63,7 +68,10 @@ namespace
         saveProjectAs,
         playProject,
         stopProject,
+        exportProject,
         openSettings,
+        openAudioMidiSettings,
+        scanPlugins,
         firstRecentProject = 200
     };
 
@@ -167,6 +175,10 @@ public:
         // answer from the last launch (spec 535bbo).
         shell.setHardwareAccelerated (duet::gui::hardwareAccelerationEnabled (settings));
 
+        // A finished scan is the browser's VST3 section, read again where it
+        // stands: no restart.
+        pluginScan.onFinished ([this] { shell.browser().refresh(); });
+
         startCollaborator();
 
         addAndMakeVisible (shell);
@@ -194,6 +206,14 @@ public:
         pluginEditors.setSession (nullptr);
         shell.setTimelineClock (nullptr);
         shell.setSession (nullptr);
+
+        // The dialogs go before what they read, and the export lets go of the
+        // project rather than waiting for a render it cannot wait for.
+        exportWindow.reset();
+        scanWindow.reset();
+        settingsWindow.reset();
+        pluginScan.setSession (nullptr);
+        audioAndMidi.setDevices (nullptr);
     }
 
     /** Puts the keys on the shell. The panel keys are the shell's, and a window
@@ -259,7 +279,11 @@ private:
         menu.addItem (HostMenuId::playProject, "Play", hasProject);
         menu.addItem (HostMenuId::stopProject, "Stop", hasProject);
         menu.addSeparator();
+        menu.addItem (HostMenuId::exportProject, "Export / Bounce...", hasProject);
+        menu.addSeparator();
         menu.addItem (HostMenuId::openSettings, "Settings...");
+        menu.addItem (HostMenuId::openAudioMidiSettings, "Audio & MIDI Settings...");
+        menu.addItem (HostMenuId::scanPlugins, "Plugin Scan...", hasProject);
     }
 
     void hostItemChosen (int itemId)
@@ -305,8 +329,20 @@ private:
                     project->session().stopPlayback();
                 break;
 
+            case HostMenuId::exportProject:
+                openExportDialog();
+                break;
+
             case HostMenuId::openSettings:
-                openSettingsWindow();
+                openSettingsWindow (duet::gui::SettingsWindow::interfaceTab);
+                break;
+
+            case HostMenuId::openAudioMidiSettings:
+                openSettingsWindow (duet::gui::SettingsWindow::audioTab);
+                break;
+
+            case HostMenuId::scanPlugins:
+                openPluginScanDialog();
                 break;
 
             default:
@@ -316,21 +352,46 @@ private:
         refreshTitle();
     }
 
-    void openSettingsWindow()
+    void openSettingsWindow (int tab)
     {
-        if (settingsWindow != nullptr)
+        if (settingsWindow == nullptr)
+            settingsWindow = std::make_unique<duet::gui::SettingsWindow> (
+                appearance,
+                settings,
+                shell.browser(),
+                audioAndMidi,
+                defaultProjectsDirectory(),
+                [this] (bool accelerated) { shell.setHardwareAccelerated (accelerated); },
+                [this] { settingsWindow.reset(); });
+
+        settingsWindow->showTab (tab);
+    }
+
+    void openExportDialog()
+    {
+        if (exportWindow != nullptr)
         {
-            settingsWindow->toFront (true);
+            exportWindow->toFront (true);
             return;
         }
 
-        settingsWindow = std::make_unique<duet::gui::SettingsWindow> (
-            appearance,
-            settings,
-            shell.browser(),
-            defaultProjectsDirectory(),
-            [this] (bool accelerated) { shell.setHardwareAccelerated (accelerated); },
-            [this] { settingsWindow.reset(); });
+        // The dialog opens on what the project is now: a producer who has added
+        // eight bars since the last export is exporting eight bars more.
+        exporting.restoreDefaults();
+        exportWindow = std::make_unique<duet::gui::ExportDialog> (
+            appearance, exporting, [this] { exportWindow.reset(); });
+    }
+
+    void openPluginScanDialog()
+    {
+        if (scanWindow != nullptr)
+        {
+            scanWindow->toFront (true);
+            return;
+        }
+
+        scanWindow = std::make_unique<duet::gui::PluginScanDialog> (
+            appearance, pluginScan, [this] { scanWindow.reset(); });
     }
 
     void launchInitialProject()
@@ -506,6 +567,13 @@ private:
         shell.browser().setSampleImporter ({});
         shell.setTimelineClock (nullptr);
         shell.setSession (nullptr);
+
+        // The three dialogs let go of the project too. An export already
+        // running keeps the hold it took and finishes reading what it entered.
+        exporting.setProject (nullptr, {}, {});
+        pluginScan.setSession (nullptr);
+        audioAndMidi.setDevices (nullptr);
+        machine.reset();
         clock.reset();
     }
 
@@ -538,6 +606,19 @@ private:
         collaborator.setSession (project->sessionHandle(), renderFolder);
         shell.setSession (&project->session());
         shell.setTimelineClock (clock.get());
+
+        // The three dialogs, on the project that has just opened. The export
+        // takes a hold, because a render outlives the project it was reading
+        // (issue 9tdwdq).
+        exporting.setProject (project->sessionHandle(), lifecycle.projectName(), project->folder());
+        pluginScan.setSession (&project->session());
+
+        // Each project carries its own engine, so the producer's device choice
+        // is opened again here: this is what "persists across restarts" means.
+        machine = std::make_unique<duet::gui::SessionAudioDevices> (project->session());
+        audioAndMidi.setDevices (machine.get());
+        static_cast<void> (audioAndMidi.applyStoredChoice());
+
         shell.viewStateChanged();
         refreshTitle();
     }
@@ -659,8 +740,21 @@ private:
             { juce::MessageManager::callAsync (std::move (work)); } }
     };
 
+    /** The three dialogs the Duet menu opens, and what they read.
+
+        The view-models outlive their windows: a producer who closes the Export
+        dialog and opens it again finds the choices they made, and a scan is
+        the project's rather than the window's.
+    */
+    duet::gui::Export exporting;
+    duet::gui::PluginScan pluginScan;
+    duet::gui::AudioMidiSettings audioAndMidi { settings };
+    std::unique_ptr<duet::gui::SessionAudioDevices> machine;
+
     std::unique_ptr<duet::gui::SessionClock> clock;
     std::unique_ptr<duet::gui::SettingsWindow> settingsWindow;
+    std::unique_ptr<duet::gui::ExportDialog> exportWindow;
+    std::unique_ptr<duet::gui::PluginScanDialog> scanWindow;
     std::unique_ptr<juce::FileChooser> chooser;
     juce::String problem;
 

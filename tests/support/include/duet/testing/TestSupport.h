@@ -87,6 +87,20 @@ private:
     std::filesystem::path projectFolder;
 };
 
+/** A hold on a project the case itself owns.
+
+    Everything that can outlive a project — a Collaborator's tool call, an
+    export's render — takes a hold rather than a pointer, because a render is
+    still reading the project the producer has closed under it. A project that
+    lives on the case's own stack, and outlives whatever is reading it, needs
+    none of that: this lends one that owns nothing, so what the case wrote stays
+    what it reads.
+*/
+inline std::shared_ptr<duet::model::Session> lent (duet::model::Session& session)
+{
+    return { &session, [] (duet::model::Session*) {} };
+}
+
 /** Keeps this process's message loop up for as long as this object lives.
 
     A `Session` carries the JUCE initialiser the loop belongs to, so the last

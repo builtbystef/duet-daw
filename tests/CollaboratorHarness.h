@@ -40,18 +40,6 @@ using duet::collab::RunStatus;
 using duet::collab::ToolPhase;
 using namespace std::chrono_literals;
 
-/** A hold on a project the case itself owns.
-
-    `Collaborator::setSession` takes a hold because a tool call in flight keeps
-    the project it is reading alive. A project that lives on the case's own
-    stack, and outlives the fixture reading it, needs none of that: this lends
-    one that owns nothing, so what the case wrote stays what it reads.
-*/
-inline std::shared_ptr<duet::model::Session> lent (duet::model::Session& session)
-{
-    return { &session, [] (duet::model::Session*) {} };
-}
-
 /** A folder under the system temp directory to put a socket in, removed with
     this object. The socket path is short on purpose: `sun_path` is 108 bytes.
 */

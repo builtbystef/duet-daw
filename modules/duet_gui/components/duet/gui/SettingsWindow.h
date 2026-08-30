@@ -1,6 +1,7 @@
 #pragma once
 
 #include <duet/gui/Appearance.h>
+#include <duet/gui/AudioMidiSettings.h>
 #include <duet/gui/Browser.h>
 #include <duet/gui/Settings.h>
 
@@ -8,16 +9,68 @@
 
 #include <filesystem>
 #include <functional>
+#include <memory>
+#include <vector>
 
 namespace duet::gui
 {
 /** The Settings window: everything app-global the producer sets once.
 
-    It opens with one tab, Interface — theme, interface scale, projects
-    directory, autosave interval, the browser's sample folders, and the
-    rendering escape hatch. Every row is in force where it stands and stored for
-    the next launch.
+    Three tabs. Interface — theme, interface scale, projects directory, autosave
+    interval, the browser's sample folders, and the rendering escape hatch. Audio
+    — the output and input device, the rate, the buffer, and the latency they
+    add up to. MIDI — the machine's MIDI inputs, and which of them are switched
+    on. Every row is in force where it stands and stored for the next launch.
 */
+/** The Settings window's surface: the three tabs, in the appearance they are
+    measured in.
+
+    A surface and not a window, for the reason the other two dialogs have one:
+    what a window is is a peer on a screen, and what this does is the same on a
+    machine that has none.
+*/
+class SettingsPanel final : public juce::Component
+{
+public:
+    SettingsPanel (Appearance& lookAndScale,
+                   Settings& store,
+                   Browser& dock,
+                   AudioMidiSettings& machine,
+                   const std::filesystem::path& defaultProjectsDirectory,
+                   std::function<void (bool)> renderingChanged,
+                   std::function<void()> onClose);
+
+    ~SettingsPanel() override;
+
+    SettingsPanel (const SettingsPanel& other) = delete;
+    SettingsPanel& operator= (const SettingsPanel& other) = delete;
+
+    void resized() override;
+
+    /** Escape dismisses it, like every other dialog here. */
+    bool keyPressed (const juce::KeyPress& key) override;
+
+    /** Puts it on one tab, and reads the machine again as it does: the device
+        the producer is looking at is the device that is running now.
+    */
+    void showTab (int index);
+
+    [[nodiscard]] int currentTab() const;
+
+    /** What the tabs are called, in the order they are offered. */
+    [[nodiscard]] std::vector<juce::String> tabNames() const;
+
+    static constexpr int interfaceTab = 0;
+    static constexpr int audioTab = 1;
+    static constexpr int midiTab = 2;
+
+private:
+    class Tabs;
+
+    std::unique_ptr<Tabs> tabs;
+    std::function<void()> dismiss;
+};
+
 class SettingsWindow final : public juce::DocumentWindow
 {
 public:
@@ -27,6 +80,8 @@ public:
         @param dock             the browser whose sample folders this tab
                                 manages, so that a folder added here is in the
                                 dock before the window is closed
+        @param machine          the machine's audio and MIDI hardware, as the
+                                Audio and MIDI tabs set it
         @param defaultProjectsDirectory the location used before one is chosen
         @param renderingChanged called with the producer's choice of renderer, so
                                 that the surfaces are moved onto it where they
@@ -37,6 +92,7 @@ public:
     SettingsWindow (Appearance& lookAndScale,
                     Settings& store,
                     Browser& dock,
+                    AudioMidiSettings& machine,
                     const std::filesystem::path& defaultProjectsDirectory,
                     std::function<void (bool)> renderingChanged,
                     std::function<void()> onClose);
@@ -45,7 +101,17 @@ public:
 
     void closeButtonPressed() override;
 
+    /** Opens the window on one of its tabs, so that Audio & MIDI Settings from
+        the Duet menu lands where the producer asked to be.
+    */
+    void showTab (int index);
+
+    static constexpr int interfaceTab = SettingsPanel::interfaceTab;
+    static constexpr int audioTab = SettingsPanel::audioTab;
+    static constexpr int midiTab = SettingsPanel::midiTab;
+
 private:
+    SettingsPanel* panel = nullptr;
     std::function<void()> closed;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SettingsWindow)
