@@ -151,6 +151,7 @@ public:
     [[nodiscard]] std::vector<std::string> resultLines() const
     {
         std::vector<std::string> lines;
+        lines.reserve (rows.size());
 
         for (const auto& row : rows)
             lines.push_back (row.text);

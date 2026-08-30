@@ -1,12 +1,12 @@
 ---
 id: 1qdjq5
 title: resultLines pushes into a vector in a loop, and the sweep calls it an error
-state: todo
+state: done
 priority: low
 labels:
     - maintenance
 created: 2026-08-30T04:37:11Z
-updated: 2026-08-30T04:37:11Z
+updated: 2026-08-30T16:24:04Z
 ---
 
 ## What happens
@@ -37,3 +37,9 @@ Nothing about it is i84fbb's, so it is here rather than in that diff.
 
 - [ ] `./scripts/lint.sh` reports no error for `PluginScanDialog.cpp`.
 - [ ] The full sweep, taken after a full build, is clean.
+
+## Notes
+
+**claude** — 2026-08-30T16:24:04Z
+
+Duplicate of ssjy4l — the same PluginScanDialog.cpp push_back-in-a-loop error, found independently during i84fbb where ssjy4l came out of 97ynt7. Fixed and verified under ssjy4l; closed as a duplicate rather than separately.
