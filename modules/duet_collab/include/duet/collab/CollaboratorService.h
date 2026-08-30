@@ -159,6 +159,30 @@ public:
     /** The sidecar's `configure`. Spawns the sidecar if none is running. */
     RpcOutcome configure (const std::string& model, const Json& systemPromptParams);
 
+    /** The model every later run is to use, and what its prompt is to say about
+        the project. Returns at once and asks the sidecar nothing.
+
+        The service thread is what sends `configure`, and it sends it in front of
+        the `run.start` of the first run that needs it: a model the producer
+        switched to between runs is in force for the next one, with no sidecar
+        restart and nothing for the message thread to wait on. A sidecar that
+        died and was replaced is configured again by the same rule, since a new
+        process has been told nothing.
+    */
+    void setModel (std::string modelSelection, Json systemPromptParams = Json::object());
+
+    /** What `setModel` was last given, which is what the next run will use. */
+    [[nodiscard]] std::string chosenModel() const;
+
+    /** One question about model access — `models.list` and the `auth.*` methods
+        of ADR 0003 — asked and waited for.
+
+        These are the setup surface's, not a run's: the producer is looking at
+        the answer, so the caller waits for it, and the sidecar is spawned to
+        answer it if none is running. Nothing about a Task Run goes through here.
+    */
+    RpcOutcome ask (const std::string& method, const Json& params);
+
     /** The sidecar's `shutdown`, and the wait for it to go. Spawns nothing: with
         no sidecar running this succeeds and does nothing.
     */

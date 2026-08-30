@@ -18,6 +18,7 @@ The project's shared language. The rules: use one term for each concept — the 
 - **Estimate Ledger** — the record of every Estimate one Task Run was handed. A run whose ledger holds anything has everything it says afterwards marked as based on estimates. _Avoid: taint list, provenance log._
 - **Task Run** — one producer-initiated, non-blocking, cancelable execution of the Collaborator, from request to commentary and/or Suggestion. _Avoid: query, request, job._
 - **Duet Loop** — the conversation mechanics around Suggestions: revise-on-reply, rejection-with-a-reason as input, stale-marking when the producer's edits touch a pending Suggestion, and per-element cherry-pick. _Avoid: feedback loop, chat._
+- **Provider** — a model vendor the Target Producer has their own account with, reached with their own API key or their own subscription. Duet privileges none of them: the Collaborator answers on whichever model the producer picked from the ones their providers offer. _Avoid: backend, vendor, service._
 - **Audition** — the transient state in which a pending Suggestion's changes are made audible in the project context for evaluation, without entering the project state or its undo history. Ends by acceptance, rejection, or stopping the audition. _Avoid: preview, ghost mode._
 
 ## Editing

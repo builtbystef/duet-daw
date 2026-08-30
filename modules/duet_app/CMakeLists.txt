@@ -12,6 +12,7 @@
 add_library(duet_app_core STATIC
     src/Collaborator.cpp
     src/MessageThreadMarshal.cpp
+    src/ModelAccess.cpp
     src/OpeningContext.cpp
     src/ProjectLifecycle.cpp
     src/PropertyStorageSettings.cpp

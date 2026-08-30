@@ -208,10 +208,29 @@ public:
     [[nodiscard]] const std::string& composerText() const { return composer; }
 
     /** Whether sending would do anything: a composer holding more than blanks,
-        and no run holding it. One run at a time is the spec's rule and this is
-        where the panel keeps it — a send while a run is on starts nothing.
+        no run holding it, and a model to run it on. One run at a time is the
+        spec's rule and this is where the panel keeps it — a send while a run is
+        on starts nothing, and neither does a send with nothing set up.
     */
     [[nodiscard]] bool canSend() const;
+
+    //==============================================================================
+    /** Whether the producer has to set a model provider up before the
+        Collaborator can answer them at all.
+
+        Nothing configured is not an error and is not a failed run: it is a state
+        the panel shows, with the way to the settings surface in it, and the
+        composer held while it lasts — sending is not offered as an action that
+        would fail (spec js437t). The picker is what decides this; the panel is
+        told.
+    */
+    void setSetupRequired (bool nothingConfigured);
+    [[nodiscard]] bool setupRequired() const { return setup; }
+
+    /** What the setup state says, and what the way out of it is called. */
+    static constexpr const char* setupNotice =
+        "The Collaborator needs a model provider before it can answer.";
+    static constexpr const char* setupAction = "Set up a provider";
 
     /** Sends what the composer holds, chipped with what is selected now. Does
         nothing when there is nothing to send.
@@ -360,6 +379,7 @@ private:
     std::string composer;
     bool tracing = developmentBuild;
     bool running = false;
+    bool setup = false;
     bool composerFocus = false;
 
     /** Which entry the commentary streaming now is extending, and none when the

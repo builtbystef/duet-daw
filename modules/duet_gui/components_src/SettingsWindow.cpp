@@ -2,8 +2,10 @@
 
 #include <duet/gui/AutosaveSettings.h>
 #include <duet/gui/GraphiteLookAndFeel.h>
+#include <duet/gui/ModelPicker.h>
 #include <duet/gui/ProjectsSettings.h>
 #include <duet/gui/Rendering.h>
+#include <duet/gui/Text.h>
 #include <duet/gui/Tokens.h>
 #include <duet/gui/Typography.h>
 
@@ -21,6 +23,13 @@ namespace
     constexpr int windowHeight = 470;
     constexpr int labelWidth = 130;
     constexpr int tabBarHeight = 28;
+
+    /** The Collaborator tab's own chrome, in logical units: the buttons beside a
+        row, and the box the sign-in instructions are shown in.
+    */
+    constexpr int buttonWidth = 90;
+    constexpr int wideButtonWidth = 140;
+    constexpr int instructionsHeight = 72;
     constexpr double scaleStep = 0.05;
 
     /** The theme choices, in the order the box offers them. The ids are the
@@ -326,6 +335,320 @@ namespace
         juce::TextButton removeFolder;
         std::unique_ptr<juce::FileChooser> folderChooser;
         juce::ToggleButton renderingButton;
+    };
+
+    /** The Collaborator tab: the model the Collaborator answers on, and the
+        providers the producer reaches it through.
+
+        Everything it decides is the picker's; what is here is the surface — the
+        boxes, the two ways to set a provider up, and one line saying how the
+        last gesture went. An entry whose provider is not authenticated is in the
+        box and cannot be chosen, which is what "marked unusable" is (i84fbb).
+    */
+    class CollaboratorTab final : public juce::Component, private Appearance::Listener
+    {
+    public:
+        CollaboratorTab (Appearance& lookAndScale, ModelPicker& picker)
+            : appearance (lookAndScale), models (picker)
+        {
+            modelLabel.setText ("Model", juce::dontSendNotification);
+            providerLabel.setText ("Provider", juce::dontSendNotification);
+            keyLabel.setText ("API key", juce::dontSendNotification);
+            subscriptionLabel.setText ("Subscription", juce::dontSendNotification);
+            codeLabel.setText ("Code", juce::dontSendNotification);
+
+            modelBox.setComponentID (settingsId::model);
+            providerBox.setComponentID (settingsId::provider);
+            keyEditor.setComponentID (settingsId::apiKey);
+            saveKey.setComponentID (settingsId::saveApiKey);
+            signIn.setComponentID (settingsId::signIn);
+            codeEditor.setComponentID (settingsId::oauthCode);
+            finishSignIn.setComponentID (settingsId::finishSignIn);
+            removeKey.setComponentID (settingsId::removeCredentials);
+            status.setComponentID (settingsId::status);
+            instructions.setComponentID (settingsId::instructions);
+
+            // The key is a secret and the producer is not the only one who can
+            // see their screen.
+            keyEditor.setPasswordCharacter (static_cast<juce::juce_wchar> (0x2022));
+
+            modelBox.onChange = [this]
+            {
+                const auto chosen = static_cast<std::size_t> (modelBox.getSelectedId() - 1);
+
+                if (chosen < models.models().size())
+                    static_cast<void> (models.select (models.models().at (chosen).id));
+            };
+
+            saveKey.setButtonText ("Save key");
+            saveKey.onClick = [this]
+            {
+                report (models.setApiKey (chosenProvider(), keyEditor.getText().toStdString()),
+                        "That key is in place.");
+                keyEditor.clear();
+                refresh();
+            };
+
+            signIn.setButtonText ("Sign in...");
+            signIn.onClick = [this]
+            {
+                OAuthStep step;
+                const auto trouble = models.beginOAuth (chosenProvider(), step);
+
+                if (trouble.empty())
+                    instructions.setText (juce::String { step.url } + "\n\n"
+                                              + juce::String { step.instructions },
+                                          false);
+
+                report (trouble, "Finish signing in, then paste the code below.");
+                refresh();
+            };
+
+            finishSignIn.setButtonText ("Finish");
+            finishSignIn.onClick = [this]
+            {
+                report (models.completeOAuth (chosenProvider(), codeEditor.getText().toStdString()),
+                        "You are signed in.");
+                codeEditor.clear();
+                refresh();
+            };
+
+            removeKey.setButtonText ("Remove credentials");
+            removeKey.onClick = [this]
+            {
+                report (models.removeCredentials (chosenProvider()),
+                        "That provider's credentials are gone.");
+                refresh();
+            };
+
+            instructions.setMultiLine (true);
+            instructions.setReadOnly (true);
+            instructions.setCaretVisible (false);
+
+            for (auto* child : std::initializer_list<juce::Component*> { &modelLabel,
+                                                                         &providerLabel,
+                                                                         &keyLabel,
+                                                                         &subscriptionLabel,
+                                                                         &codeLabel,
+                                                                         &modelBox,
+                                                                         &providerBox,
+                                                                         &keyEditor,
+                                                                         &saveKey,
+                                                                         &signIn,
+                                                                         &codeEditor,
+                                                                         &finishSignIn,
+                                                                         &removeKey,
+                                                                         &instructions,
+                                                                         &status })
+                addAndMakeVisible (*child);
+
+            providerBox.onChange = [this] { followProvider(); };
+
+            appearance.addListener (this);
+
+            // Nothing is asked of the provider layer here. Opening the Settings
+            // window on another tab must not spawn the sidecar, which is
+            // spawned by the first question anyone asks it (ADR 0003) — this
+            // tab becoming visible is that question.
+            fillProviders();
+            fillModels();
+        }
+
+        ~CollaboratorTab() override { appearance.removeListener (this); }
+
+        CollaboratorTab (const CollaboratorTab&) = delete;
+        CollaboratorTab& operator= (const CollaboratorTab&) = delete;
+
+        /** Asks the provider layer again and takes the answer onto the boxes.
+            Called whenever a credential can have changed, and when the window is
+            opened on this tab.
+        */
+        void refresh()
+        {
+            models.refresh();
+            fillProviders();
+            fillModels();
+        }
+
+        /** The tab the producer has just turned to is the moment to ask again:
+            a key entered elsewhere, or a sign-in finished in a browser, is news
+            this tab has no other way of hearing.
+        */
+        void visibilityChanged() override
+        {
+            if (isVisible())
+                refresh();
+        }
+
+        void paint (juce::Graphics& g) override
+        {
+            g.fillAll (toJuce (appearance.colour (ColourToken::surfaceDefault)));
+        }
+
+        void resized() override
+        {
+            auto area = getLocalBounds().reduced (appearance.scaled (metrics::panelPadding));
+            const auto rowHeight = appearance.scaled (metrics::rowHeight);
+            const auto gap = appearance.scaled (metrics::rowGap);
+            const auto labels = appearance.scaled (labelWidth);
+
+            auto layOutRow = [&] (juce::Component& label, juce::Component& control)
+            {
+                auto row = area.removeFromTop (rowHeight);
+                label.setBounds (row.removeFromLeft (labels));
+                control.setBounds (row);
+                area.removeFromTop (gap);
+            };
+
+            auto layOutRowWithButton =
+                [&] (juce::Component& label, juce::Component& control, juce::Component& button)
+            {
+                auto row = area.removeFromTop (rowHeight);
+                label.setBounds (row.removeFromLeft (labels));
+                button.setBounds (row.removeFromRight (appearance.scaled (buttonWidth)));
+                control.setBounds (row.withTrimmedRight (gap));
+                area.removeFromTop (gap);
+            };
+
+            layOutRow (modelLabel, modelBox);
+            layOutRow (providerLabel, providerBox);
+            layOutRowWithButton (keyLabel, keyEditor, saveKey);
+
+            auto subscription = area.removeFromTop (rowHeight);
+            subscriptionLabel.setBounds (subscription.removeFromLeft (labels));
+            signIn.setBounds (subscription.removeFromLeft (appearance.scaled (buttonWidth)));
+            area.removeFromTop (gap);
+
+            layOutRowWithButton (codeLabel, codeEditor, finishSignIn);
+
+            instructions.setBounds (area.removeFromTop (appearance.scaled (instructionsHeight)));
+            area.removeFromTop (gap);
+            status.setBounds (area.removeFromTop (rowHeight));
+            area.removeFromTop (gap);
+            removeKey.setBounds (area.removeFromTop (rowHeight).removeFromRight (
+                appearance.scaled (wideButtonWidth)));
+        }
+
+    private:
+        /** The provider the setup rows are about. */
+        [[nodiscard]] std::string chosenProvider() const
+        {
+            const auto chosen = static_cast<std::size_t> (providerBox.getSelectedId() - 1);
+
+            return chosen < models.providers().size() ? models.providers().at (chosen).id
+                                                      : std::string {};
+        }
+
+        void fillProviders()
+        {
+            const auto was = chosenProvider();
+
+            providerBox.clear (juce::dontSendNotification);
+
+            int select = 0;
+
+            for (std::size_t index = 0; index < models.providers().size(); ++index)
+            {
+                const auto& provider = models.providers().at (index);
+                const auto id = static_cast<int> (index) + 1;
+
+                providerBox.addItem (juce::String { provider.name }
+                                         + (provider.authenticated ? " (in use)" : ""),
+                                     id);
+
+                if (provider.id == was || (select == 0 && was.empty() && provider.configured))
+                    select = id;
+            }
+
+            if (select == 0 && providerBox.getNumItems() > 0)
+                select = 1;
+
+            providerBox.setSelectedId (select, juce::dontSendNotification);
+            followProvider();
+        }
+
+        /** What the chosen provider offers is what the producer is offered: a
+            provider with no subscription sign-in has nothing behind that
+            button. Nothing is asked of the provider layer here — the producer
+            moving a box is not news to it.
+        */
+        void followProvider()
+        {
+            signIn.setEnabled (providerOffers (&ProviderAccount::oauth));
+            saveKey.setEnabled (providerOffers (&ProviderAccount::apiKey));
+        }
+
+        [[nodiscard]] bool providerOffers (bool ProviderAccount::*what) const
+        {
+            const auto chosen = chosenProvider();
+
+            for (const auto& provider : models.providers())
+                if (provider.id == chosen)
+                    return provider.*what;
+
+            return false;
+        }
+
+        void fillModels()
+        {
+            modelBox.clear (juce::dontSendNotification);
+
+            int select = 0;
+
+            for (std::size_t index = 0; index < models.models().size(); ++index)
+            {
+                const auto& model = models.models().at (index);
+                const auto id = static_cast<int> (index) + 1;
+
+                // The provider's name beside the model's, and no provider ahead
+                // of another: this is the picker's order, unsorted.
+                modelBox.addItem (juce::String { model.name } + utf8 ("  —  ")
+                                      + juce::String { model.providerName }
+                                      + (model.authenticated ? "" : "  (not authenticated)"),
+                                  id);
+                modelBox.setItemEnabled (id, model.authenticated);
+
+                if (model.id == models.selectedModel())
+                    select = id;
+            }
+
+            modelBox.setSelectedId (select, juce::dontSendNotification);
+            modelBox.setTextWhenNothingSelected (models.models().empty()
+                                                     ? juce::String { "No provider is set up yet" }
+                                                     : juce::String { "Choose a model" });
+        }
+
+        /** One line about the last gesture: what went wrong, or that it did not. */
+        void report (const std::string& trouble, const juce::String& wentWell)
+        {
+            status.setText (trouble.empty() ? wentWell : juce::String { trouble },
+                            juce::dontSendNotification);
+        }
+
+        void appearanceChanged() override
+        {
+            sendLookAndFeelChange();
+            resized();
+            repaint();
+        }
+
+        Appearance& appearance;
+        ModelPicker& models;
+        juce::Label modelLabel;
+        juce::Label providerLabel;
+        juce::Label keyLabel;
+        juce::Label subscriptionLabel;
+        juce::Label codeLabel;
+        juce::ComboBox modelBox;
+        juce::ComboBox providerBox;
+        juce::TextEditor keyEditor;
+        juce::TextButton saveKey;
+        juce::TextButton signIn;
+        juce::TextEditor codeEditor;
+        juce::TextButton finishSignIn;
+        juce::TextButton removeKey;
+        juce::TextEditor instructions;
+        juce::Label status;
     };
 
     /** The Audio tab: one device at a time, and what it costs in latency. */
@@ -657,14 +980,16 @@ public:
           Settings& store,
           Browser& dock,
           AudioMidiSettings& machine,
+          ModelPicker& collaboratorModels,
           const std::filesystem::path& defaultProjectsDirectory,
           std::function<void (bool)> renderingChanged)
         : appearance (lookAndScale), audio (new AudioTab { lookAndScale, machine }),
-          midi (new MidiTab { lookAndScale, machine })
+          midi (new MidiTab { lookAndScale, machine }),
+          collaborator (new CollaboratorTab { lookAndScale, collaboratorModels })
     {
-        // The tabbed component takes each of the three; the two the machine
-        // fills in are kept as well, so that opening the window can read the
-        // machine again.
+        // The tabbed component takes each of the four; the three that read
+        // something outside themselves are kept as well, so that opening the
+        // window can read the machine and the provider layer again.
         tabs.addTab (
             "Interface",
             juce::Colours::transparentBlack,
@@ -673,6 +998,7 @@ public:
             true);
         tabs.addTab ("Audio", juce::Colours::transparentBlack, audio, true);
         tabs.addTab ("MIDI", juce::Colours::transparentBlack, midi, true);
+        tabs.addTab ("Collaborator", juce::Colours::transparentBlack, collaborator, true);
 
         addAndMakeVisible (tabs);
         appearance.addListener (this);
@@ -692,6 +1018,12 @@ public:
 
         if (midi != nullptr)
             midi->refresh();
+
+        // Only when it is the tab being opened: asking the provider layer spawns
+        // the sidecar, and opening the window on Interface is not a question for
+        // it.
+        if (collaborator != nullptr && index == SettingsPanel::collaboratorTab)
+            collaborator->refresh();
     }
 
     ~Tabs() override { appearance.removeListener (this); }
@@ -745,12 +1077,14 @@ private:
     juce::TabbedComponent tabs { juce::TabbedButtonBar::TabsAtTop };
     AudioTab* audio = nullptr;
     MidiTab* midi = nullptr;
+    CollaboratorTab* collaborator = nullptr;
 };
 
 SettingsPanel::SettingsPanel (Appearance& lookAndScale,
                               Settings& store,
                               Browser& dock,
                               AudioMidiSettings& machine,
+                              ModelPicker& collaboratorModels,
                               const std::filesystem::path& defaultProjectsDirectory,
                               std::function<void (bool)> renderingChanged,
                               std::function<void()> onClose)
@@ -758,6 +1092,7 @@ SettingsPanel::SettingsPanel (Appearance& lookAndScale,
                                     store,
                                     dock,
                                     machine,
+                                    collaboratorModels,
                                     defaultProjectsDirectory,
                                     std::move (renderingChanged))),
       dismiss (std::move (onClose))
@@ -793,6 +1128,7 @@ SettingsWindow::SettingsWindow (Appearance& lookAndScale,
                                 Settings& store,
                                 Browser& dock,
                                 AudioMidiSettings& machine,
+                                ModelPicker& collaboratorModels,
                                 const std::filesystem::path& defaultProjectsDirectory,
                                 std::function<void (bool)> renderingChanged,
                                 std::function<void()> onClose)
@@ -806,6 +1142,7 @@ SettingsWindow::SettingsWindow (Appearance& lookAndScale,
                                                   store,
                                                   dock,
                                                   machine,
+                                                  collaboratorModels,
                                                   defaultProjectsDirectory,
                                                   std::move (renderingChanged),
                                                   [this] { closeButtonPressed(); });

@@ -2,9 +2,9 @@
 //
 // Started by the Collaborator service as a child process, with the path of the
 // socket to call home on as its first argument. It connects, answers `configure`,
-// `run.start`, `run.cancel` and `shutdown`, asks `tool.call` whenever the model
-// reaches for a tool, and streams a run's commentary, tool activity and ending
-// back as notifications.
+// `run.start`, `run.cancel`, `models.list`, the four `auth.*` methods and
+// `shutdown`, asks `tool.call` whenever the model reaches for a tool, and
+// streams a run's commentary, tool activity and ending back as notifications.
 //
 // Silence is a requirement and not an accident: this process shares the DAW's
 // stdout and stderr, so nothing here writes to either. What goes wrong goes back
@@ -13,7 +13,8 @@
 // the developer's way in and no producer's.
 //
 // Usage:
-//   duet-sidecar <socket-path> [--offline-script <file>] [--dump-context <file>]
+//   duet-sidecar <socket-path> [--credentials <file>] [--offline-script <file>]
+//                              [--dump-context <file>]
 //   duet-sidecar --dump-prompt [--params <json>]
 
 import { dumpPrompt, serve } from "./host.ts";

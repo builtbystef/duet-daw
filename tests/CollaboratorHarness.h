@@ -22,6 +22,7 @@
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <functional>
 #include <iterator>
 #include <memory>
@@ -67,6 +68,52 @@ public:
     TempSocketFolder& operator= (const TempSocketFolder&) = delete;
 
     [[nodiscard]] std::filesystem::path socketPath() const { return folder / "sidecar.sock"; }
+
+private:
+    std::filesystem::path folder;
+};
+
+/** A folder under the system temp directory for a test's own files — a script,
+    a dump, a credential store — taken away with this object.
+
+    Shared because more than one suite drives the real sidecar, and every one of
+    them has to hand it files that are this test's and no other's.
+*/
+class TempFiles
+{
+public:
+    TempFiles()
+    {
+        static int counter = 0;
+
+        folder =
+            std::filesystem::temp_directory_path()
+            / ("duet-sidecar-" + std::to_string (::getpid()) + "-" + std::to_string (++counter));
+
+        std::filesystem::create_directories (folder);
+    }
+
+    ~TempFiles()
+    {
+        std::error_code ignored;
+        std::filesystem::remove_all (folder, ignored);
+    }
+
+    TempFiles (const TempFiles&) = delete;
+    TempFiles& operator= (const TempFiles&) = delete;
+
+    /** Writes a file and answers where it went. */
+    [[nodiscard]] std::filesystem::path write (const std::string& name,
+                                               const std::string& contents) const
+    {
+        const auto path = folder / name;
+        std::ofstream file { path };
+        file << contents;
+
+        return path;
+    }
+
+    [[nodiscard]] std::filesystem::path at (const std::string& name) const { return folder / name; }
 
 private:
     std::filesystem::path folder;

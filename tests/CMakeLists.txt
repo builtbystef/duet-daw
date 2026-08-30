@@ -43,6 +43,8 @@ add_executable(duet_tests
     MidiOpsTests.cpp
     MixerOpsTests.cpp
     MixerViewTests.cpp
+    ModelAccessTests.cpp
+    ModelPickerTests.cpp
     OfflineRenderTests.cpp
     PlaybackLevelTests.cpp
     PianoRollTests.cpp

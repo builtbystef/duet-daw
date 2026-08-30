@@ -114,6 +114,12 @@ public:
     */
     [[nodiscard]] CollaboratorPanel& collaborator() { return collaboratorPanel; }
 
+    /** What the Collaborator panel's setup state leads to. The shell owns no
+        Settings window — the host does — so the way there is handed in, like
+        the selection the panel asks for.
+    */
+    void setCollaboratorSetupAction (std::function<void()> openSettings);
+
     /** The left dock's own state, so that the host can give it what only the
         host has: the project a drop edits, and the import that puts a dropped
         sample inside the project folder. The Settings window reads the same one

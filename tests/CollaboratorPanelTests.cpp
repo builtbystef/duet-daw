@@ -406,3 +406,30 @@ TEST_CASE ("an ask from a context menu leaves the keyboard in the composer and s
 
     REQUIRE_FALSE (panel.composerWantsKeyboard());
 }
+
+TEST_CASE ("with no provider set up the panel shows the way to set one up, and sends nothing")
+{
+    CollaboratorPanel panel;
+
+    panel.setSetupRequired (true);
+    panel.setComposerText ("what's off in the drop?");
+
+    // Not an error and not a failed run: a state, with what to do about it in
+    // it, and no send that would fail.
+    REQUIRE (panel.setupRequired());
+    REQUIRE_FALSE (panel.canSend());
+
+    panel.send();
+
+    REQUIRE (panel.conversation().empty());
+    REQUIRE (panel.composerText() == "what's off in the drop?");
+
+    // A key entered in the settings surface, and the composer is theirs again.
+    panel.setSetupRequired (false);
+
+    REQUIRE (panel.canSend());
+
+    panel.send();
+
+    REQUIRE (panel.conversation().size() == 1);
+}

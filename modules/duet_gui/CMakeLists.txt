@@ -17,6 +17,7 @@ add_library(duet_gui STATIC
     src/AutosaveSettings.cpp
     src/Export.cpp
     src/Mixer.cpp
+    src/ModelPicker.cpp
     src/PianoRoll.cpp
     src/PluginPresets.cpp
     src/PluginScan.cpp

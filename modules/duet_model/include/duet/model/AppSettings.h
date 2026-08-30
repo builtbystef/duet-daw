@@ -1,5 +1,6 @@
 #pragma once
 
+#include <filesystem>
 #include <memory>
 #include <optional>
 #include <string>
@@ -40,6 +41,15 @@ public:
         end the process.
     */
     void setValue (std::string_view key, std::string_view newValue);
+
+    /** The folder the store is kept in, under the user's configuration folder.
+
+        It is the app-global place: anything else that belongs to the machine
+        rather than to a project goes beside `Settings.xml` here, which is where
+        the Collaborator's credentials are kept — never in a project folder, and
+        never in anything the project's persistence owns (spec js437t).
+    */
+    [[nodiscard]] std::filesystem::path folder() const;
 
 private:
     struct Impl;

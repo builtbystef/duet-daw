@@ -10,6 +10,11 @@ export interface Options {
     promptParameters: Record<string, unknown>;
     offlineScript?: string;
     contextDump?: string;
+
+    /** Where the producer's provider credentials are kept. Absent and the store
+        is in memory: a sidecar nobody gave a place to write remembers nothing.
+    */
+    credentialsPath?: string;
 }
 
 export function parseArguments(argv: string[]): Options {
@@ -22,6 +27,7 @@ export function parseArguments(argv: string[]): Options {
         else if (argument === "--params")
             options.promptParameters = JSON.parse(argv[++at] ?? "{}") as Record<string, unknown>;
         else if (argument === "--offline-script") options.offlineScript = argv[++at];
+        else if (argument === "--credentials") options.credentialsPath = argv[++at];
         else if (argument === "--dump-context") options.contextDump = argv[++at];
         else if (!argument.startsWith("--") && options.socketPath === undefined) options.socketPath = argument;
     }

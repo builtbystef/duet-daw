@@ -21,6 +21,7 @@
 #include <vector>
 
 using duet::gui::Appearance;
+using duet::gui::CollaboratorPanel;
 using duet::gui::CollaboratorPanelCanvas;
 using duet::gui::Command;
 using duet::gui::EntryKind;
@@ -767,4 +768,35 @@ TEST_CASE ("a context menu dismissed without a choice changes neither the contex
     REQUIRE_FALSE (open.view.collaboratorVisible());
     REQUIRE_FALSE (open.panel->model().composerWantsKeyboard());
     std::filesystem::remove (file);
+}
+
+TEST_CASE ("with no provider set up the panel offers the way to set one up")
+{
+    OpenShell open;
+    bool asked = false;
+
+    open.shell.setCollaboratorSetupAction ([&asked] { asked = true; });
+    open.panel->model().setSetupRequired (true);
+    open.panel->refresh();
+
+    auto* setup =
+        dynamic_cast<juce::Button*> (surfaceOf (*open.panel, duet::gui::collaboratorId::setup));
+
+    REQUIRE (setup != nullptr);
+    REQUIRE (setup->isVisible());
+    REQUIRE (setup->getButtonText() == juce::String { CollaboratorPanel::setupAction });
+
+    // The composer is held rather than offered as a send that would fail.
+    REQUIRE_FALSE (open.composer().isEnabled());
+
+    setup->onClick();
+
+    REQUIRE (asked);
+
+    // A provider set up in there, and the panel is a conversation again.
+    open.panel->model().setSetupRequired (false);
+    open.panel->refresh();
+
+    REQUIRE_FALSE (setup->isVisible());
+    REQUIRE (open.composer().isEnabled());
 }

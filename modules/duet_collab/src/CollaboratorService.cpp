@@ -83,6 +83,9 @@ public:
     void setMethodHandler (std::string method, MethodHandler handler);
 
     RpcOutcome configure (const std::string& model, const Json& systemPromptParams);
+    void setModel (std::string modelSelection, Json systemPromptParams);
+    [[nodiscard]] std::string chosenModel() const;
+    RpcOutcome ask (const std::string& method, const Json& params);
     RpcOutcome shutdownSidecar();
 
     void setTaskRunListener (TaskRunListener* newListener);
@@ -217,6 +220,22 @@ private:
     int nextRequestId = 1;
     std::optional<ActiveRun> activeRun;
     int nextRunNumber = 1;
+
+    /** The model later runs are to use, and what their prompt says about the
+        project. Empty until something chooses one, which is a DAW that has no
+        credentials yet: a run then goes out unconfigured and the sidecar says
+        so, which is the plain message that case is owed.
+    */
+    std::string wantedModel;
+    Json wantedParams = Json::object();
+
+    /** What the sidecar now connected has been configured with, and empty when
+        it has been told nothing. Cleared with the connection, because a
+        replacement process has been told nothing however much the one before it
+        knew.
+    */
+    std::string sidecarModel;
+    Json sidecarParams = Json::object();
 };
 
 void CollaboratorService::Impl::start()
@@ -653,6 +672,8 @@ void CollaboratorService::Impl::dropConnection()
         const std::lock_guard lock (mutex);
         connected = false;
         outgoing.clear();
+        sidecarModel.clear();
+        sidecarParams = Json::object();
         failPendingLocked (rpcError::sidecarUnavailable, "The sidecar stopped answering.");
     }
 
@@ -932,6 +953,25 @@ void CollaboratorService::Impl::serviceActiveRun()
         {
             if (connected)
             {
+                // The model in front of the run that uses it. One line on the
+                // same connection, in front of the run's own, is the whole of
+                // "a switch takes effect on the next run" (issue i84fbb).
+                if (! wantedModel.empty()
+                    && (sidecarModel != wantedModel || sidecarParams != wantedParams))
+                {
+                    Json configureMessage;
+                    configureMessage["jsonrpc"] = "2.0";
+                    configureMessage["id"] = nextRequestId++;
+                    configureMessage["method"] = "configure";
+                    configureMessage["params"] =
+                        Json { { "model", wantedModel }, { "systemPromptParams", wantedParams } };
+                    outgoing += configureMessage.dump();
+                    outgoing += '\n';
+
+                    sidecarModel = wantedModel;
+                    sidecarParams = wantedParams;
+                }
+
                 run.startRequestId = nextRequestId++;
 
                 Json message;
@@ -1024,7 +1064,45 @@ RpcOutcome CollaboratorService::Impl::configure (const std::string& model,
     params["model"] = model;
     params["systemPromptParams"] = systemPromptParams;
 
-    return sendRequestAndWait ("configure", params);
+    auto outcome = sendRequestAndWait ("configure", params);
+
+    if (outcome.succeeded)
+    {
+        // What the sidecar has been told is what the run before it need not tell
+        // it again, whichever of the two ways it was told.
+        const std::lock_guard lock (mutex);
+        sidecarModel = model;
+        sidecarParams = systemPromptParams;
+    }
+
+    return outcome;
+}
+
+void CollaboratorService::Impl::setModel (std::string modelSelection, Json systemPromptParams)
+{
+    {
+        const std::lock_guard lock (mutex);
+        wantedModel = std::move (modelSelection);
+        wantedParams = std::move (systemPromptParams);
+    }
+
+    // Nothing is sent here. The service thread sends it in front of the run that
+    // needs it, so that choosing a model costs the producer no wait at all.
+}
+
+std::string CollaboratorService::Impl::chosenModel() const
+{
+    const std::lock_guard lock (mutex);
+
+    return wantedModel;
+}
+
+RpcOutcome CollaboratorService::Impl::ask (const std::string& method, const Json& params)
+{
+    if (const auto failure = ensureSidecar())
+        return *failure;
+
+    return sendRequestAndWait (method, params);
 }
 
 RpcOutcome CollaboratorService::Impl::shutdownSidecar()
@@ -1095,6 +1173,18 @@ void CollaboratorService::setMethodHandler (std::string method, MethodHandler ha
 RpcOutcome CollaboratorService::configure (const std::string& model, const Json& systemPromptParams)
 {
     return impl->configure (model, systemPromptParams);
+}
+
+void CollaboratorService::setModel (std::string modelSelection, Json systemPromptParams)
+{
+    impl->setModel (std::move (modelSelection), std::move (systemPromptParams));
+}
+
+std::string CollaboratorService::chosenModel() const { return impl->chosenModel(); }
+
+RpcOutcome CollaboratorService::ask (const std::string& method, const Json& params)
+{
+    return impl->ask (method, params);
 }
 
 RpcOutcome CollaboratorService::shutdownSidecar() { return impl->shutdownSidecar(); }

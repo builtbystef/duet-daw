@@ -23,6 +23,13 @@ std::optional<std::string> AppSettings::value (std::string_view key) const
     return file.getValue (name).toStdString();
 }
 
+std::filesystem::path AppSettings::folder() const
+{
+    return std::filesystem::path {
+        impl->storage->getAppPrefsFolder().getFullPathName().toStdString()
+    };
+}
+
 void AppSettings::setValue (std::string_view key, std::string_view newValue)
 {
     auto& file = impl->storage->getPropertiesFile();

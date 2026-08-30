@@ -56,6 +56,12 @@ export class CollaboratorSession {
         prompt one frozen string for the life of a configuration.
     */
     configure(models: Models, modelSelection: string, promptParameters: Record<string, unknown>): void {
+        // Whatever this session had is gone before the new model is looked up:
+        // a configure that fails must leave no session at all, so that the run
+        // behind it fails plainly rather than quietly using the model the
+        // producer has just switched away from (issue i84fbb).
+        this.agent = undefined;
+
         const separator = modelSelection.indexOf(":");
 
         if (separator <= 0) throw new Error(`a model is written provider:id, and ${modelSelection} is not`);

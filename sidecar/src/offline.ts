@@ -15,8 +15,12 @@
 // chunks — which is what makes a cancellation test a real one.
 
 import {
+    type ApiKeyCredential,
     type Context,
     type Model,
+    type OAuthCredential,
+    type Provider,
+    type ProviderAuthInteraction,
     fauxAssistantMessage,
     fauxProvider,
     fauxText,
@@ -52,6 +56,15 @@ export interface OfflineProvider {
     handle: FauxProviderHandle;
     modelId: string;
 
+    /** The scripted model's twin, which nothing authenticates by itself: the
+        provider the `auth.*` methods are driven against, so that setting a key,
+        signing in and removing a credential are all assertable with no network,
+        no account and no cost. The scripted provider itself stays authenticated
+        by construction, which is what every run test needs of it.
+    */
+    locked: Provider;
+    lockedModelId: string;
+
     /** The context of the most recent request: the system prompt and the tool
         list exactly as the provider received them, and the transcript as it
         stood — which by the end of a run holds the tool results the DAW sent
@@ -62,6 +75,15 @@ export interface OfflineProvider {
 
 export const offlineProviderId = "duet-offline";
 export const offlineModelId = "scripted";
+
+/** The locked twin: a provider with nothing ambient about it, whose sign-in
+    hands back a fixed address and takes one fixed code.
+*/
+export const lockedProviderId = "duet-locked";
+export const lockedModelId = "padlock";
+export const lockedAuthorizeUrl = "https://example.invalid/duet/authorize?client=duet";
+export const lockedInstructions = "Sign in there, then paste the code it gives you.";
+export const lockedCode = "duet-offline-code";
 
 /** Reads a script and registers the model it describes. */
 export async function createOfflineProvider(scriptPath: string): Promise<OfflineProvider> {
@@ -85,7 +107,72 @@ export async function createOfflineProvider(scriptPath: string): Promise<Offline
         ),
     );
 
-    return { handle, modelId: `${offlineProviderId}:${offlineModelId}`, context: () => seen };
+    return {
+        handle,
+        modelId: `${offlineProviderId}:${offlineModelId}`,
+        locked: lockedTwin(handle),
+        lockedModelId: `${lockedProviderId}:${lockedModelId}`,
+        context: () => seen,
+    };
+}
+
+/** The scripted provider again under another name, with auth that answers to
+    nothing but a stored credential.
+
+    It streams what its twin streams, because what it is for is the auth methods
+    and not the loop: a run configured to it before a key is entered fails the
+    way any unconfigured provider does, which is the plain message an invalid key
+    is owed.
+*/
+function lockedTwin(handle: FauxProviderHandle): Provider {
+    const model = { ...handle.models[0], id: lockedModelId, name: "Duet locked script", provider: lockedProviderId };
+
+    return {
+        ...handle.provider,
+        id: lockedProviderId,
+        name: "Duet locked script",
+        getModels: () => [model],
+        auth: {
+            apiKey: {
+                name: "Duet locked key",
+                login: async (interaction: ProviderAuthInteraction): Promise<ApiKeyCredential> => ({
+                    type: "api_key",
+                    key: await interaction.prompt({ type: "secret", message: "Key?" }),
+                }),
+                resolve: async ({ credential }) =>
+                    credential?.key === undefined || credential.key.length === 0
+                        ? undefined
+                        : { auth: { apiKey: credential.key }, source: "Duet locked key" },
+            },
+            oauth: {
+                name: "Duet locked subscription",
+                isSubscription: true,
+                login: async (interaction: ProviderAuthInteraction): Promise<OAuthCredential> => {
+                    interaction.notify({
+                        type: "auth_url",
+                        url: lockedAuthorizeUrl,
+                        instructions: lockedInstructions,
+                    });
+
+                    const pasted = await interaction.prompt({
+                        type: "manual_code",
+                        message: "Paste the code the page ends on:",
+                    });
+
+                    if (pasted.trim() !== lockedCode) throw new Error("That code was not right. Try signing in again.");
+
+                    return {
+                        type: "oauth",
+                        access: "offline-access",
+                        refresh: "offline-refresh",
+                        expires: Date.now() + 3600_000,
+                    };
+                },
+                refresh: async (credential) => credential,
+                toAuth: async () => ({ apiKey: "offline-access" }),
+            },
+        },
+    };
 }
 
 function normalize(loaded: OfflineScript | OfflineStep[]): OfflineScript {

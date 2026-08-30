@@ -581,8 +581,10 @@ try
 
         // Every script that runs anything reports what crossed the seam, so a
         // test can assert on it and can wait for the moment the sidecar has it.
+        // `configure` is one of them because the model a run uses arrives just
+        // ahead of that run, and the order of the two is the claim (i84fbb).
         if ((script.starts_with ("run-") || script == "call-tools")
-            && (method == "run.start" || method == "run.cancel"))
+            && (method == "run.start" || method == "run.cancel" || method == "configure"))
             report (connection, nextReportId(), method, message.value ("params", Json::object()));
 
         if (method == "run.start")

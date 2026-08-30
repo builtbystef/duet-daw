@@ -39,6 +39,7 @@ using duet::collab::SelectionKind;
 using duet::collab::ToolPhase;
 using duet::testing::Harness;
 using duet::testing::RecordingListener;
+using duet::testing::TempFiles;
 using duet::testing::waitUntil;
 using namespace std::chrono_literals;
 
@@ -55,47 +56,6 @@ bool sidecarWasBuilt()
 {
     return ! sidecarBinary.empty() && std::filesystem::exists (sidecarBinary);
 }
-
-/** A folder to keep a test's scripts and dumps in, removed with this object. */
-class TempFiles
-{
-public:
-    TempFiles()
-    {
-        static int counter = 0;
-
-        folder =
-            std::filesystem::temp_directory_path()
-            / ("duet-sidecar-" + std::to_string (::getpid()) + "-" + std::to_string (++counter));
-
-        std::filesystem::create_directories (folder);
-    }
-
-    ~TempFiles()
-    {
-        std::error_code ignored;
-        std::filesystem::remove_all (folder, ignored);
-    }
-
-    TempFiles (const TempFiles&) = delete;
-    TempFiles& operator= (const TempFiles&) = delete;
-
-    /** Writes a file and answers where it went. */
-    [[nodiscard]] std::filesystem::path write (const std::string& name,
-                                               const std::string& contents) const
-    {
-        const auto path = folder / name;
-        std::ofstream file { path };
-        file << contents;
-
-        return path;
-    }
-
-    [[nodiscard]] std::filesystem::path at (const std::string& name) const { return folder / name; }
-
-private:
-    std::filesystem::path folder;
-};
 
 /** A service pointed at the real sidecar, running a scripted model. */
 Harness

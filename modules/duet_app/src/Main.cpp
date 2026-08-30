@@ -1,5 +1,6 @@
 #include <duet/app/Collaborator.h>
 #include <duet/app/MessageThreadMarshal.h>
+#include <duet/app/ModelAccess.h>
 #include <duet/app/OpeningContext.h>
 #include <duet/app/ProjectLifecycle.h>
 #include <duet/app/PropertyStorageSettings.h>
@@ -102,6 +103,11 @@ namespace
             toPath (juce::File::getSpecialLocation (juce::File::currentExecutableFile)
                         .getParentDirectory()
                         .getChildFile ("duet-sidecar"));
+
+        // Where the producer's credentials are kept, which is beside the
+        // app-global settings and outside every project folder (issue i84fbb).
+        configuration.sidecar.arguments = { "--credentials",
+                                            duet::app::collaboratorCredentialsFile().string() };
 
         return configuration;
     }
@@ -360,9 +366,18 @@ private:
                 settings,
                 shell.browser(),
                 audioAndMidi,
+                collaboratorModels,
                 defaultProjectsDirectory(),
                 [this] (bool accelerated) { shell.setHardwareAccelerated (accelerated); },
-                [this] { settingsWindow.reset(); });
+                [this]
+                {
+                    settingsWindow.reset();
+
+                    // What the producer set up in there is what the panel shows
+                    // now: a provider added ends the setup state, and the last
+                    // one removed brings it back.
+                    collaboratorAccessChanged();
+                });
 
         settingsWindow->showTab (tab);
     }
@@ -638,6 +653,11 @@ private:
         // and the ghost marks in the mixer.
         shell.pendingSuggestions().setSource (&collaborator.suggestionSurfaces());
 
+        // The setup state's way out, and what the producer is offered while it
+        // lasts: the Settings window, on the tab a provider is set up in.
+        shell.setCollaboratorSetupAction (
+            [this] { openSettingsWindow (duet::gui::SettingsWindow::collaboratorTab); });
+
         try
         {
             collaboratorService.start();
@@ -646,6 +666,20 @@ private:
         {
             static_cast<void> (failure);
         }
+
+        // The model the producer chose last time, put in force without asking
+        // the sidecar anything: it is spawned by the first thing the producer
+        // asks the Collaborator for, and not by the launch (ADR 0003).
+        collaboratorModels.setSource (&modelAccess);
+        shell.collaborator().setSetupRequired (! collaboratorModels.useStoredChoice());
+    }
+
+    /** Takes what the setup surface did onto the panel: a provider set up ends
+        the setup state, and the last credential removed brings it back.
+    */
+    void collaboratorAccessChanged()
+    {
+        shell.collaborator().setSetupRequired (collaboratorModels.selectedModel().empty());
     }
 
     /** What a Task Run carries about the producer at the moment it starts.
@@ -739,6 +773,13 @@ private:
             [] (std::function<void()> work)
             { juce::MessageManager::callAsync (std::move (work)); } }
     };
+
+    /** The model the Collaborator answers on, and the providers behind it. The
+        access is declared first so that it outlives the picker that reads it,
+        and both after the service the access asks.
+    */
+    duet::app::ModelAccess modelAccess { collaboratorService };
+    duet::gui::ModelPicker collaboratorModels { settings };
 
     /** The three dialogs the Duet menu opens, and what they read.
 

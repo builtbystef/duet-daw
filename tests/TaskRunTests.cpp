@@ -17,6 +17,7 @@ using duet::collab::SelectionKind;
 using duet::collab::ToolPhase;
 using duet::testing::Harness;
 using duet::testing::RecordingListener;
+using duet::testing::waitUntil;
 using namespace std::chrono_literals;
 
 namespace
@@ -437,4 +438,94 @@ TEST_CASE ("a sidecar that cannot be started fails the run rather than hanging",
     REQUIRE (unreachable.status == RunStatus::failed);
     REQUIRE (unreachable.error == duet::collab::backendUnavailableMessage);
     REQUIRE_FALSE (harness->activeRunId().has_value());
+}
+
+//==============================================================================
+TEST_CASE ("the model a run uses is configured in front of that run", "[collab]")
+{
+    RecordingListener listener;
+    Harness harness { "run-echo" };
+    harness->setTaskRunListener (&listener);
+    harness->setModel ("openai:gpt-5.6-terra");
+    harness->start();
+
+    REQUIRE (harness->startRun ("what's off in the drop?", OpeningContext {}).started);
+    REQUIRE (listener.waitForTerminals (1));
+    REQUIRE (harness.waitForReports (2));
+
+    // Order is the claim: the sidecar was told which model before it was asked
+    // to run anything on it.
+    const auto seen = harness.reports();
+
+    REQUIRE (seen.size() >= 2);
+    CHECK (seen.at (0).at ("tag") == "configure");
+    CHECK (seen.at (0).at ("payload").at ("model") == "openai:gpt-5.6-terra");
+    CHECK (seen.at (1).at ("tag") == "run.start");
+}
+
+TEST_CASE ("switching models between runs takes effect on the next run, on the same sidecar",
+           "[collab]")
+{
+    RecordingListener listener;
+    Harness harness { "run-echo" };
+    harness->setTaskRunListener (&listener);
+    harness->setModel ("openai:gpt-5.6-terra");
+    harness->start();
+
+    REQUIRE (harness->startRun ("first", OpeningContext {}).started);
+    REQUIRE (listener.waitForTerminals (1));
+
+    const auto sidecar = harness->sidecarProcessId();
+
+    REQUIRE (sidecar.has_value());
+
+    harness->setModel ("anthropic:claude-opus-4-7");
+
+    REQUIRE (harness->startRun ("second", OpeningContext {}).started);
+    REQUIRE (listener.waitForTerminals (2));
+    REQUIRE (harness.waitForReports (4));
+
+    const auto configured = reportsTagged (harness, "configure");
+
+    REQUIRE (configured.size() == 2);
+    CHECK (configured.at (0).at ("model") == "openai:gpt-5.6-terra");
+    CHECK (configured.at (1).at ("model") == "anthropic:claude-opus-4-7");
+
+    // No DAW restart and no sidecar restart: the same process answered both.
+    CHECK (harness->sidecarProcessId() == sidecar);
+}
+
+TEST_CASE ("a run whose model has not changed configures the sidecar once", "[collab]")
+{
+    RecordingListener listener;
+    Harness harness { "run-echo" };
+    harness->setTaskRunListener (&listener);
+    harness->setModel ("openai:gpt-5.6-terra");
+    harness->start();
+
+    REQUIRE (harness->startRun ("first", OpeningContext {}).started);
+    REQUIRE (listener.waitForTerminals (1));
+    REQUIRE (harness->startRun ("second", OpeningContext {}).started);
+    REQUIRE (listener.waitForTerminals (2));
+    REQUIRE (harness.waitForReports (3));
+
+    CHECK (reportsTagged (harness, "run.start").size() == 2);
+    CHECK (reportsTagged (harness, "configure").size() == 1);
+}
+
+TEST_CASE ("the sidecar that replaces a dead one is told the model again", "[collab]")
+{
+    RecordingListener listener;
+    Harness harness { "run-die" };
+    harness->setTaskRunListener (&listener);
+    harness->setModel ("openai:gpt-5.6-terra");
+    harness->start();
+
+    REQUIRE (harness->startRun ("first", OpeningContext {}).started);
+    REQUIRE (listener.waitForTerminals (1));
+    REQUIRE (harness->startRun ("second", OpeningContext {}).started);
+    REQUIRE (listener.waitForTerminals (2));
+
+    // A new process has been told nothing, however much the one before it knew.
+    REQUIRE (waitUntil ([&harness] { return reportsTagged (harness, "configure").size() == 2; }));
 }

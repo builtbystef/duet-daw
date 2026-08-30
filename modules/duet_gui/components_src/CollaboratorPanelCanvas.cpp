@@ -850,6 +850,13 @@ CollaboratorPanelCanvas::CollaboratorPanelCanvas (Appearance& lookAndScale,
 
     composer.setComponentID (collaboratorId::composer);
     sendButton.setComponentID (collaboratorId::send);
+    setupButton.setComponentID (collaboratorId::setup);
+    setupButton.setButtonText (CollaboratorPanel::setupAction);
+    setupButton.onClick = [this]
+    {
+        if (openSettings)
+            openSettings();
+    };
     composer.setMultiLine (true, true);
     composer.setReturnKeyStartsNewLine (false);
     composer.setTextToShowWhenEmpty ("Ask the Collaborator for something",
@@ -861,6 +868,7 @@ CollaboratorPanelCanvas::CollaboratorPanelCanvas (Appearance& lookAndScale,
 
     addAndMakeVisible (composer);
     addAndMakeVisible (sendButton);
+    addChildComponent (setupButton);
 
     appearance.addListener (this);
     juce::Desktop::getInstance().addFocusChangeListener (this);
@@ -882,6 +890,11 @@ void CollaboratorPanelCanvas::appearanceChanged()
 }
 
 //==============================================================================
+void CollaboratorPanelCanvas::setSetupAction (std::function<void()> openSettings_)
+{
+    openSettings = std::move (openSettings_);
+}
+
 void CollaboratorPanelCanvas::setSelectionContextSource (
     std::function<SelectionContext()> currentSelection)
 {
@@ -929,10 +942,19 @@ void CollaboratorPanelCanvas::refresh()
         composer.grabKeyboardFocus();
 
     const auto running = panel.taskRunning();
+    const auto setup = panel.setupRequired();
 
     card->setVisible (running);
-    composer.setEnabled (panel.composerEnabled());
+    composer.setEnabled (panel.composerEnabled() && ! setup);
     sendButton.setEnabled (panel.canSend() && panel.composerEnabled());
+    setupButton.setVisible (setup);
+
+    if (setup != shownSetup)
+    {
+        shownSetup = setup;
+        resized();
+        changed = true;
+    }
 
     if (running != shownRunning)
     {
@@ -1022,6 +1044,19 @@ void CollaboratorPanelCanvas::paint (juce::Graphics& g)
     g.setColour (toJuce (appearance.colour (ColourToken::textMuted)));
     g.setFont (interFont (appearance.scaled (typography::eyebrow), true));
     g.drawText ("COLLABORATOR", header, juce::Justification::centredLeft);
+
+    // Nothing set up yet is a state and not an error: what it says is what to do
+    // about it, over the button that does it (spec js437t).
+    if (! panel.setupRequired())
+        return;
+
+    auto notice = setupButton.getBounds()
+                      .withY (setupButton.getY() - appearance.scaled (setupNoticeHeight))
+                      .withHeight (appearance.scaled (setupNoticeHeight));
+
+    g.setColour (toJuce (appearance.colour (ColourToken::textSecondary)));
+    g.setFont (interFont (appearance.scaled (typography::body)));
+    g.drawFittedText (CollaboratorPanel::setupNotice, notice, juce::Justification::centred, 2);
 }
 
 void CollaboratorPanelCanvas::resized()
@@ -1038,6 +1073,11 @@ void CollaboratorPanelCanvas::resized()
                               .removeFromBottom (appearance.scaled (metrics::rowHeight)));
     composerRow.removeFromRight (appearance.scaled (metrics::rowGap));
     composer.setBounds (composerRow);
+
+    // The way to the settings surface stands where the composer does, because
+    // with nothing set up the composer is not what the producer needs next.
+    setupButton.setBounds (composerRow.withSizeKeepingCentre (
+        appearance.scaled (setupButtonWidth), appearance.scaled (metrics::rowHeight)));
 
     area.removeFromBottom (appearance.scaled (metrics::rowGap));
     layOutQuickPrompts();

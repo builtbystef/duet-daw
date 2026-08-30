@@ -672,6 +672,11 @@ void MainShell::setSession (duet::model::Session* openProject)
     viewStateChanged();
 }
 
+void MainShell::setCollaboratorSetupAction (std::function<void()> openSettings)
+{
+    collaboratorDock->setSetupAction (std::move (openSettings));
+}
+
 void MainShell::askCollaborator()
 {
     // The answer arrives in the panel, so an ask from a menu opens it rather

@@ -89,7 +89,9 @@ void CollaboratorPanel::composerLostKeyboard() { composerFocus = false; }
 
 void CollaboratorPanel::setComposerText (std::string text) { composer = std::move (text); }
 
-bool CollaboratorPanel::canSend() const { return ! running && ! isBlank (composer); }
+bool CollaboratorPanel::canSend() const { return ! running && ! setup && ! isBlank (composer); }
+
+void CollaboratorPanel::setSetupRequired (bool nothingConfigured) { setup = nothingConfigured; }
 
 void CollaboratorPanel::send()
 {

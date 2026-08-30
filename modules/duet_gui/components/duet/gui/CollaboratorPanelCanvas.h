@@ -23,6 +23,11 @@ namespace collaboratorId
     inline constexpr const char* send = "collaboratorSend";
     inline constexpr const char* cancel = "collaboratorCancel";
 
+    /** The way out of the setup state: the button that opens the settings
+        surface on the Collaborator tab.
+    */
+    inline constexpr const char* setup = "collaboratorSetup";
+
     /** The estimate mark on a piece of commentary, which opens onto the ledger
         behind it.
     */
@@ -81,6 +86,15 @@ public:
     */
     void refresh();
 
+    /** What the setup state's button does: the shell opens the Settings window
+        on the Collaborator tab.
+
+        The panel cannot open a window — it is one surface among several and the
+        shell owns them all — so the way out of the setup state is handed in
+        here, like the selection it asks for.
+    */
+    void setSetupAction (std::function<void()> openSettings);
+
     /** What Escape in the composer does: hands the keyboard back to the surface
         the producer came from, and leaves what they have typed where it is.
     */
@@ -124,6 +138,12 @@ public:
     */
     static constexpr int sectionHeaderHeight = 18;
     static constexpr int sectionLineHeight = 14;
+
+    /** The setup state's own chrome, in logical units: the line that says what
+        is missing, and the button that leads to where it is set up.
+    */
+    static constexpr int setupNoticeHeight = 32;
+    static constexpr int setupButtonWidth = 130;
 
     /** How often the panel looks at itself: fast enough for the Task Run card's
         spinner while a run is on, and no faster than a selection poll needs
@@ -169,11 +189,14 @@ private:
     juce::OwnedArray<juce::TextButton> promptChips;
     juce::TextEditor composer;
     juce::TextButton sendButton { "Send" };
+    juce::TextButton setupButton;
+    std::function<void()> openSettings;
 
     juce::Component::SafePointer<juce::Component> lastFocused;
     std::vector<std::string> shownPrompts;
     std::string shownShape;
     std::size_t shownEntries = 0;
+    bool shownSetup = false;
     bool shownRunning = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (CollaboratorPanelCanvas)
