@@ -227,41 +227,6 @@ namespace
     }
 
     //==============================================================================
-    /** What a plugin answered when it was asked about its parameters, and
-        whether it answered at all.
-
-        Asking a hosted plugin what a value of its means is asking the plugin,
-        and a plugin is free to raise instead of answering (engine notes). One
-        that does is one link of one chain, so what it costs is that: the read
-        of that plugin fails, and every other plugin, every other track and
-        every other tool go on as they were. Nothing here decides what a caller
-        says about the failure — `get_plugin_chain` names the state and a track
-        list leaves the unreadable plugin's curves out — but this is the one
-        place the parameters of a plugin are read, so it is the only place such
-        a raise can come from.
-    */
-    struct PluginParameters
-    {
-        std::vector<model::PluginParameterInfo> held;
-        bool wereRead = true;
-    };
-
-    PluginParameters parametersOf (const Session& session, model::PluginRef plugin)
-    {
-        // Everything, and not what derives from `std::exception`: what a plugin
-        // throws is the plugin's to choose, nothing here reads the message, and
-        // one that chose a type of its own would otherwise be the raise that
-        // reached the message loop after all.
-        try
-        {
-            return { session.pluginParameters (plugin), true };
-        }
-        catch (...)
-        {
-            return { {}, false };
-        }
-    }
-
     /** Every curve this track actually has, in the order a lane list reads best:
         the fader, then the pan, then each plugin's parameters in chain order.
 
@@ -288,7 +253,7 @@ namespace
         keepIfDrawn (model::AutomationTarget::trackPanOf (track.ref));
 
         for (const auto& plugin : track.plugins)
-            for (const auto& parameter : parametersOf (session, plugin.plugin).held)
+            for (const auto& parameter : session.pluginParameters (plugin.plugin))
                 keepIfDrawn (
                     model::AutomationTarget::parameterOf (plugin.plugin, parameter.parameterId));
 
@@ -314,7 +279,7 @@ namespace
             if (plugin.plugin == target.plugin)
                 pluginName = plugin.name;
 
-        for (const auto& parameter : parametersOf (session, target.plugin).held)
+        for (const auto& parameter : session.pluginParameters (target.plugin))
             if (parameter.parameterId == target.parameterId)
                 return pluginName + ": " + parameter.name;
 
@@ -702,7 +667,7 @@ namespace
             // parameters and nothing else — the chain around it is read, the
             // track it is on is read, and the run goes on — so the entry says
             // that of itself and its parameter list is empty rather than short.
-            const auto read = parametersOf (session, plugin.plugin);
+            const auto read = session.readPluginParameters (plugin.plugin);
 
             entry["parametersReadable"] = read.wereRead;
             entry["parameters"] = describeParameters (read.held, plugin, ledger, runId);
@@ -734,7 +699,7 @@ RpcOutcome ProjectTools::read (const std::function<RpcOutcome (const model::Sess
             // The read runs on the message thread, so anything raising inside
             // it would raise there, with the DAW's own loop under it and
             // nothing to catch it. A hosted plugin asked what its values mean
-            // is the known way that happens, and `parametersOf` confines that
+            // is the known way that happens, and the model facade confines that
             // one to the plugin it came from; this is the floor under
             // everything else, and what it catches becomes the model's error
             // result rather than the end of the session.

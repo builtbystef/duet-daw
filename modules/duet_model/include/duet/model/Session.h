@@ -404,6 +404,26 @@ struct PluginParameterInfo
     bool duetOwnsMeaning = true;
 };
 
+/** What a plugin answered when it was asked about its parameters, and whether
+    it answered at all.
+
+    Asking a hosted plugin what one of its values means is asking the plugin,
+    and a plugin is free to raise instead of answering (engine notes). This
+    facade puts no engine type across it, and an exception thrown inside a
+    hosted plugin is one, so the raise stops at the seam: `wereRead` is false,
+    `held` is empty, and what to say about a plugin that would not answer is the
+    caller's to decide.
+
+    A plugin with no parameters at all reads back empty too, and `wereRead` is
+    what tells the two apart. A ref that names no plugin is neither: nothing was
+    asked, so nothing refused.
+*/
+struct PluginParameterRead
+{
+    std::vector<PluginParameterInfo> held;
+    bool wereRead = true;
+};
+
 /** A track's send into a bus. */
 struct SendInfo
 {
@@ -1117,8 +1137,19 @@ public:
     /** The notes in a MIDI clip, in the order they start. */
     [[nodiscard]] std::vector<NoteInfo> notes (ClipRef clip) const;
 
-    /** A plugin's parameters, in the order the plugin declares them. */
+    /** A plugin's parameters, in the order the plugin declares them.
+
+        Empty for a plugin with no parameters, and empty for one that would not
+        say what it has; `readPluginParameters` tells the two apart, and every
+        caller that only wants the parameters can ignore the difference.
+    */
     [[nodiscard]] std::vector<PluginParameterInfo> pluginParameters (PluginRef plugin) const;
+
+    /** The same read, with the plugin's refusal to answer told from its having
+        nothing to answer. The one place a hosted plugin is asked what its
+        values mean, and so the one place such a plugin's raise can be stopped.
+    */
+    [[nodiscard]] PluginParameterRead readPluginParameters (PluginRef plugin) const;
 
     /** What one of the built-ins has, before the project holds one of it.
 

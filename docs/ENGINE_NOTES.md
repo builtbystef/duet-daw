@@ -995,11 +995,19 @@ out of `Session::pluginParameters`, on whatever thread asked.
 that raises from `getText` once a marker file sits beside its bundle. The
 `std::runtime_error` it throws arrived in the host with its message intact.
 
-**Duet.** Project reads for the Tool Vocabulary run on the message thread, so an
+**Duet.** Everything that asks — the Tool Vocabulary, the `suggest` path's
+validation, the Suggestion manager's staleness read, the automation lane list
+and a native plugin editor's gesture — runs on the message thread, so an
 exception from there would have the DAW's own loop under it and nothing to catch
-it. The one place the vocabulary reads a plugin's parameters catches, so a
-plugin that raises costs its own parameters and nothing else: it is in the chain
-with `parametersReadable: false`, and the plugins around it, its track's other
-curves and every other track are answered as they always were (`qf9e9h`).
+it. The raise therefore stops at the model facade, which puts no engine type
+across it: `Session::readPluginParameters` catches, and `pluginParameters` is
+that read without the refusal (`zxpgna`). A plugin that raises costs its own
+parameters and nothing else — the chain around it, its track's other curves and
+every other track are answered as they always were.
+
+Empty is what a plugin with no parameters reads back as too, so what the two
+callers who must tell them apart use is `wereRead`: `get_plugin_chain` says
+`parametersReadable: false` (`qf9e9h`), and `suggest` refuses an operation on
+such a plugin for the plugin's refusal rather than for the parameter's name.
 `ProjectTools::read` still catches around the whole read, as the floor under
 anything else that could raise there.

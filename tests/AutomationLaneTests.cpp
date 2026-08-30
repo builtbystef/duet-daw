@@ -1,3 +1,5 @@
+#include "Vst3FixtureHarness.h"
+
 #include <duet/gui/AutomationLanes.h>
 
 #include <duet/gui/ArrangementView.h>
@@ -689,4 +691,57 @@ TEST_CASE ("deleting a track takes its lanes and its open automation area with i
     REQUIRE (open.view.lanes (open.track).empty());
     REQUIRE_FALSE (open.view.lanesExpanded (open.track));
     REQUIRE (open.automation().heightPx (open.track) == 0);
+}
+
+TEST_CASE ("a lane's picker skips a plugin that will not say what parameters it has")
+{
+    OpenAutomation open;
+
+    const auto bundle =
+        duet::testing::copyVst3Fixture (DUET_RAISING_VST3_FIXTURE, open.project.folder() / "vst3");
+    const auto fixture = duet::testing::scanVst3Fixture (
+        open.session, bundle.parent_path(), duet::testing::raisingVst3FixtureName);
+
+    PluginRef hosted = duet::model::noPlugin;
+    PluginRef compressor = duet::model::noPlugin;
+
+    open.session.performAction ("Build the chain",
+                                [&] (auto& ops)
+                                {
+                                    hosted = ops.addPlugin (open.track, fixture.identifier, 0);
+                                    compressor = ops.addPlugin (
+                                        open.track, duet::model::BuiltinPlugin::compressor, 1);
+                                });
+
+    const auto offeredFor = [&] (PluginRef plugin)
+    {
+        const auto options = open.automation().targetsFor (open.track);
+
+        return std::count_if (options.begin(),
+                              options.end(),
+                              [plugin] (const auto& option)
+                              { return option.target.plugin == plugin; });
+    };
+
+    // Both plugins offer their parameters while both are answering.
+    REQUIRE (offeredFor (hosted) > 0);
+    REQUIRE (offeredFor (compressor) > 0);
+
+    duet::testing::raiseWhenRead (bundle);
+
+    // A producer who never asks the Collaborator anything opens this list from
+    // a track header, so a plugin free to raise when it is asked what a value
+    // means is a menu that takes the DAW down with it. The list is built and
+    // the plugin simply offers nothing to draw.
+    REQUIRE_NOTHROW (open.automation().targetsFor (open.track));
+
+    REQUIRE (offeredFor (hosted) == 0);
+
+    // And the track keeps everything that is not that plugin's: its own two
+    // curves, and the parameters of the plugin beside it in the chain.
+    const auto names = optionNames (open.automation(), open.track);
+
+    REQUIRE (names[0] == "Volume");
+    REQUIRE (names[1] == "Pan");
+    REQUIRE (offeredFor (compressor) > 0);
 }

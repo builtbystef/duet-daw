@@ -955,9 +955,31 @@ namespace
 
 std::vector<PluginParameterInfo> Session::pluginParameters (PluginRef plugin) const
 {
+    return readPluginParameters (plugin).held;
+}
+
+PluginParameterRead Session::readPluginParameters (PluginRef plugin) const
+{
     auto* p = impl->pluginFor (plugin);
 
-    return p == nullptr ? std::vector<PluginParameterInfo> {} : describeParameters (*p);
+    if (p == nullptr)
+        return {};
+
+    // Everything, and not what derives from `std::exception`: what a plugin
+    // throws is the plugin's to choose, nothing here reads the message, and one
+    // that chose a type of its own would otherwise be the raise that crossed
+    // the facade after all. Every caller reads a plugin's parameters through
+    // here — the tool vocabulary, the Suggestion layer, the automation lane
+    // list, a native editor's gesture — and each of them runs on the message
+    // thread, with the DAW's own loop underneath and nothing to catch.
+    try
+    {
+        return { describeParameters (*p), true };
+    }
+    catch (...)
+    {
+        return { {}, false };
+    }
 }
 
 std::vector<PluginParameterInfo> Session::builtinPluginParameters (BuiltinPlugin plugin) const

@@ -1,3 +1,5 @@
+#include "Vst3FixtureHarness.h"
+
 #include <duet/collab/SuggestionManager.h>
 #include <duet/collab/ToolDispatch.h>
 #include <duet/persistence/Project.h>
@@ -6,6 +8,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -801,4 +804,58 @@ TEST_CASE ("auditioning a chosen few Elements hears those and nothing else", "[c
     loop->stopAudition();
 
     REQUIRE (session.stateDigest() == before);
+}
+
+TEST_CASE ("a pending Suggestion on a plugin that stops answering is measured, not fatal",
+           "[collab]")
+{
+    const TempProject project;
+    Session session { project.editFile() };
+
+    const auto bundle =
+        duet::testing::copyVst3Fixture (DUET_RAISING_VST3_FIXTURE, project.folder() / "vst3");
+    const auto fixture = duet::testing::scanVst3Fixture (
+        session, bundle.parent_path(), duet::testing::raisingVst3FixtureName);
+
+    const auto mix = buildMix (session);
+    duet::model::PluginRef hosted = duet::model::noPlugin;
+
+    session.performAction ("Insert the fixture",
+                           [&] (auto& ops)
+                           { hosted = ops.addPlugin (mix.bass, fixture.identifier, 0); });
+
+    const auto held = session.pluginParameters (hosted);
+    const auto theirs =
+        std::ranges::find (held, false, &duet::model::PluginParameterInfo::duetOwnsMeaning);
+
+    REQUIRE (theirs != held.end());
+
+    Loop loop { session };
+
+    const auto aboutPlugin = loop.turn (
+        "open the fixture up",
+        "Turn the fixture up",
+        Json::array ({ element (
+            "The fixture to halfway",
+            Json::array ({ operation ("plugin.setParam",
+                                      { { "pluginId", duet::collab::toolId::forPlugin (hosted) },
+                                        { "paramId", theirs->parameterId },
+                                        { "value", 0.5 } }) })) }));
+
+    REQUIRE_FALSE (loop.held (aboutPlugin).stale);
+
+    duet::testing::raiseWhenRead (bundle);
+
+    // Every pending Suggestion is measured against the project again on every
+    // producer edit, and what a Suggestion naming a plugin is measured on is
+    // what the project can say about that plugin. A plugin that has stopped
+    // answering is a thing the producer's own gesture would otherwise carry
+    // into the message loop as a raise.
+    REQUIRE_NOTHROW (session.performAction (
+        "Pull the pad down", [&] (auto& ops) { ops.setTrackVolumeDb (mix.pad, -9.0); }));
+
+    // And it is stale, because it is: the values the Suggestion was made
+    // against are values Duet can no longer read, so nothing here can say the
+    // Suggestion still means what it meant.
+    REQUIRE (loop.held (aboutPlugin).stale);
 }

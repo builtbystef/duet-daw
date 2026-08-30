@@ -1,4 +1,5 @@
 #include "ProjectToolsHarness.h"
+#include "Vst3FixtureHarness.h"
 
 #include <duet/persistence/Project.h>
 
@@ -75,12 +76,6 @@ BassProject buildBassProject (Session& session)
     return built;
 }
 
-/** The name the good VST3 fixture answers to, which is how a scan finds it. */
-constexpr const char* goodFixtureName = "Duet Good VST3 Fixture";
-
-/** And the name of the one that raises when it is asked what a value means. */
-constexpr const char* raisingFixtureName = "Duet Raising VST3 Fixture";
-
 /** The parameters of one chain entry that carry the vendor's own meaning.
 
     The engine gives every plugin Duet hosts two parameters of its own, so a
@@ -111,44 +106,6 @@ std::vector<duet::model::PluginParameterInfo> vendorParameters (const Session& s
     return theirs;
 }
 
-/** Copies a VST3 bundle into a directory of the project's own, so that a test
-    which takes the bundle away is taking away its own copy.
-*/
-std::filesystem::path copyVst3Fixture (const std::filesystem::path& fixture,
-                                       const std::filesystem::path& directory)
-{
-    std::filesystem::create_directories (directory);
-
-    const auto copy = directory / fixture.filename();
-    std::filesystem::copy (fixture,
-                           copy,
-                           std::filesystem::copy_options::recursive
-                               | std::filesystem::copy_options::overwrite_existing);
-
-    return copy;
-}
-
-/** Scans a directory and answers the description of the fixture in it.
-
-    A machine that cannot host VST3s at all — a CI runner with no plugin host —
-    skips rather than fails: what is being asserted is what Duet says about a
-    hosted plugin, and there is nothing to say where none can be hosted.
-*/
-duet::model::KnownPluginInfo scanVst3Fixture (Session& session,
-                                              const std::filesystem::path& directory,
-                                              const std::string& name)
-{
-    if (! session.canHostVst3() || ! session.scanVst3Plugins (directory).completed)
-        SKIP ("this build cannot scan VST3s");
-
-    const auto known = session.knownVst3Plugins();
-    const auto found = std::ranges::find (known, name, &duet::model::KnownPluginInfo::name);
-
-    if (found == known.end())
-        SKIP ("the VST3 fixture did not scan");
-
-    return *found;
-}
 } // namespace
 
 TEST_CASE ("the track list carries a track's mixer, routing, clips, plugins and curves", "[collab]")
@@ -750,8 +707,10 @@ TEST_CASE ("a scanned plugin's own words about its value cross the seam wrapped"
     const TempProject project;
     Session session { project.editFile() };
 
-    const auto bundle = copyVst3Fixture (DUET_GOOD_VST3_FIXTURE, project.folder() / "vst3");
-    const auto fixture = scanVst3Fixture (session, bundle.parent_path(), goodFixtureName);
+    const auto bundle =
+        duet::testing::copyVst3Fixture (DUET_GOOD_VST3_FIXTURE, project.folder() / "vst3");
+    const auto fixture = duet::testing::scanVst3Fixture (
+        session, bundle.parent_path(), duet::testing::goodVst3FixtureName);
 
     TrackRef track = duet::model::noTrack;
     PluginRef hosted = duet::model::noPlugin;
@@ -806,8 +765,10 @@ TEST_CASE ("the two parameters the engine adds to a hosted plugin cross as Duet'
     const TempProject project;
     Session session { project.editFile() };
 
-    const auto bundle = copyVst3Fixture (DUET_GOOD_VST3_FIXTURE, project.folder() / "vst3");
-    const auto fixture = scanVst3Fixture (session, bundle.parent_path(), goodFixtureName);
+    const auto bundle =
+        duet::testing::copyVst3Fixture (DUET_GOOD_VST3_FIXTURE, project.folder() / "vst3");
+    const auto fixture = duet::testing::scanVst3Fixture (
+        session, bundle.parent_path(), duet::testing::goodVst3FixtureName);
 
     TrackRef track = duet::model::noTrack;
 
@@ -882,8 +843,10 @@ TEST_CASE ("reading a scanned plugin's parameters marks the run, and reading bui
     const TempProject project;
     Session session { project.editFile() };
 
-    const auto bundle = copyVst3Fixture (DUET_GOOD_VST3_FIXTURE, project.folder() / "vst3");
-    const auto fixture = scanVst3Fixture (session, bundle.parent_path(), goodFixtureName);
+    const auto bundle =
+        duet::testing::copyVst3Fixture (DUET_GOOD_VST3_FIXTURE, project.folder() / "vst3");
+    const auto fixture = duet::testing::scanVst3Fixture (
+        session, bundle.parent_path(), duet::testing::goodVst3FixtureName);
 
     TrackRef hosting = duet::model::noTrack;
     TrackRef ours = duet::model::noTrack;
@@ -956,8 +919,10 @@ TEST_CASE ("a built-in and a hosted VST3 in one chain are each read in the terms
     const TempProject project;
     Session session { project.editFile() };
 
-    const auto bundle = copyVst3Fixture (DUET_GOOD_VST3_FIXTURE, project.folder() / "vst3");
-    const auto fixture = scanVst3Fixture (session, bundle.parent_path(), goodFixtureName);
+    const auto bundle =
+        duet::testing::copyVst3Fixture (DUET_GOOD_VST3_FIXTURE, project.folder() / "vst3");
+    const auto fixture = duet::testing::scanVst3Fixture (
+        session, bundle.parent_path(), duet::testing::goodVst3FixtureName);
 
     TrackRef track = duet::model::noTrack;
     PluginRef compressor = duet::model::noPlugin;
@@ -993,7 +958,7 @@ TEST_CASE ("a built-in and a hosted VST3 in one chain are each read in the terms
     REQUIRE (ours.at ("latencySamples").is_number());
 
     REQUIRE (theirs.at ("pluginId") == duet::collab::toolId::forPlugin (hosted));
-    REQUIRE (theirs.at ("name") == goodFixtureName);
+    REQUIRE (theirs.at ("name") == duet::testing::goodVst3FixtureName);
     REQUIRE (theirs.at ("format") == "vst3");
     REQUIRE (theirs.at ("available") == true);
     REQUIRE (theirs.at ("latencySamples").is_number());
@@ -1043,7 +1008,8 @@ TEST_CASE ("a plugin the machine no longer has is in the chain, named and unavai
 {
     const TempProject temp;
     const auto projectFolder = temp.folder() / "project";
-    const auto bundle = copyVst3Fixture (DUET_GOOD_VST3_FIXTURE, temp.folder() / "vst3");
+    const auto bundle =
+        duet::testing::copyVst3Fixture (DUET_GOOD_VST3_FIXTURE, temp.folder() / "vst3");
 
     {
         const auto made = duet::persistence::Project::create (projectFolder);
@@ -1051,7 +1017,8 @@ TEST_CASE ("a plugin the machine no longer has is in the chain, named and unavai
         REQUIRE (made != nullptr);
 
         auto& session = made->session();
-        const auto fixture = scanVst3Fixture (session, bundle.parent_path(), goodFixtureName);
+        const auto fixture = duet::testing::scanVst3Fixture (
+            session, bundle.parent_path(), duet::testing::goodVst3FixtureName);
 
         session.performAction ("Build the chain",
                                [&] (auto& ops)
@@ -1078,7 +1045,7 @@ TEST_CASE ("a plugin the machine no longer has is in the chain, named and unavai
     // Back on disk before the tool call, and nothing may go and fetch it: a
     // tool answers about the project as the producer left it, and loading a
     // plugin is the producer's own act.
-    copyVst3Fixture (DUET_GOOD_VST3_FIXTURE, temp.folder() / "vst3");
+    duet::testing::copyVst3Fixture (DUET_GOOD_VST3_FIXTURE, temp.folder() / "vst3");
 
     const auto knownBefore = session.knownVst3Plugins().size();
 
@@ -1091,7 +1058,7 @@ TEST_CASE ("a plugin the machine no longer has is in the chain, named and unavai
     // Never omitted silently: a chain missing one of its links is a different
     // chain, and the Collaborator is told which link and that it is not there.
     REQUIRE (plugins.size() == 2);
-    REQUIRE (plugins.at (0).at ("name") == goodFixtureName);
+    REQUIRE (plugins.at (0).at ("name") == duet::testing::goodVst3FixtureName);
     REQUIRE (plugins.at (0).at ("format") == "vst3");
     REQUIRE (plugins.at (0).at ("available") == false);
 
@@ -1110,8 +1077,10 @@ TEST_CASE ("the engine's own parameters write no line into the run's estimate le
     const TempProject project;
     Session session { project.editFile() };
 
-    const auto bundle = copyVst3Fixture (DUET_GOOD_VST3_FIXTURE, project.folder() / "vst3");
-    const auto fixture = scanVst3Fixture (session, bundle.parent_path(), goodFixtureName);
+    const auto bundle =
+        duet::testing::copyVst3Fixture (DUET_GOOD_VST3_FIXTURE, project.folder() / "vst3");
+    const auto fixture = duet::testing::scanVst3Fixture (
+        session, bundle.parent_path(), duet::testing::goodVst3FixtureName);
 
     TrackRef track = duet::model::noTrack;
     PluginRef hosted = duet::model::noPlugin;
@@ -1155,8 +1124,10 @@ TEST_CASE ("a hosted plugin that raises when read is confined to its own chain e
     const TempProject project;
     Session session { project.editFile() };
 
-    const auto bundle = copyVst3Fixture (DUET_RAISING_VST3_FIXTURE, project.folder() / "vst3");
-    const auto fixture = scanVst3Fixture (session, bundle.parent_path(), raisingFixtureName);
+    const auto bundle =
+        duet::testing::copyVst3Fixture (DUET_RAISING_VST3_FIXTURE, project.folder() / "vst3");
+    const auto fixture = duet::testing::scanVst3Fixture (
+        session, bundle.parent_path(), duet::testing::raisingVst3FixtureName);
 
     TrackRef track = duet::model::noTrack;
 
@@ -1171,7 +1142,7 @@ TEST_CASE ("a hosted plugin that raises when read is confined to its own chain e
     // The plugin is hosted and behaving, and turns hostile only now: what is
     // asserted is a read failing on a plugin the producer already has in a
     // chain, not a plugin that could never be loaded at all.
-    std::ofstream { bundle / "raise-on-read.txt" } << "raise\n";
+    duet::testing::raiseWhenRead (bundle);
 
     const ToolRun run { session,
                         Json::array ({ toolCall ("get_plugin_chain", track),
@@ -1188,7 +1159,7 @@ TEST_CASE ("a hosted plugin that raises when read is confined to its own chain e
     // one that would not answer says that of itself rather than of the call.
     REQUIRE (plugins.size() == 2);
 
-    REQUIRE (plugins.at (0).at ("name") == raisingFixtureName);
+    REQUIRE (plugins.at (0).at ("name") == duet::testing::raisingVst3FixtureName);
     REQUIRE (plugins.at (0).at ("available") == true);
     REQUIRE (plugins.at (0).at ("parametersReadable") == false);
     REQUIRE (plugins.at (0).at ("parameters").empty());
@@ -1207,8 +1178,10 @@ TEST_CASE ("the track list answers for a project holding a plugin that raises wh
     const TempProject project;
     Session session { project.editFile() };
 
-    const auto bundle = copyVst3Fixture (DUET_RAISING_VST3_FIXTURE, project.folder() / "vst3");
-    const auto fixture = scanVst3Fixture (session, bundle.parent_path(), raisingFixtureName);
+    const auto bundle =
+        duet::testing::copyVst3Fixture (DUET_RAISING_VST3_FIXTURE, project.folder() / "vst3");
+    const auto fixture = duet::testing::scanVst3Fixture (
+        session, bundle.parent_path(), duet::testing::raisingVst3FixtureName);
 
     const auto built = buildBassProject (session);
     TrackRef tone = duet::model::noTrack;
@@ -1224,7 +1197,7 @@ TEST_CASE ("the track list answers for a project holding a plugin that raises wh
                                                           AutomationPoint { 4.0, 1.0, 0.0 } });
                            });
 
-    std::ofstream { bundle / "raise-on-read.txt" } << "raise\n";
+    duet::testing::raiseWhenRead (bundle);
 
     const ToolRun run {
         session, Json::array ({ toolCall ("list_tracks"), toolCall ("get_automation", tone) })
@@ -1244,7 +1217,7 @@ TEST_CASE ("the track list answers for a project holding a plugin that raises wh
 
     // The plugin is on the track and named there, its own curves are the only
     // ones missing, and the curves the project itself owns are still answered.
-    REQUIRE (entry.at ("pluginNames") == Json::array ({ raisingFixtureName }));
+    REQUIRE (entry.at ("pluginNames") == Json::array ({ duet::testing::raisingVst3FixtureName }));
     REQUIRE (entry.at ("automatedParameters") == Json::array ({ "pan" }));
     REQUIRE_THAT (entry.at ("mixer").at ("volumeDb").get<double>(),
                   WithinAbs (-3.0, decibelTolerance));

@@ -1,3 +1,5 @@
+#include "Vst3FixtureHarness.h"
+
 #include <duet/model/Session.h>
 #include <duet/persistence/Project.h>
 
@@ -19,17 +21,6 @@ using duet::testing::TempProject;
 
 namespace
 {
-std::filesystem::path copyFixture (const std::filesystem::path& fixture,
-                                   const std::filesystem::path& directory)
-{
-    const auto copy = directory / fixture.filename();
-    std::filesystem::copy (fixture,
-                           copy,
-                           std::filesystem::copy_options::recursive
-                               | std::filesystem::copy_options::overwrite_existing);
-    return copy;
-}
-
 double parameterValue (const Session& session, PluginRef plugin, const std::string& parameterId)
 {
     const auto parameters = session.pluginParameters (plugin);
@@ -79,7 +70,7 @@ TEST_CASE ("a scanned VST3 joins the known list and survives a restart without a
     const TempProject temp;
     const auto pluginDirectory = temp.folder() / "vst3";
     std::filesystem::create_directory (pluginDirectory);
-    const auto fixture = copyFixture (DUET_GOOD_VST3_FIXTURE, pluginDirectory);
+    const auto fixture = duet::testing::copyVst3Fixture (DUET_GOOD_VST3_FIXTURE, pluginDirectory);
 
     std::string identifier;
 
@@ -112,8 +103,9 @@ TEST_CASE ("a crashing VST3 kills only the scanner, and is skipped after it is m
     const auto pluginDirectory = temp.folder() / "vst3";
     std::filesystem::create_directory (pluginDirectory);
 
-    const auto good = copyFixture (DUET_GOOD_VST3_FIXTURE, pluginDirectory);
-    const auto crashing = copyFixture (DUET_CRASHING_VST3_FIXTURE, pluginDirectory);
+    const auto good = duet::testing::copyVst3Fixture (DUET_GOOD_VST3_FIXTURE, pluginDirectory);
+    const auto crashing =
+        duet::testing::copyVst3Fixture (DUET_CRASHING_VST3_FIXTURE, pluginDirectory);
     const auto crashMarker = crashing / "crash-loads.txt";
 
     Session session { temp.editFile() };
@@ -138,7 +130,7 @@ TEST_CASE ("the engine's two parameters on a hosted VST3 are read and written in
     const TempProject temp;
     const auto pluginDirectory = temp.folder() / "vst3";
     std::filesystem::create_directory (pluginDirectory);
-    copyFixture (DUET_GOOD_VST3_FIXTURE, pluginDirectory);
+    duet::testing::copyVst3Fixture (DUET_GOOD_VST3_FIXTURE, pluginDirectory);
 
     Session session { temp.editFile() };
 
@@ -206,7 +198,7 @@ TEST_CASE (
     const TempProject temp;
     const auto pluginDirectory = temp.folder() / "vst3";
     std::filesystem::create_directory (pluginDirectory);
-    copyFixture (DUET_GOOD_VST3_FIXTURE, pluginDirectory);
+    duet::testing::copyVst3Fixture (DUET_GOOD_VST3_FIXTURE, pluginDirectory);
 
     Session session { temp.editFile() };
     REQUIRE (session.scanVst3Plugins (pluginDirectory).completed);
@@ -291,7 +283,8 @@ TEST_CASE ("a project restores a VST3's state, and still opens when the VST3 is 
     const auto pluginDirectory = temp.folder() / "vst3";
     const auto projectFolder = temp.folder() / "project";
     std::filesystem::create_directory (pluginDirectory);
-    const auto fixtureFile = copyFixture (DUET_GOOD_VST3_FIXTURE, pluginDirectory);
+    const auto fixtureFile =
+        duet::testing::copyVst3Fixture (DUET_GOOD_VST3_FIXTURE, pluginDirectory);
 
     PluginRef plugin = duet::model::noPlugin;
     std::string parameterId;
@@ -340,4 +333,48 @@ TEST_CASE ("a project restores a VST3's state, and still opens when the VST3 is 
     const auto missing = Project::open (projectFolder);
     REQUIRE (missing != nullptr);
     REQUIRE (missing->session().tracks().back().plugins.front().missing);
+}
+
+TEST_CASE ("a hosted plugin that raises when read is a read that answers, not a raise")
+{
+    const TempProject temp;
+    Session session { temp.editFile() };
+
+    const auto bundle =
+        duet::testing::copyVst3Fixture (DUET_RAISING_VST3_FIXTURE, temp.folder() / "vst3");
+    const auto fixture = duet::testing::scanVst3Fixture (
+        session, bundle.parent_path(), duet::testing::raisingVst3FixtureName);
+
+    PluginRef plugin = duet::model::noPlugin;
+
+    session.performAction ("Insert the fixture",
+                           [&] (auto& ops)
+                           {
+                               const auto track = ops.createTrack (TrackKind::audio, "Tone");
+                               plugin = ops.addPlugin (track, fixture.identifier, 0);
+                           });
+
+    // Behaving, and hosted: what is being asserted is a plugin the producer
+    // already has, which turns hostile under them.
+    REQUIRE_FALSE (session.pluginParameters (plugin).empty());
+    REQUIRE (session.readPluginParameters (plugin).wereRead);
+
+    duet::testing::raiseWhenRead (bundle);
+
+    // The facade puts no engine type across it, and an exception thrown inside
+    // a plugin is one: asking is asking the plugin, and the plugin refusing to
+    // answer is an answer this side of the seam rather than a raise on whatever
+    // thread asked. Everything that reads a plugin's parameters — the tool
+    // vocabulary, the Suggestion layer, the automation lane list and a native
+    // editor's gesture — reads them here, so this is the one place the raise
+    // has to stop.
+    REQUIRE_NOTHROW (session.pluginParameters (plugin));
+    REQUIRE (session.pluginParameters (plugin).empty());
+
+    // Empty, and a plugin with no parameters at all is empty too: what tells
+    // the two apart is the read itself saying the plugin would not answer.
+    const auto read = session.readPluginParameters (plugin);
+
+    REQUIRE_FALSE (read.wereRead);
+    REQUIRE (read.held.empty());
 }

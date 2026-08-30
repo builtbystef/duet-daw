@@ -340,6 +340,16 @@ namespace
             return {};
         }
 
+        /** Whether the plugin would say what it has at all. A hosted plugin is
+            free to raise when it is asked what one of its values means, and one
+            that does answers nothing about any of its parameters (engine
+            notes), which is a different thing from having none.
+        */
+        [[nodiscard]] bool parametersReadable (model::PluginRef plugin) const
+        {
+            return session.readPluginParameters (plugin).wereRead;
+        }
+
         /** One of a built-in's parameters, before the project holds one of it.
 
             Duet ships the built-ins, so this is a fact about the plugin and not
@@ -770,21 +780,41 @@ namespace
         return std::pair { parameter->minValue, parameter->maxValue };
     }
 
-    /** Whether a plugin declares a parameter at all.
+    /** What is wrong with the parameter an operation names, and nothing when the
+        plugin has one by that name.
 
         An external plugin an element adds is the one thing that cannot be
         asked: Duet does not ship it, so what it has is the vendor's own answer
         and there is nothing to ask until the plugin exists.
+
+        A plugin that will not answer at all is refused for that, and not for
+        the parameter: a plugin free to raise when it is asked what a value
+        means says nothing about any of its parameters, and telling the
+        Collaborator the name was wrong would send it hunting for one that was
+        right all along.
     */
-    bool hasParameter (const Element& element, const Resolved& plugin, const std::string& paramId)
+    Problem parameterProblem (const Element& element,
+                              const Resolved& plugin,
+                              const std::string& paramId)
     {
+        const auto missing = "this plugin has no parameter called " + paramId;
         const auto ref = plugin.inProject();
 
         if (! ref.has_value())
-            return ! plugin.builtin.has_value()
-                   || element.reads().builtinParameter (*plugin.builtin, paramId).has_value();
+        {
+            if (! plugin.builtin.has_value()
+                || element.reads().builtinParameter (*plugin.builtin, paramId).has_value())
+                return {};
 
-        return element.reads().parameter (*ref, paramId).has_value();
+            return missing;
+        }
+
+        if (element.reads().parameter (*ref, paramId).has_value())
+            return {};
+
+        return element.reads().parametersReadable (*ref)
+                   ? missing
+                   : Problem { "this plugin would not say what parameters it has" };
     }
 
     /** The curve an automation operation is drawn on, and the two ends its
@@ -835,8 +865,8 @@ namespace
         if (! paramId.has_value())
             return needs ("target.paramId");
 
-        if (! hasParameter (element, plugin, *paramId))
-            return "this plugin has no parameter called " + *paramId;
+        if (auto problem = parameterProblem (element, plugin, *paramId))
+            return problem;
 
         target = model::SuggestionAutomationTarget::parameterOf (plugin.target, *paramId);
         range = parameterRange (element, plugin, *paramId);
@@ -1449,8 +1479,8 @@ namespace
         if (! paramId.has_value())
             return needs ("paramId");
 
-        if (! hasParameter (element, plugin, *paramId))
-            return "this plugin has no parameter called " + *paramId;
+        if (auto problem = parameterProblem (element, plugin, *paramId))
+            return problem;
 
         const auto range = parameterRange (element, plugin, *paramId);
         double value = 0.0;

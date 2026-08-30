@@ -1,4 +1,5 @@
 #include "ProjectToolsHarness.h"
+#include "Vst3FixtureHarness.h"
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
@@ -917,4 +918,67 @@ TEST_CASE ("a Suggestion applies whole, and one element of it applies alone", "[
 
     session.stopAudition();
     REQUIRE (session.stateDigest() == digestBefore);
+}
+
+TEST_CASE ("a Suggestion naming a parameter of a plugin that will not answer is refused, not fatal",
+           "[collab]")
+{
+    const TempProject project;
+    Session session { project.editFile() };
+
+    const auto bundle =
+        duet::testing::copyVst3Fixture (DUET_RAISING_VST3_FIXTURE, project.folder() / "vst3");
+    const auto fixture = duet::testing::scanVst3Fixture (
+        session, bundle.parent_path(), duet::testing::raisingVst3FixtureName);
+
+    duet::model::PluginRef hosted = duet::model::noPlugin;
+
+    session.performAction ("Insert the fixture",
+                           [&] (auto& ops)
+                           {
+                               const auto track = ops.createTrack (TrackKind::audio, "Tone");
+                               hosted = ops.addPlugin (track, fixture.identifier, 0);
+                           });
+
+    // The parameter the plugin does declare, read while it is still behaving.
+    const auto held = session.pluginParameters (hosted);
+    const auto theirs =
+        std::ranges::find (held, false, &duet::model::PluginParameterInfo::duetOwnsMeaning);
+
+    REQUIRE (theirs != held.end());
+
+    const auto parameterId = theirs->parameterId;
+
+    duet::testing::raiseWhenRead (bundle);
+
+    const auto set = [&] (const std::string& id)
+    {
+        return suggestCall ("Set the fixture",
+                            Json::array ({ suggestElement (
+                                "Set the fixture's own parameter",
+                                Json::array ({ operation ("plugin.setParam",
+                                                          { { "pluginId", pluginId (hosted) },
+                                                            { "paramId", id },
+                                                            { "value", 0.5 } }) })) }));
+    };
+
+    const ToolRun run {
+        session, Json::array ({ set (parameterId), duet::testing::toolCall ("get_arrangement") })
+    };
+
+    // The run reached its ending, which is the whole of it: validating the
+    // Suggestion asked the plugin what it has, the plugin refused, and the
+    // refusal came back as an answer rather than as a raise in the DAW's own
+    // message loop.
+    REQUIRE (run.finished());
+    REQUIRE (run.result (0).empty());
+
+    // And it is refused for what is actually wrong. A plugin that would not say
+    // what it has is not a plugin without the parameter: the first is a fact
+    // about the plugin the model can do nothing about, and telling the model
+    // the second would send it hunting for a name that was right all along.
+    REQUIRE_THAT (run.error (0).at ("message").get<std::string>(),
+                  Catch::Matchers::ContainsSubstring ("would not say what parameters it has"));
+
+    REQUIRE (run.result (1).contains ("tempoBpm"));
 }
