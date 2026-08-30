@@ -220,6 +220,18 @@ TEST_CASE ("the plugin-scan dialog is dismissed from the keyboard")
     REQUIRE (dismissed);
 }
 
+TEST_CASE ("the component suite hosts VST3, as the paintless suite does")
+{
+    const DialogFixture fixture;
+
+    // juce_audio_processors is an INTERFACE source: it compiles into every
+    // target that links it, so what duet::gui_components defines about hosting
+    // has to be what duet::model defines. Two answers to this question is an
+    // ODR violation in duet_app rather than a build error (issue 4v2m38), and
+    // the paintless suite's answer — PluginHostingTests — is the one to match.
+    REQUIRE (fixture.session.canHostVst3());
+}
+
 TEST_CASE ("the plugin-scan dialog says so when there is nowhere to scan")
 {
     DialogFixture fixture;
@@ -232,7 +244,7 @@ TEST_CASE ("the plugin-scan dialog says so when there is nowhere to scan")
 
     // The producer is told, rather than watching a bar that never moves. What a
     // scan of a real directory says while it runs is the view-model's, and is
-    // asserted in the paintless suite: this suite links no VST3 host.
+    // asserted in the paintless suite; what this suite adds is the surface.
     REQUIRE (panel.statusText() == "Nowhere to scan");
     REQUIRE (panel.resultLines().empty());
 }

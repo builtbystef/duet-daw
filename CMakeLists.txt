@@ -89,15 +89,18 @@ FetchContent_Declare(Catch2
 
 FetchContent_MakeAvailable(JUCE tracktion nlohmann_json Catch2)
 
-# Every Duet target that compiles JUCE or engine sources links one of these two,
-# so that all of them see one identical configuration. JUCE modules are INTERFACE
-# sources: they compile into each consuming target, and a definition that differs
-# between two targets would be an ODR violation rather than a build error.
+# Every Duet target that compiles JUCE or engine sources links one of these
+# three, so that all of them see one identical configuration. JUCE modules are
+# INTERFACE sources: they compile into each consuming target, and a definition
+# that differs between two targets would be an ODR violation rather than a
+# build error.
 #
 # The split is by which modules a definition reaches. duet_juce_config carries
 # what juce_core, juce_graphics and juce_gui_basics read, so the GUI layer — which
-# compiles those and no engine source — can share it. duet_engine_config adds what
-# only the engine and the audio modules read, and every engine target links it.
+# compiles those and no engine source — can share it. duet_plugin_host_config
+# carries what juce_audio_processors reads about hosting, which both halves
+# compile. duet_engine_config adds what only the engine and the audio modules
+# read, and every engine target links it.
 add_library(duet_juce_config INTERFACE)
 target_compile_definitions(duet_juce_config INTERFACE
     JUCE_USE_CURL=0
@@ -113,15 +116,29 @@ target_link_libraries(duet_juce_config INTERFACE
     juce::juce_recommended_warning_flags
 )
 
+# What juce_audio_processors reads about hosting a plugin. It is its own target
+# rather than part of either config because the set it has to hold together is
+# neither: the engine hosts VST3, and so does the GUI's plugin-editor bridge,
+# which compiles juce_audio_processors through juce_audio_utils and no engine
+# source at all. duet_app links both, so the two must agree (issue 4v2m38).
+#
+# Not in duet_juce_config, which the VST3 test fixtures also link: those are
+# plugins rather than hosts, and hosting definitions would only make them
+# compile a VST3 host they never use.
+add_library(duet_plugin_host_config INTERFACE)
+target_compile_definitions(duet_plugin_host_config INTERFACE
+    JUCE_PLUGINHOST_VST3=1                        # milestone one hosts VST3 through ExternalPlugin
+    JUCE_PLUGINHOST_LADSPA=0
+)
+target_link_libraries(duet_plugin_host_config INTERFACE duet_juce_config)
+
 add_library(duet_engine_config INTERFACE)
 target_compile_definitions(duet_engine_config INTERFACE
     JUCE_JACK=1                                   # the Linux path is JACK via PipeWire
     TRACKTION_ENABLE_TIMESTRETCH_SIGNALSMITH=1    # without a stretch backend, time-stretch is off entirely
-    JUCE_PLUGINHOST_VST3=1                        # milestone one hosts VST3 through ExternalPlugin
-    JUCE_PLUGINHOST_LADSPA=0
 )
 target_link_libraries(duet_engine_config INTERFACE
-    duet_juce_config
+    duet_plugin_host_config
     tracktion::tracktion_engine
     juce::juce_audio_utils
     # GCC lowers Tracktion's 16-byte std::atomic (WaveNode) to libatomic calls and

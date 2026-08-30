@@ -1,12 +1,13 @@
 ---
 id: 4v2m38
 title: duet_gui_components compiles JUCE's plugin host differently from duet_model
-state: todo
+state: done
+assignee: claude
 priority: medium
 labels:
     - bug
 created: 2026-08-29T12:13:01Z
-updated: 2026-08-29T12:13:01Z
+updated: 2026-08-30T07:02:29Z
 ---
 
 ## What was seen
@@ -45,3 +46,31 @@ compiles `juce_audio_processors` the same ones — most likely by having
 or by moving the plugin-host definitions into `duet_juce_config`. Then assert it:
 a case in the component suite that `canHostVst3()` agrees with the paintless
 suite's answer is what keeps the two configurations one.
+
+## Notes
+
+**claude** — 2026-08-30T07:02:29Z
+
+Fixed by a third INTERFACE config target, duet_plugin_host_config, holding
+JUCE_PLUGINHOST_VST3=1 and JUCE_PLUGINHOST_LADSPA=0. duet_engine_config links
+it, and duet_gui_components links it in place of duet_juce_config.
+
+Why a third target rather than either option the body names. Linking
+duet_engine_config into duet_gui_components would compile the whole Tracktion
+engine into the GUI's thin half, which is the one thing that module's split
+exists to prevent. Moving the definitions into duet_juce_config would reach the
+three VST3 test fixtures and the RTSan probe VST3, which link it too: those are
+plugins, not hosts, and the only effect would be a VST3 host compiled into each
+bundle. The set the definitions have to hold together is neither config's — it
+is "compiles juce_audio_processors as a host", which is the engine and the GUI's
+plugin-editor bridge, and that set now has a name.
+
+Asserted in tests/gui/DialogTests.cpp: "the component suite hosts VST3, as the
+paintless suite does" requires canHostVst3(), which is what PluginHostingTests
+requires in the paintless suite. It failed before the CMake change and passes
+after. The stale comment beside the empty-directory scan case — "this suite
+links no VST3 host" — is no longer true and is gone; the case itself stays as
+zm174o left it, the real scan being asserted in the paintless suite already.
+
+All four checks: format clean, lint sweep clean after a full build, 602 tests
+pass (one skip, the pre-existing ML-runtime case).
