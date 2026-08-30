@@ -99,15 +99,17 @@ struct Suggestion
 
     A value is held to the range the thing it is written to has: the fader's
     travel for a level, −1 to +1 for a pan, the MIDI ranges for a note, and a
-    plugin parameter's own two ends — in the real units Duet owns for a built-in
-    and the plugin's own normalised 0..1 for a scanned one, so a number in the
-    wrong one of those two domains is refused rather than quietly converted. A
-    plugin the same element is adding is held to those same two ends: which
-    parameters a built-in has and what each of them may be is a fact about the
-    plugin and not about an instance of it, and a scanned plugin an element adds
-    is held to 0..1, that being the whole of what Duet can say about a mapping
-    it does not own. Only a scanned plugin's parameter *ids* cannot be checked
-    before the plugin exists, because they are the vendor's own.
+    plugin parameter's own two ends — in the real units where Duet owns the
+    parameter's meaning and the plugin's own normalised 0..1 where it does not,
+    so a number in the wrong one of those two domains is refused rather than
+    quietly converted. A plugin the same element is adding is held to those same
+    two ends: which parameters a built-in has and what each of them may be is a
+    fact about the plugin and not about an instance of it, and so is the dry and
+    wet level the engine gives every plugin Duet hosts. A scanned plugin's own
+    parameter an element adds is held to 0..1, that being the whole of what Duet
+    can say about a mapping it does not own, and only such a parameter's *ids*
+    cannot be checked before the plugin exists, because they are the vendor's
+    own.
 
     A Suggestion is stamped with the estimate mark of the run that made it, from
     that run's ledger. Given no ledger nothing is ever marked, which is what a

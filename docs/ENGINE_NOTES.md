@@ -969,10 +969,13 @@ the vendor's by their shape.
 **Proved.** `97ynt7`, whose worked example asked for the first parameter of the
 good VST3 fixture and was answered "Dry Level" rather than the fixture's "Gain".
 
-**Duet.** `get_plugin_chain` reports them as the vendor's, wrapped display
-string and all, which is one thing about them that is not true; `1mldqz` decides
-what to do instead. A test about a vendor's parameter looks it up by name rather
-than taking the first.
+**Duet.** They are told apart by identity — `ExternalPlugin::dryGain` and
+`wetGain` are public — and not by their names, which a vendor is free to
+imitate. Duet states what they mean (`1mldqz`): a level in decibels, silence to
+unity, read and written on that scale everywhere, and `get_plugin_chain` gives
+them the shape a built-in's parameters have rather than the vendor's. A test
+about a vendor's parameter looks it up by its own shape rather than taking the
+first.
 
 ### A hosted plugin's display text is fetched from the plugin, and can raise
 

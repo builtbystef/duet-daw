@@ -730,20 +730,15 @@ namespace
 
     /** What one of a plugin's parameters is measured in.
 
-        Duet ships the engine's own plugins, so it states their units itself,
-        from the table that also says which number crosses the facade. It does
-        not state a scanned plugin's: that number is the vendor's normalised
-        0..1 and the only thing that says what it means is the vendor's own
-        display string, which crosses as an estimate instead (ADR 0002).
+        Duet states the unit of every parameter whose meaning is its own, from
+        the same table that says which number crosses the facade. It does not
+        state one a hosted plugin declares itself: that number is the vendor's
+        normalised 0..1 and the only thing that says what it means is the
+        vendor's own display string, which crosses as an estimate (ADR 0002).
     */
-    std::string unitOf (te::Plugin& plugin, const std::string& parameterId)
+    std::string unitOf (te::AutomatableParameter& parameter)
     {
-        const auto builtin = builtinOf (plugin);
-
-        if (! builtin.has_value())
-            return {};
-
-        const auto units = unitsOfBuiltinParameter (*builtin, parameterId);
+        const auto units = unitsOfParameter (parameter);
 
         return units.has_value() ? std::string { units->unit } : std::string {};
     }
@@ -950,7 +945,8 @@ namespace
                              std::max (oneEnd, otherEnd),
                              parameterSkew (*parameter),
                              parameter->valueToString (held).toStdString(),
-                             unitOf (plugin, parameter->paramID.toStdString()) });
+                             unitOf (*parameter),
+                             duetOwnsMeaningOf (*parameter) });
         }
 
         return out;

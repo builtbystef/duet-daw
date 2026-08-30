@@ -711,6 +711,15 @@ namespace
         return {};
     }
 
+    /** Whether a parameter id is one of the two the engine gives every plugin
+        Duet hosts, which is answerable before any particular plugin exists.
+    */
+    bool isHostedLevel (const std::string& paramId)
+    {
+        return paramId == model::hostedDryLevelParameterId
+               || paramId == model::hostedWetLevelParameterId;
+    }
+
     /** The two ends a parameter's value has to be inside, and nothing when the
         parameter is one nothing can be asked about.
 
@@ -719,9 +728,13 @@ namespace
         earlier operation of the element adds just as much as for one the
         project already holds, since which parameters a built-in has is a fact
         about the plugin and not about an instance of it. It does not own a
-        scanned plugin's mapping, so an external parameter is the normalised
-        0..1 the plugin itself speaks, and a number in the wrong one of those
-        two domains is refused rather than quietly converted.
+        scanned plugin's mapping, so that plugin's own parameters are the
+        normalised 0..1 it speaks, and a number in the wrong one of those two
+        domains is refused rather than quietly converted.
+
+        The dry and wet levels the engine adds to a hosted plugin are in the
+        first of those two camps and not the second: they are the engine's own,
+        Duet reads them in decibels, and it holds a write to the same scale.
     */
     std::optional<std::pair<double, double>>
         parameterRange (const Element& element, const Resolved& plugin, const std::string& paramId)
@@ -730,11 +743,14 @@ namespace
 
         if (! ref.has_value())
         {
-            // An external plugin the element adds: 0..1 is the whole of what
-            // Duet can say about a mapping it does not own, and it is enough to
-            // refuse a number written in some other domain.
+            // A plugin the element adds, which nothing can be asked about yet.
+            // What the engine gives every hosted plugin is known all the same,
+            // and 0..1 is the whole of what Duet can say about the mapping the
+            // vendor owns — enough to refuse a number from another domain.
             if (! plugin.builtin.has_value())
-                return std::pair { normalisedLowest, normalisedHighest };
+                return isHostedLevel (paramId)
+                           ? std::pair { model::hostedLevelMinimumDb, model::hostedLevelMaximumDb }
+                           : std::pair { normalisedLowest, normalisedHighest };
 
             const auto stated = element.reads().builtinParameter (*plugin.builtin, paramId);
 
@@ -748,11 +764,9 @@ namespace
         if (! parameter.has_value())
             return {};
 
-        const auto held = element.reads().plugin (*ref);
-
-        if (held.has_value() && ! held->builtin.has_value())
-            return std::pair { normalisedLowest, normalisedHighest };
-
+        // The ends the read side reported, whoever owns the parameter's
+        // meaning: a hosted plugin's own parameter states the normalised range
+        // it speaks, and the engine's two state their decibels.
         return std::pair { parameter->minValue, parameter->maxValue };
     }
 

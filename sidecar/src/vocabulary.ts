@@ -214,8 +214,9 @@ const editOperation = Type.Union(
                 paramId: Type.String(),
                 value: Type.Number({
                     description:
-                        "A built-in plugin's parameter takes its own real unit; a scanned plugin's takes its " +
-                        "normalised 0..1. The two are not interchangeable and a value in the wrong one is refused.",
+                        "A parameter takes the number get_plugin_chain reported for it: a real unit where the " +
+                        "chain gave it a unit, and the normalised 0..1 where the chain gave a vendorName and a " +
+                        "normalizedValue. The two are not interchangeable and a value in the wrong one is refused.",
                 }),
             },
             "Set one parameter of one plugin.",
@@ -301,9 +302,11 @@ export const vocabulary: ToolDeclaration[] = [
             "A track's plugins in order, with their parameters. A built-in plugin's parameters are Duet's own, so " +
             "their names, units and values are facts. A scanned plugin's are the plugin's: the normalised 0..1 " +
             "value is a fact, and the text it displays for that value crosses as an estimate, because what it " +
-            "means is the plugin vendor's business and not Duet's. A plugin the project names and this machine " +
-            "does not have is in the chain with available false: it is part of the sound the producer is asking " +
-            "about, and it is never left out quietly.",
+            "means is the plugin vendor's business and not Duet's. Every hosted plugin also carries a dry and a " +
+            "wet level that are Duet's own and not the vendor's — they are the two with a name and a unit rather " +
+            "than a vendorName, they are in decibels, and they set how much of that plugin's output is heard. " +
+            "A plugin the project names and this machine does not have is in the chain with available false: it " +
+            "is part of the sound the producer is asking about, and it is never left out quietly.",
         parameters: Type.Object({ trackId }),
     },
     {

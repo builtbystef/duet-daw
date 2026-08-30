@@ -133,6 +133,73 @@ TEST_CASE ("a crashing VST3 kills only the scanner, and is skipped after it is m
     REQUIRE (lineCount (crashMarker) == attemptsBeforeSkip);
 }
 
+TEST_CASE ("the engine's two parameters on a hosted VST3 are read and written in decibels")
+{
+    const TempProject temp;
+    const auto pluginDirectory = temp.folder() / "vst3";
+    std::filesystem::create_directory (pluginDirectory);
+    copyFixture (DUET_GOOD_VST3_FIXTURE, pluginDirectory);
+
+    Session session { temp.editFile() };
+
+    if (! session.canHostVst3() || ! session.scanVst3Plugins (pluginDirectory).completed)
+        SKIP ("this build cannot scan VST3s");
+
+    const auto known = session.knownVst3Plugins();
+    const auto fixture = std::ranges::find (
+        known, std::string { "Duet Good VST3 Fixture" }, &duet::model::KnownPluginInfo::name);
+
+    if (fixture == known.end())
+        SKIP ("the VST3 fixture did not scan");
+
+    PluginRef plugin = duet::model::noPlugin;
+
+    session.performAction ("Insert the fixture",
+                           [&] (auto& ops)
+                           {
+                               const auto track = ops.createTrack (TrackKind::audio, "Tone");
+                               plugin = ops.addPlugin (track, fixture->identifier, 0);
+                           });
+
+    const auto parameters = session.pluginParameters (plugin);
+
+    // The ids the engine names its own two by. Duet states them for a plugin
+    // that does not exist yet, so that a Suggestion adding one can be held to
+    // the right scale, and this is what keeps that statement true.
+    for (const auto* parameterId :
+         { duet::model::hostedDryLevelParameterId, duet::model::hostedWetLevelParameterId })
+    {
+        const auto found = std::ranges::find (parameters,
+                                              std::string { parameterId },
+                                              &duet::model::PluginParameterInfo::parameterId);
+
+        REQUIRE (found != parameters.end());
+        REQUIRE (found->duetOwnsMeaning);
+        REQUIRE (found->unit == "dB");
+        REQUIRE_THAT (found->minValue, WithinAbs (duet::model::hostedLevelMinimumDb, 0.001));
+        REQUIRE_THAT (found->maxValue, WithinAbs (duet::model::hostedLevelMaximumDb, 0.001));
+    }
+
+    // The plugin's own parameters keep the vendor's normalised domain: two
+    // regimes in one plugin's list, and which one a parameter is in is what the
+    // facade states.
+    const auto theirs =
+        std::ranges::find (parameters, false, &duet::model::PluginParameterInfo::duetOwnsMeaning);
+
+    REQUIRE (theirs != parameters.end());
+    REQUIRE (theirs->unit.empty());
+
+    // A level goes in in decibels and comes back the same, which is the
+    // identity every parameter Duet states the meaning of holds to.
+    session.performAction (
+        "Half the wet level",
+        [&] (auto& ops)
+        { ops.setPluginParameter (plugin, duet::model::hostedWetLevelParameterId, -6.0); });
+
+    REQUIRE_THAT (parameterValue (session, plugin, duet::model::hostedWetLevelParameterId),
+                  WithinAbs (-6.0, 0.01));
+}
+
 TEST_CASE (
     "a scanned VST3 inserts through the vocabulary, processes audio, and undoes a parameter exactly")
 {

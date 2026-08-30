@@ -78,6 +78,36 @@ BassProject buildBassProject (Session& session)
 /** The name the good VST3 fixture answers to, which is how a scan finds it. */
 constexpr const char* goodFixtureName = "Duet Good VST3 Fixture";
 
+/** The parameters of one chain entry that carry the vendor's own meaning.
+
+    The engine gives every plugin Duet hosts two parameters of its own, so a
+    test about what the vendor said looks for the vendor's shape rather than
+    taking the first parameter the list holds.
+*/
+std::vector<Json> vendorParameters (const Json& entry)
+{
+    std::vector<Json> theirs;
+
+    for (const auto& parameter : entry.at ("parameters"))
+        if (parameter.contains ("vendorName"))
+            theirs.push_back (parameter);
+
+    return theirs;
+}
+
+/** The same list, read off the model rather than off the seam. */
+std::vector<duet::model::PluginParameterInfo> vendorParameters (const Session& session,
+                                                                PluginRef plugin)
+{
+    std::vector<duet::model::PluginParameterInfo> theirs;
+
+    for (const auto& parameter : session.pluginParameters (plugin))
+        if (! parameter.duetOwnsMeaning)
+            theirs.push_back (parameter);
+
+    return theirs;
+}
+
 /** Copies a VST3 bundle into a directory of the project's own, so that a test
     which takes the bundle away is taking away its own copy.
 */
@@ -746,7 +776,11 @@ TEST_CASE ("a scanned plugin's own words about its value cross the seam wrapped"
     // Duet owns what its own devices mean and hands their values over bare. It
     // does not own this one's, so the text that says what the number means is
     // wrapped, and the Collaborator can tell a fact from a guess by its shape.
-    const auto& parameter = parameters.at (0);
+    const auto theirs = vendorParameters (plugins.at (0));
+
+    REQUIRE_FALSE (theirs.empty());
+
+    const auto& parameter = theirs.front();
 
     REQUIRE (parameter.at ("normalizedValue").is_number());
     REQUIRE (parameter.at ("vendorName").is_string());
@@ -756,11 +790,87 @@ TEST_CASE ("a scanned plugin's own words about its value cross the seam wrapped"
     // The plugin's own text, unaltered, and a method that says exactly that:
     // what the model reads is what the plugin said, and what it means is the
     // plugin's to say.
-    const auto held = session.pluginParameters (hosted);
+    const auto held = vendorParameters (session, hosted);
 
-    REQUIRE (held.size() == parameters.size());
+    REQUIRE (session.pluginParameters (hosted).size() == parameters.size());
+    REQUIRE (held.size() == theirs.size());
     REQUIRE (parameter.at ("displayString").at ("value") == held.front().displayValue);
     REQUIRE (parameter.at ("displayString").at ("method") == duet::collab::displayStringMethod);
+}
+
+TEST_CASE ("the two parameters the engine adds to a hosted plugin cross as Duet's own", "[collab]")
+{
+    const TempProject project;
+    Session session { project.editFile() };
+
+    const auto bundle = copyVst3Fixture (DUET_GOOD_VST3_FIXTURE, project.folder() / "vst3");
+    const auto fixture = scanVst3Fixture (session, bundle.parent_path(), goodFixtureName);
+
+    TrackRef track = duet::model::noTrack;
+
+    session.performAction ("Insert the fixture",
+                           [&] (auto& ops)
+                           {
+                               track = ops.createTrack (TrackKind::audio, "Tone");
+                               ops.addPlugin (track, fixture.identifier, 0);
+                           });
+
+    const ToolRun run { session, Json::array ({ toolCall ("get_plugin_chain", track) }) };
+
+    REQUIRE (run.finished());
+
+    const auto& parameters = run.result (0).at ("plugins").at (0).at ("parameters");
+
+    const auto withId = [&] (const std::string& parameterId)
+    {
+        for (const auto& each : parameters)
+            if (each.at ("paramId") == parameterId)
+                return each;
+
+        return Json::object();
+    };
+
+    // The engine gives every plugin it hosts a dry and a wet level of its own,
+    // ahead of the ones the plugin declares. Those two are Duet's dependency
+    // and not the plugin, so they cross exactly as a built-in's parameters do:
+    // a name, a number in the unit it is measured in, and the two ends it moves
+    // between.
+    const auto wet = withId (duet::model::hostedWetLevelParameterId);
+
+    REQUIRE (wet.at ("name") == "Wet Level");
+    REQUIRE (wet.at ("unit") == "dB");
+    REQUIRE_THAT (wet.at ("value").get<double>(), WithinAbs (0.0, decibelTolerance));
+    REQUIRE_THAT (wet.at ("min").get<double>(),
+                  WithinAbs (duet::model::hostedLevelMinimumDb, decibelTolerance));
+    REQUIRE_THAT (wet.at ("max").get<double>(),
+                  WithinAbs (duet::model::hostedLevelMaximumDb, decibelTolerance));
+
+    const auto dry = withId (duet::model::hostedDryLevelParameterId);
+
+    REQUIRE (dry.at ("name") == "Dry Level");
+    REQUIRE (dry.at ("unit") == "dB");
+    REQUIRE_THAT (dry.at ("value").get<double>(),
+                  WithinAbs (duet::model::hostedLevelMinimumDb, decibelTolerance));
+
+    // Nothing about either of them is the vendor's, and nothing about either is
+    // a guess: the name the engine gave it is not a vendor name, and the words
+    // that explain its number are the engine's own.
+    for (const auto& ours : { wet, dry })
+    {
+        REQUIRE_FALSE (ours.contains ("vendorName"));
+        REQUIRE_FALSE (ours.contains ("normalizedValue"));
+        REQUIRE_FALSE (ours.contains ("displayString"));
+    }
+
+    // The vendor's parameters are untouched by that: the two shapes sit side by
+    // side in one plugin's list, and which one a parameter is in says whose
+    // meaning it carries.
+    const auto theirs = vendorParameters (run.result (0).at ("plugins").at (0));
+
+    REQUIRE_FALSE (theirs.empty());
+    REQUIRE (theirs.front().at ("vendorName") == "Gain");
+    REQUIRE (duet::testing::isAnEstimate (theirs.front().at ("displayString")));
+    REQUIRE_FALSE (theirs.front().contains ("unit"));
 }
 
 TEST_CASE ("reading a scanned plugin's parameters marks the run, and reading built-ins does not",
@@ -814,9 +924,13 @@ TEST_CASE ("reading a scanned plugin's parameters marks the run, and reading bui
     REQUIRE (scanned.commentary() == "before. after.");
     REQUIRE (scanned.markedCommentary() == "after.");
 
-    const auto held = session.pluginParameters (hosted);
+    const auto held = vendorParameters (session, hosted);
     const auto entries = ledger.entries (scanned.id());
 
+    // One line for each parameter whose meaning is the vendor's, and none for
+    // the two the engine added: what marks a run is a guess, and the engine
+    // saying in decibels what its own number means is not one.
+    REQUIRE (session.pluginParameters (hosted).size() == held.size() + 2);
     REQUIRE (entries.size() == held.size());
     REQUIRE (entries.front().tool == "get_plugin_chain");
     REQUIRE (entries.front().field
@@ -827,9 +941,10 @@ TEST_CASE ("reading a scanned plugin's parameters marks the run, and reading bui
 
     // What the ledger holds is what crossed the seam, so the two say the same
     // thing about the same value.
-    REQUIRE (
-        duet::collab::wrapped (entries.front().estimate)
-        == scanned.result (0).at ("plugins").at (0).at ("parameters").at (0).at ("displayString"));
+    REQUIRE (duet::collab::wrapped (entries.front().estimate)
+             == vendorParameters (scanned.result (0).at ("plugins").at (0))
+                    .front()
+                    .at ("displayString"));
 }
 
 TEST_CASE ("a built-in and a hosted VST3 in one chain are each read in the terms Duet owns",
@@ -902,7 +1017,7 @@ TEST_CASE ("a built-in and a hosted VST3 in one chain are each read in the terms
     // about what that number means — wrapped, because the words are a guess.
     const auto parameter = [&]
     {
-        for (const auto& each : theirs.at ("parameters"))
+        for (const auto& each : vendorParameters (theirs))
             if (each.at ("vendorName") == "Gain")
                 return each;
 
@@ -985,6 +1100,51 @@ TEST_CASE ("a plugin the machine no longer has is in the chain, named and unavai
     // project opened with.
     REQUIRE (session.knownVst3Plugins().size() == knownBefore);
     REQUIRE (session.track (track).plugins.front().missing);
+}
+
+TEST_CASE ("the engine's own parameters write no line into the run's estimate ledger", "[collab]")
+{
+    const TempProject project;
+    Session session { project.editFile() };
+
+    const auto bundle = copyVst3Fixture (DUET_GOOD_VST3_FIXTURE, project.folder() / "vst3");
+    const auto fixture = scanVst3Fixture (session, bundle.parent_path(), goodFixtureName);
+
+    TrackRef track = duet::model::noTrack;
+    PluginRef hosted = duet::model::noPlugin;
+
+    session.performAction ("Insert the fixture",
+                           [&] (auto& ops)
+                           {
+                               track = ops.createTrack (TrackKind::audio, "Tone");
+                               hosted = ops.addPlugin (track, fixture.identifier, 0);
+                           });
+
+    duet::collab::EstimateLedger ledger;
+    duet::testing::ToolRunOptions options;
+    options.ledger = &ledger;
+
+    const ToolRun run { session, Json::array ({ toolCall ("get_plugin_chain", track) }), options };
+
+    REQUIRE (run.finished());
+
+    // The ledger is per value handed over, so what it holds says which values
+    // were guesses. The engine's own two are not among them: a chain read that
+    // handed the model nothing but those would leave the ledger empty and the
+    // run unmarked. That plugin is not this one and cannot be a fixture — JUCE's
+    // VST3 wrapper gives a processor with no parameters a "Bypass" of its own,
+    // so every fixture declares something — and the ledger is where the claim
+    // is decided anyway, one line to a value.
+    const auto theirs = vendorParameters (session, hosted);
+    const auto entries = ledger.entries (run.id());
+
+    REQUIRE (entries.size() == theirs.size());
+
+    for (const auto& entry : entries)
+    {
+        REQUIRE (entry.field.find (duet::model::hostedDryLevelParameterId) == std::string::npos);
+        REQUIRE (entry.field.find (duet::model::hostedWetLevelParameterId) == std::string::npos);
+    }
 }
 
 TEST_CASE ("a hosted plugin that raises when read is an error result the run survives", "[collab]")

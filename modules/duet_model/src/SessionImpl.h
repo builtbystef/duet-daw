@@ -728,10 +728,25 @@ struct ParameterUnits
 std::optional<ParameterUnits> unitsOfBuiltinParameter (BuiltinPlugin plugin,
                                                        std::string_view parameterId);
 
+/** Whether Duet states what a parameter means.
+
+    True of every parameter of a plugin Duet ships, and of the dry and wet
+    levels the engine adds to every plugin it hosts — those two are the engine's
+    own, named and displayed by it and not by the plugin. False of a hosted
+    plugin's own parameters, whose meaning is the vendor's (ADR 0002).
+*/
+bool duetOwnsMeaningOf (te::AutomatableParameter& parameter);
+
+/** How one parameter crosses the facade, and nothing for a parameter whose
+    meaning is not Duet's to state.
+*/
+std::optional<ParameterUnits> unitsOfParameter (te::AutomatableParameter& parameter);
+
 /** The producer's number for a parameter, given the one the engine holds.
 
-    An external plugin's number is its own and crosses untouched: Duet does not
-    know a third party's mapping and does not invent one (ADR 0002).
+    A hosted plugin's own number crosses untouched: Duet does not know a third
+    party's mapping and does not invent one (ADR 0002). The two the engine gives
+    that plugin are not the third party's and do convert.
 */
 double realParameterValue (te::AutomatableParameter& parameter, double engineValue);
 

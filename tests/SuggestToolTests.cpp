@@ -1,6 +1,7 @@
 #include "ProjectToolsHarness.h"
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 
 #include <algorithm>
@@ -682,13 +683,22 @@ TEST_CASE ("a scanned plugin's parameter is written normalized and a real-unit v
                                hosted = ops.addPlugin (track, *fixture, 0);
                            });
 
-    const auto parameterId = session.pluginParameters (hosted).front().parameterId;
+    // A parameter the fixture itself declares, found by whose meaning it
+    // carries: the engine puts two of its own ahead of the vendor's on every
+    // plugin it hosts, and those two are Duet's to state and not the vendor's.
+    const auto held = session.pluginParameters (hosted);
+    const auto theirs =
+        std::ranges::find (held, false, &duet::model::PluginParameterInfo::duetOwnsMeaning);
+
+    REQUIRE (theirs != held.end());
+
+    const auto parameterId = theirs->parameterId;
 
     const auto set = [&] (double value)
     {
         return suggestCall ("Set the fixture",
                             Json::array ({ suggestElement (
-                                "Set the fixture's first parameter",
+                                "Set the fixture's own parameter",
                                 Json::array ({ operation ("plugin.setParam",
                                                           { { "pluginId", pluginId (hosted) },
                                                             { "paramId", parameterId },
@@ -705,6 +715,64 @@ TEST_CASE ("a scanned plugin's parameter is written normalized and a real-unit v
     REQUIRE_THAT (run.error (0).at ("message").get<std::string>(),
                   Catch::Matchers::ContainsSubstring ("value"));
     REQUIRE (run.result (1).contains ("suggestionId"));
+}
+
+TEST_CASE ("the engine's own parameter on a hosted plugin is written in the unit it was read in",
+           "[collab]")
+{
+    const TempProject project;
+    Session session { project.editFile() };
+
+    const auto fixture = scannedFixture (session, project);
+
+    if (! fixture.has_value())
+        SKIP ("this build cannot scan VST3s");
+
+    duet::model::PluginRef hosted = duet::model::noPlugin;
+
+    session.performAction ("Insert the fixture",
+                           [&] (auto& ops)
+                           {
+                               const auto track = ops.createTrack (TrackKind::audio, "Tone");
+                               hosted = ops.addPlugin (track, *fixture, 0);
+                           });
+
+    const auto set = [&] (double value)
+    {
+        return suggestCall (
+            "Pull the fixture back",
+            Json::array ({ suggestElement (
+                "Bring the wet level down",
+                Json::array ({ operation ("plugin.setParam",
+                                          { { "pluginId", pluginId (hosted) },
+                                            { "paramId", duet::model::hostedWetLevelParameterId },
+                                            { "value", value } }) })) }));
+    };
+
+    // The wet level is the engine's own parameter and not the plugin's, so it
+    // is read in decibels and written in decibels: one scale per parameter,
+    // wherever it is read. The plugin's own normalised domain is not this
+    // parameter's, and a number from it above unity is refused.
+    const ToolRun run { session, Json::array ({ set (0.5), set (-6.0) }) };
+
+    REQUIRE (run.finished());
+    REQUIRE (run.result (0).empty());
+    REQUIRE_THAT (run.error (0).at ("message").get<std::string>(),
+                  Catch::Matchers::ContainsSubstring ("value"));
+    REQUIRE (run.result (1).contains ("suggestionId"));
+
+    // What was written reads back as what was asked for.
+    REQUIRE (session.auditionSuggestion (run.suggestion (1).changes));
+
+    const auto held = session.pluginParameters (hosted);
+    const auto wet = std::ranges::find (held,
+                                        std::string { duet::model::hostedWetLevelParameterId },
+                                        &duet::model::PluginParameterInfo::parameterId);
+
+    REQUIRE (wet != held.end());
+    REQUIRE_THAT (wet->value, Catch::Matchers::WithinAbs (-6.0, 0.01));
+
+    session.stopAudition();
 }
 
 TEST_CASE ("a parameter of a scanned plugin the element is adding is held to 0 and 1", "[collab]")
@@ -744,6 +812,57 @@ TEST_CASE ("a parameter of a scanned plugin the element is adding is held to 0 a
     // are is not: they are the normalised 0..1 every VST3 speaks, so a value
     // written in some other domain is refused here as it is anywhere else.
     const ToolRun run { session, Json::array ({ addAndSet (4.0), addAndSet (0.5) }) };
+
+    REQUIRE (run.finished());
+
+    REQUIRE (run.result (0).empty());
+    REQUIRE_THAT (run.error (0).at ("message").get<std::string>(),
+                  Catch::Matchers::ContainsSubstring ("value"));
+    REQUIRE_THAT (run.error (0).at ("message").get<std::string>(),
+                  Catch::Matchers::ContainsSubstring ("elements[0].operations[1]"));
+
+    REQUIRE (run.result (1).contains ("suggestionId"));
+}
+
+TEST_CASE ("the engine's own parameter on a plugin an element is adding is held to its decibels",
+           "[collab]")
+{
+    const TempProject project;
+    Session session { project.editFile() };
+
+    const auto fixture = scannedFixture (session, project);
+
+    if (! fixture.has_value())
+        SKIP ("this build cannot scan VST3s");
+
+    TrackRef tone = duet::model::noTrack;
+
+    session.performAction ("Make room for it",
+                           [&] (auto& ops) { tone = ops.createTrack (TrackKind::audio, "Tone"); });
+
+    const auto addAndSet = [&] (double value)
+    {
+        return suggestCall (
+            "Put the fixture on the tone, half wet",
+            Json::array ({ suggestElement (
+                "Add the fixture and pull its wet level back",
+                Json::array ({ operation ("plugin.add",
+                                          { { "trackId", trackId (tone) },
+                                            { "position", 0 },
+                                            { "plugin", Json { { "external", *fixture } } },
+                                            { "ref", "#fixture" } }),
+                               operation ("plugin.setParam",
+                                          { { "pluginId", "#fixture" },
+                                            { "paramId", duet::model::hostedWetLevelParameterId },
+                                            { "value", value } }) })) }));
+    };
+
+    // Which parameters a plugin Duet did not ship has is the vendor's answer,
+    // and there is nothing to ask until the plugin exists — but the two the
+    // engine adds to every plugin it hosts are Duet's own and known before any
+    // one of them. They are decibels here as they are everywhere else, so a
+    // number from the vendor's normalised domain is refused.
+    const ToolRun run { session, Json::array ({ addAndSet (0.5), addAndSet (-6.0) }) };
 
     REQUIRE (run.finished());
 

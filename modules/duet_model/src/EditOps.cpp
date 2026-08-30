@@ -418,25 +418,47 @@ std::optional<ParameterUnits> unitsOfBuiltinParameter (BuiltinPlugin plugin,
 
 namespace
 {
-    std::optional<ParameterUnits> unitsOf (te::AutomatableParameter& parameter)
+    /** Whether a parameter is one of the two the engine adds to every plugin it
+        hosts, ahead of the ones the plugin declares.
+
+        Asked of the plugin rather than of the parameter's name, because a
+        vendor is free to name a parameter of its own anything at all: the
+        engine holds these two itself, and identity is what cannot be imitated.
+    */
+    bool isHostedLevel (te::AutomatableParameter& parameter)
     {
-        auto* plugin = parameter.getPlugin();
+        auto* external = dynamic_cast<te::ExternalPlugin*> (parameter.getPlugin());
 
-        if (plugin == nullptr)
-            return {};
-
-        const auto builtin = builtinOf (*plugin);
-
-        if (! builtin.has_value())
-            return {};
-
-        return unitsOfBuiltinParameter (*builtin, parameter.paramID.toStdString());
+        return external != nullptr
+               && (&parameter == external->dryGain.get() || &parameter == external->wetGain.get());
     }
 } // namespace
 
+bool duetOwnsMeaningOf (te::AutomatableParameter& parameter)
+{
+    auto* plugin = parameter.getPlugin();
+
+    return plugin != nullptr && (builtinOf (*plugin).has_value() || isHostedLevel (parameter));
+}
+
+std::optional<ParameterUnits> unitsOfParameter (te::AutomatableParameter& parameter)
+{
+    auto* plugin = parameter.getPlugin();
+
+    if (plugin == nullptr)
+        return {};
+
+    const auto builtin = builtinOf (*plugin);
+
+    if (! builtin.has_value())
+        return isHostedLevel (parameter) ? std::optional { decibelsFromGain } : std::nullopt;
+
+    return unitsOfBuiltinParameter (*builtin, parameter.paramID.toStdString());
+}
+
 double realParameterValue (te::AutomatableParameter& parameter, double engineValue)
 {
-    const auto units = unitsOf (parameter);
+    const auto units = unitsOfParameter (parameter);
 
     return units.has_value() && units->toReal != nullptr ? units->toReal (engineValue)
                                                          : engineValue;
@@ -444,14 +466,14 @@ double realParameterValue (te::AutomatableParameter& parameter, double engineVal
 
 double parameterSkew (te::AutomatableParameter& parameter)
 {
-    const auto units = unitsOf (parameter);
+    const auto units = unitsOfParameter (parameter);
 
     return units.has_value() ? units->skew : 1.0;
 }
 
 double engineParameterValue (te::AutomatableParameter& parameter, double realValue)
 {
-    const auto units = unitsOf (parameter);
+    const auto units = unitsOfParameter (parameter);
     const auto engineValue =
         units.has_value() && units->fromReal != nullptr ? units->fromReal (realValue) : realValue;
     const auto range = parameter.getValueRange();

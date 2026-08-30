@@ -89,6 +89,20 @@ inline constexpr double renderSampleRate = 44100.0;
 inline constexpr int renderBlockSize = 512;
 inline constexpr double renderBlockSeconds = renderBlockSize / renderSampleRate;
 
+/** The two parameters the engine gives every plugin Duet hosts, ahead of the
+    ones the plugin itself declares: a dry and a wet level, and these are the ids
+    it names them by.
+
+    They are the engine's own and not the vendor's, so Duet states what they
+    mean — a level in decibels, from silence to unity — where a hosted plugin's
+    own parameters carry the normalised number the vendor speaks.
+*/
+inline constexpr const char* hostedDryLevelParameterId = "dry level";
+inline constexpr const char* hostedWetLevelParameterId = "wet level";
+
+inline constexpr double hostedLevelMinimumDb = silentDb;
+inline constexpr double hostedLevelMaximumDb = 0.0;
+
 /** The two ends of a fader's travel, in decibels: what the producer can set a
     track's level or a send's level to, and so what a Suggestion may ask for.
 
@@ -325,17 +339,19 @@ struct PluginInfo
     double latencySeconds = 0.0;
 };
 
-/** One of a plugin's parameters. A built-in's value is in the real units the
-    producer sees; a scanned VST3's is the plugin's normalised 0..1 value, with
-    its own display string beside it.
+/** One of a plugin's parameters. A value whose meaning is Duet's is in the real
+    units the producer sees; a scanned VST3's own is the plugin's normalised 0..1
+    value, with its own display string beside it.
 
     Duet ships the built-ins, so it owns what their numbers mean and converts
     where the engine underneath holds something else: the compressor's ratio is
     4 for four to one, not the 0.25 stored, and its threshold is in decibels,
-    not the gain stored. The conversion is the same in both directions, so
-    `setPluginParameter` takes back exactly what was read here, and an
-    automation point on the parameter is on this same scale. Duet does not own a
-    scanned plugin's mapping and does not invent one: its value crosses raw.
+    not the gain stored. The two the engine adds to every hosted plugin are its
+    own the same way, and are decibels here. The conversion is the same in both
+    directions, so `setPluginParameter` takes back exactly what was read here,
+    and an automation point on the parameter is on this same scale. Duet does
+    not own a scanned plugin's own mapping and does not invent one: that value
+    crosses raw.
 */
 struct PluginParameterInfo
 {
@@ -374,6 +390,18 @@ struct PluginParameterInfo
         and reaches the Collaborator as an estimated display string instead.
     */
     std::string unit;
+
+    /** Whether Duet states what this parameter means, which is what decides the
+        shape it crosses the Tool Vocabulary in.
+
+        True of every parameter of a plugin Duet ships, and of the dry and wet
+        levels the engine adds to every plugin it hosts: those two are the
+        engine's own, so their name, their unit and their number are facts about
+        Duet's own dependency. False of a hosted plugin's own parameters, where
+        the only thing that says what the number means is the vendor's display
+        string, and that crosses as an Estimate.
+    */
+    bool duetOwnsMeaning = true;
 };
 
 /** A track's send into a bus. */
@@ -793,8 +821,9 @@ public:
     /** Restores a hosted plugin's opaque state. Invalid data is ignored. */
     void setPluginOpaqueState (PluginRef plugin, std::string_view opaqueState);
 
-    /** Sets a plugin parameter by value: a built-in in its real units, or a
-        scanned VST3 in its normalised 0..1 range.
+    /** Sets a plugin parameter by the value `pluginParameters` reads back: real
+        units where Duet owns the parameter's meaning, and a scanned VST3's own
+        normalised 0..1 range where it does not.
     */
     void setPluginParameter (PluginRef plugin, std::string_view parameterId, double value);
 

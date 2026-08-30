@@ -607,7 +607,7 @@ namespace
             Json entry = Json::object();
             entry["paramId"] = parameter.parameterId;
 
-            if (plugin.builtin.has_value())
+            if (parameter.duetOwnsMeaning)
             {
                 entry["name"] = parameter.name;
                 entry["value"] = parameter.value;

@@ -68,14 +68,21 @@ inline constexpr const char* displayStringMethod = "the plugin's own display tex
     display text, whose meaning is the plugin's rather than Duet's, and which
     therefore crosses wrapped as an estimate.
 
+    Which parameters those are is the model's answer and not this module's, and a
+    hosted plugin's list is not all the vendor's: the dry and wet levels the
+    engine gives every plugin it hosts are Duet's own dependency speaking, so
+    they cross bare with a unit exactly as a built-in's parameters do.
+
     Buses are tracks: the master and every group are read through these same
     tools and are accepted wherever a track id is.
 
     A scanned plugin's display text is written into the run's estimate ledger by
     the same act that wraps it, so a run that read one is marked as based on
-    estimates exactly as a run handed a guessed key is. Given no ledger the text
-    still crosses wrapped and nothing is marked, which is what a Collaborator
-    with no ledger wired to it should say.
+    estimates exactly as a run handed a guessed key is. Nothing else in a chain
+    writes such a line: a run handed only the engine's own parameters is handed
+    no guess and is not marked. Given no ledger the text still crosses wrapped
+    and nothing is marked, which is what a Collaborator with no ledger wired to
+    it should say.
 
     Results are written stable content first and the content an edit moves last,
     which with this module's ordered JSON is the prompt-cache discipline the
