@@ -227,12 +227,51 @@ namespace
     }
 
     //==============================================================================
+    /** What a plugin answered when it was asked about its parameters, and
+        whether it answered at all.
+
+        Asking a hosted plugin what a value of its means is asking the plugin,
+        and a plugin is free to raise instead of answering (engine notes). One
+        that does is one link of one chain, so what it costs is that: the read
+        of that plugin fails, and every other plugin, every other track and
+        every other tool go on as they were. Nothing here decides what a caller
+        says about the failure — `get_plugin_chain` names the state and a track
+        list leaves the unreadable plugin's curves out — but this is the one
+        place the parameters of a plugin are read, so it is the only place such
+        a raise can come from.
+    */
+    struct PluginParameters
+    {
+        std::vector<model::PluginParameterInfo> held;
+        bool wereRead = true;
+    };
+
+    PluginParameters parametersOf (const Session& session, model::PluginRef plugin)
+    {
+        // Everything, and not what derives from `std::exception`: what a plugin
+        // throws is the plugin's to choose, nothing here reads the message, and
+        // one that chose a type of its own would otherwise be the raise that
+        // reached the message loop after all.
+        try
+        {
+            return { session.pluginParameters (plugin), true };
+        }
+        catch (...)
+        {
+            return { {}, false };
+        }
+    }
+
     /** Every curve this track actually has, in the order a lane list reads best:
         the fader, then the pan, then each plugin's parameters in chain order.
 
         A curve exists when it has points on it, which is also what makes it
         worth telling the Collaborator about: a parameter every plugin owns and
         nobody has drawn is not automation.
+
+        A plugin that will not say what parameters it has contributes none, and
+        the rest of the track's curves are answered without it: the fader and
+        the pan are the project's own, and another plugin's are that plugin's.
     */
     std::vector<model::AutomationTarget> automatedTargetsOf (const Session& session,
                                                              const ToolTrack& track)
@@ -249,7 +288,7 @@ namespace
         keepIfDrawn (model::AutomationTarget::trackPanOf (track.ref));
 
         for (const auto& plugin : track.plugins)
-            for (const auto& parameter : session.pluginParameters (plugin.plugin))
+            for (const auto& parameter : parametersOf (session, plugin.plugin).held)
                 keepIfDrawn (
                     model::AutomationTarget::parameterOf (plugin.plugin, parameter.parameterId));
 
@@ -275,7 +314,7 @@ namespace
             if (plugin.plugin == target.plugin)
                 pluginName = plugin.name;
 
-        for (const auto& parameter : session.pluginParameters (target.plugin))
+        for (const auto& parameter : parametersOf (session, target.plugin).held)
             if (parameter.parameterId == target.parameterId)
                 return pluginName + ": " + parameter.name;
 
@@ -594,7 +633,7 @@ namespace
             runId, pluginChainToolName, pluginId + "." + parameterId + ".displayString", estimate);
     }
 
-    Json describeParameters (const Session& session,
+    Json describeParameters (const std::vector<model::PluginParameterInfo>& held,
                              const model::PluginInfo& plugin,
                              EstimateLedger* ledger,
                              const std::string& runId)
@@ -602,7 +641,7 @@ namespace
         Json parameters = Json::array();
         const auto pluginId = toolId::forPlugin (plugin.plugin);
 
-        for (const auto& parameter : session.pluginParameters (plugin.plugin))
+        for (const auto& parameter : held)
         {
             Json entry = Json::object();
             entry["paramId"] = parameter.parameterId;
@@ -656,7 +695,17 @@ namespace
             entry["latencySamples"] =
                 static_cast<int> (std::llround (plugin.latencySeconds * latencySampleRate));
             entry["enabled"] = ! plugin.bypassed;
-            entry["parameters"] = describeParameters (session, plugin, ledger, runId);
+
+            // The second thing that can be wrong with a link in a chain, and
+            // not the first: this plugin is here and loaded, and it raised when
+            // it was asked what it has rather than answering. That costs its
+            // parameters and nothing else — the chain around it is read, the
+            // track it is on is read, and the run goes on — so the entry says
+            // that of itself and its parameter list is empty rather than short.
+            const auto read = parametersOf (session, plugin.plugin);
+
+            entry["parametersReadable"] = read.wereRead;
+            entry["parameters"] = describeParameters (read.held, plugin, ledger, runId);
             plugins.push_back (entry);
         }
 
@@ -682,11 +731,13 @@ RpcOutcome ProjectTools::read (const std::function<RpcOutcome (const model::Sess
     marshal (
         [&]
         {
-            // The read runs on the message thread, so a plugin that raises when
-            // it is asked about itself would raise there, with the DAW's own
-            // loop under it and nothing to catch it. What the hosting layer
-            // throws stops here and becomes the model's error result: the run
-            // goes on to its next call, and the producer keeps their session.
+            // The read runs on the message thread, so anything raising inside
+            // it would raise there, with the DAW's own loop under it and
+            // nothing to catch it. A hosted plugin asked what its values mean
+            // is the known way that happens, and `parametersOf` confines that
+            // one to the plugin it came from; this is the floor under
+            // everything else, and what it catches becomes the model's error
+            // result rather than the end of the session.
             try
             {
                 outcome = body (session);
@@ -694,6 +745,11 @@ RpcOutcome ProjectTools::read (const std::function<RpcOutcome (const model::Sess
             catch (const std::exception& failure)
             {
                 outcome = RpcOutcome::failure (rpcError::internalError, failure.what());
+            }
+            catch (...)
+            {
+                outcome =
+                    RpcOutcome::failure (rpcError::internalError, "the project could not be read");
             }
         });
 

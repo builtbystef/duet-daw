@@ -997,6 +997,9 @@ that raises from `getText` once a marker file sits beside its bundle. The
 
 **Duet.** Project reads for the Tool Vocabulary run on the message thread, so an
 exception from there would have the DAW's own loop under it and nothing to catch
-it. `ProjectTools::read` catches inside the marshalled read and answers the
-model with an error result, so a hostile plugin costs a tool call rather than
-the session.
+it. The one place the vocabulary reads a plugin's parameters catches, so a
+plugin that raises costs its own parameters and nothing else: it is in the chain
+with `parametersReadable: false`, and the plugins around it, its track's other
+curves and every other track are answered as they always were (`qf9e9h`).
+`ProjectTools::read` still catches around the whole read, as the floor under
+anything else that could raise there.

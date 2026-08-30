@@ -73,6 +73,12 @@ inline constexpr const char* displayStringMethod = "the plugin's own display tex
     engine gives every plugin it hosts are Duet's own dependency speaking, so
     they cross bare with a unit exactly as a built-in's parameters do.
 
+    A plugin is free to raise rather than answer what its values mean, and one
+    that does costs its own parameters and nothing more: it is in the chain in
+    its place, with what it is and where it sits, saying of itself that its
+    parameters could not be read; the plugins around it are read, its track's
+    other curves are read, and every other track answers as it always did.
+
     Buses are tracks: the master and every group are read through these same
     tools and are accepted wherever a track id is.
 

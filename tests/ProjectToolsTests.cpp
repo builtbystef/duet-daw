@@ -78,6 +78,9 @@ BassProject buildBassProject (Session& session)
 /** The name the good VST3 fixture answers to, which is how a scan finds it. */
 constexpr const char* goodFixtureName = "Duet Good VST3 Fixture";
 
+/** And the name of the one that raises when it is asked what a value means. */
+constexpr const char* raisingFixtureName = "Duet Raising VST3 Fixture";
+
 /** The parameters of one chain entry that carry the vendor's own meaning.
 
     The engine gives every plugin Duet hosts two parameters of its own, so a
@@ -1147,14 +1150,13 @@ TEST_CASE ("the engine's own parameters write no line into the run's estimate le
     }
 }
 
-TEST_CASE ("a hosted plugin that raises when read is an error result the run survives", "[collab]")
+TEST_CASE ("a hosted plugin that raises when read is confined to its own chain entry", "[collab]")
 {
     const TempProject project;
     Session session { project.editFile() };
 
     const auto bundle = copyVst3Fixture (DUET_RAISING_VST3_FIXTURE, project.folder() / "vst3");
-    const auto fixture =
-        scanVst3Fixture (session, bundle.parent_path(), "Duet Raising VST3 Fixture");
+    const auto fixture = scanVst3Fixture (session, bundle.parent_path(), raisingFixtureName);
 
     TrackRef track = duet::model::noTrack;
 
@@ -1163,6 +1165,7 @@ TEST_CASE ("a hosted plugin that raises when read is an error result the run sur
                            {
                                track = ops.createTrack (TrackKind::audio, "Tone");
                                ops.addPlugin (track, fixture.identifier, 0);
+                               ops.addPlugin (track, BuiltinPlugin::eq, 1);
                            });
 
     // The plugin is hosted and behaving, and turns hostile only now: what is
@@ -1176,15 +1179,82 @@ TEST_CASE ("a hosted plugin that raises when read is an error result the run sur
 
     // The run reached its ending, which is the whole of it: the read raised on
     // the message thread, and the thread that would have carried the raise into
-    // the DAW answered the model with an error instead.
+    // the DAW confined it to the plugin that raised instead.
     REQUIRE (run.finished());
 
-    REQUIRE (run.error (0).at ("code") == duet::collab::rpcError::internalError);
-    REQUIRE_THAT (
-        run.error (0).at ("message").get<std::string>(),
-        Catch::Matchers::ContainsSubstring ("the fixture was asked what its value means"));
-    REQUIRE (run.result (0).empty());
+    const auto& plugins = run.result (0).at ("plugins");
+
+    // The chain is still a chain: both links, in the producer's order, and the
+    // one that would not answer says that of itself rather than of the call.
+    REQUIRE (plugins.size() == 2);
+
+    REQUIRE (plugins.at (0).at ("name") == raisingFixtureName);
+    REQUIRE (plugins.at (0).at ("available") == true);
+    REQUIRE (plugins.at (0).at ("parametersReadable") == false);
+    REQUIRE (plugins.at (0).at ("parameters").empty());
+
+    REQUIRE (plugins.at (1).at ("name") == "4-Band Equaliser");
+    REQUIRE (plugins.at (1).at ("parametersReadable") == true);
+    REQUIRE (! plugins.at (1).at ("parameters").empty());
 
     // And the vocabulary still answers, which is what the run continuing means.
     REQUIRE (run.result (1).contains ("tempoBpm"));
+}
+
+TEST_CASE ("the track list answers for a project holding a plugin that raises when read",
+           "[collab]")
+{
+    const TempProject project;
+    Session session { project.editFile() };
+
+    const auto bundle = copyVst3Fixture (DUET_RAISING_VST3_FIXTURE, project.folder() / "vst3");
+    const auto fixture = scanVst3Fixture (session, bundle.parent_path(), raisingFixtureName);
+
+    const auto built = buildBassProject (session);
+    TrackRef tone = duet::model::noTrack;
+
+    session.performAction ("Insert the fixture",
+                           [&] (auto& ops)
+                           {
+                               tone = ops.createTrack (TrackKind::audio, "Tone");
+                               ops.addPlugin (tone, fixture.identifier, 0);
+                               ops.setTrackVolumeDb (tone, -3.0);
+                               ops.setAutomationPoints (AutomationTarget::trackPanOf (tone),
+                                                        { AutomationPoint { 0.0, -1.0, 0.0 },
+                                                          AutomationPoint { 4.0, 1.0, 0.0 } });
+                           });
+
+    std::ofstream { bundle / "raise-on-read.txt" } << "raise\n";
+
+    const ToolRun run {
+        session, Json::array ({ toolCall ("list_tracks"), toolCall ("get_automation", tone) })
+    };
+
+    REQUIRE (run.finished());
+
+    // Every track, not every track but that one: the list is what tells the
+    // Collaborator what a project is made of, and one hostile plugin on one
+    // track is not an answer the other tracks deserve to lose.
+    const auto bass = trackEntry (run.result (0), built.bass);
+
+    REQUIRE (bass.at ("pluginNames") == Json::array ({ "4OSC", "4-Band Equaliser" }));
+    REQUIRE (bass.at ("automatedParameters") == Json::array ({ "volume" }));
+
+    const auto entry = trackEntry (run.result (0), tone);
+
+    // The plugin is on the track and named there, its own curves are the only
+    // ones missing, and the curves the project itself owns are still answered.
+    REQUIRE (entry.at ("pluginNames") == Json::array ({ raisingFixtureName }));
+    REQUIRE (entry.at ("automatedParameters") == Json::array ({ "pan" }));
+    REQUIRE_THAT (entry.at ("mixer").at ("volumeDb").get<double>(),
+                  WithinAbs (-3.0, decibelTolerance));
+
+    // The lanes read the same way, since it is the same question asked in more
+    // detail: the curve the producer drew, with its points, and nothing about
+    // the plugin that would not say what it has.
+    const auto& lanes = run.result (1).at ("lanes");
+
+    REQUIRE (lanes.size() == 1);
+    REQUIRE (lanes.at (0).at ("target").at ("kind") == "pan");
+    REQUIRE (lanes.at (0).at ("points").size() == 2);
 }

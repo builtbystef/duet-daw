@@ -306,7 +306,9 @@ export const vocabulary: ToolDeclaration[] = [
             "wet level that are Duet's own and not the vendor's — they are the two with a name and a unit rather " +
             "than a vendorName, they are in decibels, and they set how much of that plugin's output is heard. " +
             "A plugin the project names and this machine does not have is in the chain with available false: it " +
-            "is part of the sound the producer is asking about, and it is never left out quietly.",
+            "is part of the sound the producer is asking about, and it is never left out quietly. A plugin that " +
+            "is loaded and refused to say what parameters it has is in the chain with parametersReadable false " +
+            "and no parameters: what it is and where it sits are known, and what it is set to is not.",
         parameters: Type.Object({ trackId }),
     },
     {
