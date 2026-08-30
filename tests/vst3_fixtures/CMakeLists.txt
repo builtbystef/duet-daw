@@ -33,3 +33,9 @@ duet_add_vst3_fixture(
     "Duet Crashing VST3 Fixture"
     DcFx
     CrashingPlugin.cpp)
+
+duet_add_vst3_fixture(
+    duet_raising_vst3_fixture
+    "Duet Raising VST3 Fixture"
+    DrFx
+    RaisingPlugin.cpp)

@@ -301,7 +301,9 @@ export const vocabulary: ToolDeclaration[] = [
             "A track's plugins in order, with their parameters. A built-in plugin's parameters are Duet's own, so " +
             "their names, units and values are facts. A scanned plugin's are the plugin's: the normalised 0..1 " +
             "value is a fact, and the text it displays for that value crosses as an estimate, because what it " +
-            "means is the plugin vendor's business and not Duet's.",
+            "means is the plugin vendor's business and not Duet's. A plugin the project names and this machine " +
+            "does not have is in the chain with available false: it is part of the sound the producer is asking " +
+            "about, and it is never left out quietly.",
         parameters: Type.Object({ trackId }),
     },
     {

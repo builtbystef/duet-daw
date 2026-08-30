@@ -191,7 +191,7 @@ struct ToolRunOptions
     duet::collab::ContentEstimates* estimated = nullptr;
 
     /** The ledger the service marks this run's commentary from, which is the
-        one the estimating tool writes to.
+        one the estimating and project-read tools write to.
     */
     duet::collab::EstimateLedger* ledger = nullptr;
 
@@ -218,7 +218,8 @@ public:
     }
 
     ToolRun (duet::model::Session& session, const Json& calls, ToolRunOptions options)
-        : tools (session, options.marshal), writes (session, options.marshal, options.ledger),
+        : tools (session, options.marshal, options.ledger),
+          writes (session, options.marshal, options.ledger),
           harness ("call-tools", std::vector<std::string> { calls.dump() })
     {
         tools.addTo (registry);

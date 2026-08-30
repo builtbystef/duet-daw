@@ -1,5 +1,6 @@
 #pragma once
 
+#include <duet/collab/Estimate.h>
 #include <duet/collab/ToolDispatch.h>
 
 #include <duet/model/Session.h>
@@ -50,6 +51,12 @@ namespace toolId
 */
 using ProjectReadMarshal = std::function<void (const std::function<void()>&)>;
 
+/** What the method of a wrapped display string says about itself: that the text
+    is the plugin's own, passed on exactly as the plugin wrote it, and that what
+    it means is the plugin's to say and not Duet's to know.
+*/
+inline constexpr const char* displayStringMethod = "the plugin's own display text, unaltered";
+
 /** The five project-read tools of the Tool Vocabulary, answered from the live
     project model.
 
@@ -64,19 +71,27 @@ using ProjectReadMarshal = std::function<void (const std::function<void()>&)>;
     Buses are tracks: the master and every group are read through these same
     tools and are accepted wherever a track id is.
 
+    A scanned plugin's display text is written into the run's estimate ledger by
+    the same act that wraps it, so a run that read one is marked as based on
+    estimates exactly as a run handed a guessed key is. Given no ledger the text
+    still crosses wrapped and nothing is marked, which is what a Collaborator
+    with no ledger wired to it should say.
+
     Results are written stable content first and the content an edit moves last,
     which with this module's ordered JSON is the prompt-cache discipline the
     spec asks for: a fader change invalidates the tail of a cached tool result
     rather than its middle. Nothing in a result is a timestamp, and the same
     project state produces the same bytes however long apart the two calls are.
 
-    The session and the marshal must both outlive this object, and this object
-    must outlive the registry it was added to.
+    The session, the marshal and the ledger must all outlive this object, and
+    this object must outlive the registry it was added to.
 */
 class ProjectTools
 {
 public:
-    ProjectTools (model::Session& projectSession, ProjectReadMarshal readMarshal);
+    ProjectTools (model::Session& projectSession,
+                  ProjectReadMarshal readMarshal,
+                  EstimateLedger* estimateLedger = nullptr);
 
     ~ProjectTools() = default;
 
@@ -95,5 +110,6 @@ private:
 
     model::Session& session;
     ProjectReadMarshal marshal;
+    EstimateLedger* ledger = nullptr;
 };
 } // namespace duet::collab

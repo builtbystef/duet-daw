@@ -130,7 +130,7 @@ void Collaborator::setSession (std::shared_ptr<duet::model::Session> openProject
         std::move (renderFolder),
         [this] (const std::string& runId) { return service.isRunInProgress (runId); });
 
-    taking->reads = std::make_unique<duet::collab::ProjectTools> (project, marshal);
+    taking->reads = std::make_unique<duet::collab::ProjectTools> (project, marshal, &ledger);
     taking->measured =
         std::make_unique<duet::collab::TrackAnalysis> (project, marshal, *taking->renders);
     taking->estimated = std::make_unique<duet::collab::ContentEstimates> (

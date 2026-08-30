@@ -1,9 +1,14 @@
 #include "ProjectToolsHarness.h"
 
+#include <duet/persistence/Project.h>
+
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
 
+#include <algorithm>
 #include <filesystem>
+#include <fstream>
 #include <functional>
 #include <mutex>
 #include <string>
@@ -68,6 +73,48 @@ BassProject buildBassProject (Session& session)
         });
 
     return built;
+}
+
+/** The name the good VST3 fixture answers to, which is how a scan finds it. */
+constexpr const char* goodFixtureName = "Duet Good VST3 Fixture";
+
+/** Copies a VST3 bundle into a directory of the project's own, so that a test
+    which takes the bundle away is taking away its own copy.
+*/
+std::filesystem::path copyVst3Fixture (const std::filesystem::path& fixture,
+                                       const std::filesystem::path& directory)
+{
+    std::filesystem::create_directories (directory);
+
+    const auto copy = directory / fixture.filename();
+    std::filesystem::copy (fixture,
+                           copy,
+                           std::filesystem::copy_options::recursive
+                               | std::filesystem::copy_options::overwrite_existing);
+
+    return copy;
+}
+
+/** Scans a directory and answers the description of the fixture in it.
+
+    A machine that cannot host VST3s at all — a CI runner with no plugin host —
+    skips rather than fails: what is being asserted is what Duet says about a
+    hosted plugin, and there is nothing to say where none can be hosted.
+*/
+duet::model::KnownPluginInfo scanVst3Fixture (Session& session,
+                                              const std::filesystem::path& directory,
+                                              const std::string& name)
+{
+    if (! session.canHostVst3() || ! session.scanVst3Plugins (directory).completed)
+        SKIP ("this build cannot scan VST3s");
+
+    const auto known = session.knownVst3Plugins();
+    const auto found = std::ranges::find (known, name, &duet::model::KnownPluginInfo::name);
+
+    if (found == known.end())
+        SKIP ("the VST3 fixture did not scan");
+
+    return *found;
 }
 } // namespace
 
@@ -668,34 +715,19 @@ TEST_CASE ("a tool result is the same bytes for the same project state, whenever
 TEST_CASE ("a scanned plugin's own words about its value cross the seam wrapped", "[collab]")
 {
     const TempProject project;
-    const auto pluginDirectory = project.folder() / "vst3";
-    std::filesystem::create_directory (pluginDirectory);
-    std::filesystem::copy (DUET_GOOD_VST3_FIXTURE,
-                           pluginDirectory
-                               / std::filesystem::path { DUET_GOOD_VST3_FIXTURE }.filename(),
-                           std::filesystem::copy_options::recursive
-                               | std::filesystem::copy_options::overwrite_existing);
-
     Session session { project.editFile() };
 
-    if (! session.canHostVst3() || ! session.scanVst3Plugins (pluginDirectory).completed)
-        SKIP ("this build cannot scan VST3s");
-
-    const auto known = session.knownVst3Plugins();
-    const auto scanned = std::find_if (known.begin(),
-                                       known.end(),
-                                       [] (const duet::model::KnownPluginInfo& plugin)
-                                       { return plugin.name == "Duet Good VST3 Fixture"; });
-
-    REQUIRE (scanned != known.end());
+    const auto bundle = copyVst3Fixture (DUET_GOOD_VST3_FIXTURE, project.folder() / "vst3");
+    const auto fixture = scanVst3Fixture (session, bundle.parent_path(), goodFixtureName);
 
     TrackRef track = duet::model::noTrack;
+    PluginRef hosted = duet::model::noPlugin;
 
     session.performAction ("Insert the fixture",
                            [&] (auto& ops)
                            {
                                track = ops.createTrack (TrackKind::audio, "Tone");
-                               ops.addPlugin (track, scanned->identifier, 0);
+                               hosted = ops.addPlugin (track, fixture.identifier, 0);
                            });
 
     const ToolRun run { session, Json::array ({ toolCall ("get_plugin_chain", track) }) };
@@ -718,9 +750,281 @@ TEST_CASE ("a scanned plugin's own words about its value cross the seam wrapped"
 
     REQUIRE (parameter.at ("normalizedValue").is_number());
     REQUIRE (parameter.at ("vendorName").is_string());
-    REQUIRE (parameter.at ("displayString").at ("source") == "estimated");
-    REQUIRE (parameter.at ("displayString").at ("value").is_string());
-    REQUIRE_FALSE (parameter.at ("displayString").at ("method").get<std::string>().empty());
-    REQUIRE (parameter.at ("displayString").at ("confidence").is_number());
+    REQUIRE (duet::testing::isAnEstimate (parameter.at ("displayString")));
     REQUIRE_FALSE (parameter.contains ("unit"));
+
+    // The plugin's own text, unaltered, and a method that says exactly that:
+    // what the model reads is what the plugin said, and what it means is the
+    // plugin's to say.
+    const auto held = session.pluginParameters (hosted);
+
+    REQUIRE (held.size() == parameters.size());
+    REQUIRE (parameter.at ("displayString").at ("value") == held.front().displayValue);
+    REQUIRE (parameter.at ("displayString").at ("method") == duet::collab::displayStringMethod);
+}
+
+TEST_CASE ("reading a scanned plugin's parameters marks the run, and reading built-ins does not",
+           "[collab]")
+{
+    const TempProject project;
+    Session session { project.editFile() };
+
+    const auto bundle = copyVst3Fixture (DUET_GOOD_VST3_FIXTURE, project.folder() / "vst3");
+    const auto fixture = scanVst3Fixture (session, bundle.parent_path(), goodFixtureName);
+
+    TrackRef hosting = duet::model::noTrack;
+    TrackRef ours = duet::model::noTrack;
+    PluginRef hosted = duet::model::noPlugin;
+
+    session.performAction ("Build both chains",
+                           [&] (auto& ops)
+                           {
+                               hosting = ops.createTrack (TrackKind::audio, "Tone");
+                               hosted = ops.addPlugin (hosting, fixture.identifier, 0);
+
+                               ours = ops.createTrack (TrackKind::audio, "Bass");
+                               ops.addPlugin (ours, BuiltinPlugin::eq, 0);
+                           });
+
+    duet::collab::EstimateLedger ledger;
+    duet::testing::ToolRunOptions options;
+    options.ledger = &ledger;
+
+    const ToolRun builtins { session,
+                             Json::array (
+                                 { toolCall ("get_plugin_chain", ours),
+                                   duet::testing::toolCommentary ("the EQ is doing it.") }),
+                             options };
+
+    REQUIRE (builtins.finished());
+    REQUIRE (builtins.markedCommentary().empty());
+    REQUIRE (ledger.entries (builtins.id()).empty());
+    REQUIRE_FALSE (ledger.basedOnEstimates (builtins.id()));
+
+    const ToolRun scanned { session,
+                            Json::array ({ duet::testing::toolCommentary ("before. "),
+                                           toolCall ("get_plugin_chain", hosting),
+                                           duet::testing::toolCommentary ("after.") }),
+                            options };
+
+    REQUIRE (scanned.finished());
+
+    // The plugin's own words about its value are a guess, so the run that was
+    // handed them is marked from there on, exactly as a guessed key marks one.
+    REQUIRE (scanned.commentary() == "before. after.");
+    REQUIRE (scanned.markedCommentary() == "after.");
+
+    const auto held = session.pluginParameters (hosted);
+    const auto entries = ledger.entries (scanned.id());
+
+    REQUIRE (entries.size() == held.size());
+    REQUIRE (entries.front().tool == "get_plugin_chain");
+    REQUIRE (entries.front().field
+             == duet::collab::toolId::forPlugin (hosted) + "." + held.front().parameterId
+                    + ".displayString");
+    REQUIRE (entries.front().estimate.method == duet::collab::displayStringMethod);
+    REQUIRE (entries.front().estimate.value == held.front().displayValue);
+
+    // What the ledger holds is what crossed the seam, so the two say the same
+    // thing about the same value.
+    REQUIRE (
+        duet::collab::wrapped (entries.front().estimate)
+        == scanned.result (0).at ("plugins").at (0).at ("parameters").at (0).at ("displayString"));
+}
+
+TEST_CASE ("a built-in and a hosted VST3 in one chain are each read in the terms Duet owns",
+           "[collab]")
+{
+    const TempProject project;
+    Session session { project.editFile() };
+
+    const auto bundle = copyVst3Fixture (DUET_GOOD_VST3_FIXTURE, project.folder() / "vst3");
+    const auto fixture = scanVst3Fixture (session, bundle.parent_path(), goodFixtureName);
+
+    TrackRef track = duet::model::noTrack;
+    PluginRef compressor = duet::model::noPlugin;
+    PluginRef hosted = duet::model::noPlugin;
+
+    session.performAction ("Build the chain",
+                           [&] (auto& ops)
+                           {
+                               track = ops.createTrack (TrackKind::audio, "Tone");
+                               compressor = ops.addPlugin (track, BuiltinPlugin::compressor, 0);
+                               hosted = ops.addPlugin (track, fixture.identifier, 1);
+
+                               ops.setPluginParameter (compressor, "ratio", 4.0);
+                           });
+
+    const ToolRun run { session, Json::array ({ toolCall ("get_plugin_chain", track) }) };
+
+    REQUIRE (run.finished());
+
+    const auto& plugins = run.result (0).at ("plugins");
+
+    REQUIRE (plugins.size() == 2);
+
+    const auto& ours = plugins.at (0);
+    const auto& theirs = plugins.at (1);
+
+    // Which kind of plugin each one is, said outright rather than left to be
+    // inferred from the shape of its parameters.
+    REQUIRE (ours.at ("pluginId") == duet::collab::toolId::forPlugin (compressor));
+    REQUIRE (ours.at ("name") == "Compressor");
+    REQUIRE (ours.at ("format") == "builtin");
+    REQUIRE (ours.at ("available") == true);
+    REQUIRE (ours.at ("latencySamples").is_number());
+
+    REQUIRE (theirs.at ("pluginId") == duet::collab::toolId::forPlugin (hosted));
+    REQUIRE (theirs.at ("name") == goodFixtureName);
+    REQUIRE (theirs.at ("format") == "vst3");
+    REQUIRE (theirs.at ("available") == true);
+    REQUIRE (theirs.at ("latencySamples").is_number());
+
+    // Duet ships the compressor, so every one of its numbers crosses bare, in
+    // the units the producer reads, and nothing about it anywhere is a guess.
+    REQUIRE_FALSE (duet::testing::holdsAnEstimate (ours));
+
+    const auto ratio = [&]
+    {
+        for (const auto& parameter : ours.at ("parameters"))
+            if (parameter.at ("paramId") == "ratio")
+                return parameter;
+
+        return Json::object();
+    }();
+
+    REQUIRE (ratio.at ("name").is_string());
+    REQUIRE (ratio.at ("unit") == ":1");
+    REQUIRE_THAT (ratio.at ("value").get<double>(), WithinAbs (4.0, 0.001));
+
+    // The fixture's meaning is its vendor's, so its parameter carries the
+    // vendor's own name, the plugin's own normalised number, and its own words
+    // about what that number means — wrapped, because the words are a guess.
+    const auto parameter = [&]
+    {
+        for (const auto& each : theirs.at ("parameters"))
+            if (each.at ("vendorName") == "Gain")
+                return each;
+
+        return Json::object();
+    }();
+
+    REQUIRE (parameter.at ("vendorName") == "Gain");
+    REQUIRE (parameter.at ("normalizedValue").get<double>() >= 0.0);
+    REQUIRE (parameter.at ("normalizedValue").get<double>() <= 1.0);
+    REQUIRE (duet::testing::isAnEstimate (parameter.at ("displayString")));
+
+    // The two shapes do not overlap: a vendor's parameter has no unit and no
+    // real-unit value, so nothing about it can be read as Duet's own.
+    REQUIRE_FALSE (parameter.contains ("unit"));
+    REQUIRE_FALSE (parameter.contains ("value"));
+    REQUIRE_FALSE (parameter.contains ("name"));
+}
+
+TEST_CASE ("a plugin the machine no longer has is in the chain, named and unavailable", "[collab]")
+{
+    const TempProject temp;
+    const auto projectFolder = temp.folder() / "project";
+    const auto bundle = copyVst3Fixture (DUET_GOOD_VST3_FIXTURE, temp.folder() / "vst3");
+
+    {
+        const auto made = duet::persistence::Project::create (projectFolder);
+
+        REQUIRE (made != nullptr);
+
+        auto& session = made->session();
+        const auto fixture = scanVst3Fixture (session, bundle.parent_path(), goodFixtureName);
+
+        session.performAction ("Build the chain",
+                               [&] (auto& ops)
+                               {
+                                   const auto track = ops.createTrack (TrackKind::audio, "Tone");
+                                   ops.addPlugin (track, fixture.identifier, 0);
+                                   ops.addPlugin (track, BuiltinPlugin::eq, 1);
+                               });
+
+        REQUIRE (made->save());
+    }
+
+    std::filesystem::remove_all (bundle);
+
+    const auto reopened = duet::persistence::Project::open (projectFolder);
+
+    REQUIRE (reopened != nullptr);
+
+    auto& session = reopened->session();
+    const auto track = session.tracks().back().track;
+
+    REQUIRE (session.track (track).plugins.front().missing);
+
+    // Back on disk before the tool call, and nothing may go and fetch it: a
+    // tool answers about the project as the producer left it, and loading a
+    // plugin is the producer's own act.
+    copyVst3Fixture (DUET_GOOD_VST3_FIXTURE, temp.folder() / "vst3");
+
+    const auto knownBefore = session.knownVst3Plugins().size();
+
+    const ToolRun run { session, Json::array ({ toolCall ("get_plugin_chain", track) }) };
+
+    REQUIRE (run.finished());
+
+    const auto& plugins = run.result (0).at ("plugins");
+
+    // Never omitted silently: a chain missing one of its links is a different
+    // chain, and the Collaborator is told which link and that it is not there.
+    REQUIRE (plugins.size() == 2);
+    REQUIRE (plugins.at (0).at ("name") == goodFixtureName);
+    REQUIRE (plugins.at (0).at ("format") == "vst3");
+    REQUIRE (plugins.at (0).at ("available") == false);
+
+    REQUIRE (plugins.at (1).at ("name") == "4-Band Equaliser");
+    REQUIRE (plugins.at (1).at ("available") == true);
+
+    // No scan and no load happened behind the call: the known list is what the
+    // scan left it, and the plugin the tool just reported is still the one the
+    // project opened with.
+    REQUIRE (session.knownVst3Plugins().size() == knownBefore);
+    REQUIRE (session.track (track).plugins.front().missing);
+}
+
+TEST_CASE ("a hosted plugin that raises when read is an error result the run survives", "[collab]")
+{
+    const TempProject project;
+    Session session { project.editFile() };
+
+    const auto bundle = copyVst3Fixture (DUET_RAISING_VST3_FIXTURE, project.folder() / "vst3");
+    const auto fixture =
+        scanVst3Fixture (session, bundle.parent_path(), "Duet Raising VST3 Fixture");
+
+    TrackRef track = duet::model::noTrack;
+
+    session.performAction ("Insert the fixture",
+                           [&] (auto& ops)
+                           {
+                               track = ops.createTrack (TrackKind::audio, "Tone");
+                               ops.addPlugin (track, fixture.identifier, 0);
+                           });
+
+    // The plugin is hosted and behaving, and turns hostile only now: what is
+    // asserted is a read failing on a plugin the producer already has in a
+    // chain, not a plugin that could never be loaded at all.
+    std::ofstream { bundle / "raise-on-read.txt" } << "raise\n";
+
+    const ToolRun run { session,
+                        Json::array ({ toolCall ("get_plugin_chain", track),
+                                       toolCall ("get_arrangement") }) };
+
+    // The run reached its ending, which is the whole of it: the read raised on
+    // the message thread, and the thread that would have carried the raise into
+    // the DAW answered the model with an error instead.
+    REQUIRE (run.finished());
+
+    REQUIRE (run.error (0).at ("code") == duet::collab::rpcError::internalError);
+    REQUIRE_THAT (
+        run.error (0).at ("message").get<std::string>(),
+        Catch::Matchers::ContainsSubstring ("the fixture was asked what its value means"));
+    REQUIRE (run.result (0).empty());
+
+    // And the vocabulary still answers, which is what the run continuing means.
+    REQUIRE (run.result (1).contains ("tempoBpm"));
 }

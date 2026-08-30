@@ -952,3 +952,48 @@ watched scan should run.
 timer, one plugin per tick, so the loop turns between plugins and the producer
 watches the scan rather than a frozen window. Nothing in Duet drives a scan from
 a worker thread, so nothing depends on the reply thread.
+
+### A hosted plugin's parameter list starts with two of the engine's own
+
+**The engine.** `ExternalPlugin` adds a dry and a wet level parameter of its own
+to every plugin it hosts, ahead of the ones the plugin declares, and
+`getAutomatableParameters` answers with all of them together. They are named
+"Dry Level" and "Wet Level" and their `valueToString` is the engine's, so a
+caller reading a hosted plugin's parameters cannot tell the engine's two from
+the vendor's by their shape.
+
+**Where.** `PluginWetDryAutomatableParam` in
+`plugins/external/tracktion_ExternalPlugin.cpp`, added in
+`ExternalPlugin::buildParameterTree`.
+
+**Proved.** `97ynt7`, whose worked example asked for the first parameter of the
+good VST3 fixture and was answered "Dry Level" rather than the fixture's "Gain".
+
+**Duet.** `get_plugin_chain` reports them as the vendor's, wrapped display
+string and all, which is one thing about them that is not true; `1mldqz` decides
+what to do instead. A test about a vendor's parameter looks it up by name rather
+than taking the first.
+
+### A hosted plugin's display text is fetched from the plugin, and can raise
+
+**The engine.** `ExternalAutomatableParameter::valueToString` calls the hosted
+plugin's own `getText`, which for a VST3 crosses the plugin boundary into
+`IEditController::getParamStringByValue`. Nothing on the way catches: a C++
+exception thrown inside the plugin unwinds back through JUCE's host wrapper and
+out of `Session::pluginParameters`, on whatever thread asked.
+
+**Where.** `ExternalAutomatableParameter::valueToString` in
+`plugins/external/tracktion_ExternalAutomatableParameter.h`;
+`VST3PluginInstance::Param::getText` in JUCE's
+`juce_VST3PluginFormatImpl.h`; `JuceVST3EditController`'s `Param::toString` in
+`juce_audio_plugin_client_VST3.cpp`.
+
+**Proved.** `97ynt7`, with `tests/vst3_fixtures/RaisingPlugin.cpp` — a fixture
+that raises from `getText` once a marker file sits beside its bundle. The
+`std::runtime_error` it throws arrived in the host with its message intact.
+
+**Duet.** Project reads for the Tool Vocabulary run on the message thread, so an
+exception from there would have the DAW's own loop under it and nothing to catch
+it. `ProjectTools::read` catches inside the marshalled read and answers the
+model with an error result, so a hostile plugin costs a tool call rather than
+the session.

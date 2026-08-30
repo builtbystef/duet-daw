@@ -1,14 +1,15 @@
 ---
 id: 97ynt7
 title: External plugin parameters as estimates in the plugin chain
-state: todo
+state: done
+assignee: claude
 priority: medium
 depends_on:
     - 2z0y5u
     - aty85a
 parent: js437t
 created: 2026-08-12T04:02:25Z
-updated: 2026-08-28T21:17:48Z
+updated: 2026-08-30T03:15:38Z
 ---
 
 ## What to build
@@ -47,3 +48,60 @@ is what answers with the wrapped value — wrapping and recording are one act �
 `ContentEstimates` shows the shape. `ProjectTools` needs the ledger passed in
 (`ToolRun` already carries one, `ToolRunOptions::ledger`), and a test that reads
 a chain holding one of the VST3 fixtures and asserts the run is marked.
+
+**claude** — 2026-08-30T03:15:38Z
+
+Built 2026-08-29. Every acceptance criterion is met and asserted at the protocol
+seam the spec names: a real service, a real project, and the test-double sidecar
+making the calls (`tests/ProjectToolsHarness.h`).
+
+## WHAT LANDED
+
+- `ProjectTools` takes an `EstimateLedger*`. A scanned plugin's display text is
+  now wrapped and recorded in one act — `EstimateLedger::record` is what answers
+  with the wrapper — so a run that read a hosted plugin's parameters is marked
+  as based on estimates exactly as a run handed a guessed key is. The ledger
+  line names the plugin and the parameter: `plugin-14.gain.displayString`. Given
+  no ledger the text still crosses wrapped and nothing is marked.
+- `duet::collab::displayStringMethod` is the method those wrappers carry, and it
+  says what the criterion asks it to say: "the plugin's own display text,
+  unaltered". A test asserts the wrapped value is byte-for-byte what
+  `Session::pluginParameters` read off the plugin.
+- Every chain entry carries `available`. A plugin the project names and the
+  machine does not have is in the chain, in order, with its name and
+  `available: false` — never omitted. The sidecar's `get_plugin_chain`
+  description tells the model what that means.
+- `ProjectTools::read` catches inside the marshalled read. The read runs on the
+  message thread, so an exception out of the hosting layer would have had the
+  DAW's own loop under it and nothing to catch it; it now becomes the model's
+  error result and the run goes on to its next call.
+- `tests/vst3_fixtures/RaisingPlugin.cpp` — a third VST3 fixture, well behaved
+  until a marker file is dropped beside its bundle, then raising from its
+  parameter's `getText`. That is what makes the criterion's scenario real: a
+  read failing on a plugin the producer already has in a chain, not one that
+  could never be loaded.
+
+## FACTS FOR A REVIEWER
+
+- The exception does cross the plugin boundary. `std::runtime_error` thrown
+  inside the fixture arrived in the host with its message intact, through JUCE's
+  VST3 wrapper on both sides — the test asserts the model was told the fixture's
+  own words. Recorded in ENGINE_NOTES.md.
+- Tracktion adds two parameters of its own — "Dry Level" and "Wet Level" — ahead
+  of the vendor's on every hosted plugin, and they are indistinguishable in
+  shape from the vendor's. So they cross in the external shape and write ledger
+  lines, which is wrong twice over: the name is the engine's and the display
+  text is the engine's. Published as 1mldqz; the worked example here looks the
+  vendor's parameter up by name rather than taking the first. Recorded in
+  ENGINE_NOTES.md.
+- The catch is around the whole read, so one raising plugin costs the whole
+  tool call — and `list_tracks` too, because `automatedTargetsOf` reads every
+  plugin's parameters. The criterion's floor is met (an error result, the run
+  survives, the DAW keeps working) and confining the failure to the plugin that
+  raised is a contract decision beyond it. Published as qf9e9h.
+- Chain order and a disabled plugin still listing its parameters were already
+  asserted by the built-in chain test from v5yhh1; nothing here changed them.
+- Every check was run over a full build: format clean, 558 tests pass, and the
+  lint sweep reports exactly one error, in `PluginScanDialog.cpp`, which landed
+  with e02ea08 and is untouched by this diff. Published as ssjy4l; `main` is red
+  on lint until it is fixed. This issue's own files lint clean.

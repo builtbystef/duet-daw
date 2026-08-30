@@ -94,13 +94,14 @@ target_link_libraries(duet_tests PRIVATE
     Catch2::Catch2)
 
 # The suite spawns the test-double sidecar, so it needs it built and needs to
-# know where it landed. It scans the two VST3 fixtures from their bundles for
+# know where it landed. It scans the VST3 fixtures from their bundles for
 # the same reason. Generator expressions are the only honest paths: each one
 # carries the configuration's name.
 add_dependencies(duet_tests
     duet_sidecar_double
     duet_good_vst3_fixture_VST3
     duet_crashing_vst3_fixture_VST3
+    duet_raising_vst3_fixture_VST3
     duet_realtime_probe_vst3_VST3)
 # The reserved-accent guard reads Duet's own sources: the rule it checks is
 # about the whole tree rather than about any one object's behaviour.
@@ -116,6 +117,7 @@ target_compile_definitions(duet_tests PRIVATE
     DUET_SIDECAR_DOUBLE="$<TARGET_FILE:duet_sidecar_double>"
     DUET_GOOD_VST3_FIXTURE="$<GENEX_EVAL:$<TARGET_PROPERTY:duet_good_vst3_fixture_VST3,JUCE_PLUGIN_ARTEFACT_FILE>>"
     DUET_CRASHING_VST3_FIXTURE="$<GENEX_EVAL:$<TARGET_PROPERTY:duet_crashing_vst3_fixture_VST3,JUCE_PLUGIN_ARTEFACT_FILE>>"
+    DUET_RAISING_VST3_FIXTURE="$<GENEX_EVAL:$<TARGET_PROPERTY:duet_raising_vst3_fixture_VST3,JUCE_PLUGIN_ARTEFACT_FILE>>"
     DUET_REALTIME_PROBE_VST3="$<GENEX_EVAL:$<TARGET_PROPERTY:duet_realtime_probe_vst3_VST3,JUCE_PLUGIN_ARTEFACT_FILE>>")
 
 # The real sidecar, when the machine has bun to build it with. Without it the

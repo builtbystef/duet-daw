@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <charconv>
 #include <cmath>
+#include <exception>
 #include <utility>
 
 namespace duet::collab
@@ -563,24 +564,43 @@ namespace
     }
 
     //==============================================================================
+    /** The name this tool answers to, which is also what its ledger lines say
+        handed the estimate over.
+    */
+    constexpr const char* pluginChainToolName = "get_plugin_chain";
+
     /** A scanned plugin's own display text, which says what its normalised
         number means in words the plugin chose.
 
         Duet owns the semantics of its built-ins and can hand their values over
         bare. It does not own a scanned plugin's, so the one thing that explains
         that plugin's number crosses the seam wrapped, and the Collaborator can
-        tell the two apart without being told (ADR 0002). It is not written into
-        the run's estimate ledger yet, which is the other half of this value
-        (issue 97ynt7).
+        tell the two apart without being told (ADR 0002). Wrapping it and
+        writing it into the run's ledger are one act, so a run cannot be handed
+        this guess without being marked by it.
     */
-    Json estimatedDisplayString (const std::string& text)
+    Json estimatedDisplayString (EstimateLedger* ledger,
+                                 const std::string& runId,
+                                 const std::string& pluginId,
+                                 const std::string& parameterId,
+                                 const std::string& text)
     {
-        return wrapped (Estimate { text, "the plugin's own display text", 0.5 });
+        const Estimate estimate { text, displayStringMethod, 0.5 };
+
+        if (ledger == nullptr)
+            return wrapped (estimate);
+
+        return ledger->record (
+            runId, pluginChainToolName, pluginId + "." + parameterId + ".displayString", estimate);
     }
 
-    Json describeParameters (const Session& session, const model::PluginInfo& plugin)
+    Json describeParameters (const Session& session,
+                             const model::PluginInfo& plugin,
+                             EstimateLedger* ledger,
+                             const std::string& runId)
     {
         Json parameters = Json::array();
+        const auto pluginId = toolId::forPlugin (plugin.plugin);
 
         for (const auto& parameter : session.pluginParameters (plugin.plugin))
         {
@@ -604,7 +624,8 @@ namespace
             {
                 entry["vendorName"] = parameter.name;
                 entry["normalizedValue"] = parameter.value;
-                entry["displayString"] = estimatedDisplayString (parameter.displayValue);
+                entry["displayString"] = estimatedDisplayString (
+                    ledger, runId, pluginId, parameter.parameterId, parameter.displayValue);
             }
 
             parameters.push_back (entry);
@@ -613,7 +634,10 @@ namespace
         return parameters;
     }
 
-    RpcOutcome getPluginChain (const Session& session, const ToolTrack& track)
+    RpcOutcome getPluginChain (const Session& session,
+                               const ToolTrack& track,
+                               EstimateLedger* ledger,
+                               const std::string& runId)
     {
         Json plugins = Json::array();
 
@@ -623,10 +647,16 @@ namespace
             entry["pluginId"] = toolId::forPlugin (plugin.plugin);
             entry["name"] = plugin.name;
             entry["format"] = plugin.builtin.has_value() ? "builtin" : "vst3";
+
+            // A plugin the project names and the machine does not have is in
+            // the chain and says so, because a chain missing one of its links
+            // is a different chain: what is not there shapes the sound the
+            // producer is asking about as surely as what is.
+            entry["available"] = ! plugin.missing;
             entry["latencySamples"] =
                 static_cast<int> (std::llround (plugin.latencySeconds * latencySampleRate));
             entry["enabled"] = ! plugin.bypassed;
-            entry["parameters"] = describeParameters (session, plugin);
+            entry["parameters"] = describeParameters (session, plugin, ledger, runId);
             plugins.push_back (entry);
         }
 
@@ -638,8 +668,10 @@ namespace
 } // namespace
 
 //==============================================================================
-ProjectTools::ProjectTools (model::Session& projectSession, ProjectReadMarshal readMarshal)
-    : session (projectSession), marshal (std::move (readMarshal))
+ProjectTools::ProjectTools (model::Session& projectSession,
+                            ProjectReadMarshal readMarshal,
+                            EstimateLedger* estimateLedger)
+    : session (projectSession), marshal (std::move (readMarshal)), ledger (estimateLedger)
 {
 }
 
@@ -647,7 +679,23 @@ RpcOutcome ProjectTools::read (const std::function<RpcOutcome (const model::Sess
 {
     auto outcome = RpcOutcome::failure (rpcError::internalError, "the project was never read");
 
-    marshal ([&] { outcome = body (session); });
+    marshal (
+        [&]
+        {
+            // The read runs on the message thread, so a plugin that raises when
+            // it is asked about itself would raise there, with the DAW's own
+            // loop under it and nothing to catch it. What the hosting layer
+            // throws stops here and becomes the model's error result: the run
+            // goes on to its next call, and the producer keeps their session.
+            try
+            {
+                outcome = body (session);
+            }
+            catch (const std::exception& failure)
+            {
+                outcome = RpcOutcome::failure (rpcError::internalError, failure.what());
+            }
+        });
 
     return outcome;
 }
@@ -702,8 +750,9 @@ void ProjectTools::addTo (ToolRegistry& registry)
                   onTrack ([] (const Session& project, const ToolTrack& track, const ToolCall&)
                            { return getAutomation (project, track); }));
 
-    registry.add ("get_plugin_chain",
-                  onTrack ([] (const Session& project, const ToolTrack& track, const ToolCall&)
-                           { return getPluginChain (project, track); }));
+    registry.add (
+        "get_plugin_chain",
+        onTrack ([this] (const Session& project, const ToolTrack& track, const ToolCall& call)
+                 { return getPluginChain (project, track, ledger, call.runId); }));
 }
 } // namespace duet::collab
