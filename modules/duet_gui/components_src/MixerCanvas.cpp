@@ -3,6 +3,7 @@
 #include <duet/gui/BrowserCanvas.h>
 #include <duet/gui/CollaboratorPainting.h>
 #include <duet/gui/GraphiteLookAndFeel.h>
+#include <duet/gui/Text.h>
 #include <duet/gui/Tokens.h>
 #include <duet/gui/Typography.h>
 
@@ -218,8 +219,10 @@ void MixerCanvas::paint (juce::Graphics& g)
                                 .removeFromTop (appearance.scaled (outputHeight))
                                 .reduced (4, 1);
         g.setColour (toJuce (appearance.colour (ColourToken::textMuted)));
-        g.drawFittedText (
-            strip.canRoute ? "Output v" : "Main Output", output, juce::Justification::centred, 1);
+        g.drawFittedText (strip.canRoute ? utf8 ("Output ▾") : juce::String { "Main Output" },
+                          output,
+                          juce::Justification::centred,
+                          1);
         const auto insert =
             stripBounds (index).removeFromBottom (appearance.scaled (insertHeight)).reduced (4, 1);
         g.drawText ("+ Insert", insert, juce::Justification::centred);

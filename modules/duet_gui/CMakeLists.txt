@@ -69,9 +69,25 @@ set_target_properties(duet_gui_fonts PROPERTIES
     INTERFACE_SYSTEM_INCLUDE_DIRECTORIES
         "$<TARGET_PROPERTY:duet_gui_fonts,INTERFACE_INCLUDE_DIRECTORIES>")
 
+# The Duet mark and wordmark, compiled in the same way the typeface is. The mark
+# is the charcoal D beside the Collaborator-teal play triangle; the wordmark is
+# the same pair spelling the product's name, for the About surface.
+juce_add_binary_data(duet_gui_brand
+    HEADER_NAME DuetBrand.h
+    NAMESPACE   DuetBrand
+    SOURCES
+        assets/brand/duet-mark.svg
+        assets/brand/duet-wordmark.svg)
+
+set_target_properties(duet_gui_brand PROPERTIES
+    POSITION_INDEPENDENT_CODE ON
+    INTERFACE_SYSTEM_INCLUDE_DIRECTORIES
+        "$<TARGET_PROPERTY:duet_gui_brand,INTERFACE_INCLUDE_DIRECTORIES>")
+
 add_library(duet_gui_components STATIC
     components_src/AcceleratedSurface.cpp
     components_src/ArrangementCanvas.cpp
+    components_src/Brand.cpp
     components_src/BrowserCanvas.cpp
     components_src/CollaboratorPainting.cpp
     components_src/CollaboratorPanelCanvas.cpp
@@ -97,4 +113,4 @@ target_link_libraries(duet_gui_components
     # what every surface is drawn on, and this is the way out for one that ever
     # stops holding.
     PUBLIC juce::juce_opengl
-    PRIVATE duet_gui_fonts duet::model_engine_access)
+    PRIVATE duet_gui_fonts duet_gui_brand duet::model_engine_access)

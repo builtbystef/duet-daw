@@ -670,7 +670,7 @@ private:
             auto area = section.bounds.reduced (padding, 0);
 
             g.setColour (toJuce (appearance.colour (ColourToken::textMuted)));
-            g.setFont (interFont (appearance.scaled (typography::eyebrow), true));
+            g.setFont (eyebrowFont (appearance.scaled (typography::eyebrow), true));
             g.drawText (section.heading,
                         area.removeFromTop (appearance.scaled (sectionHeaderHeight)),
                         juce::Justification::centredLeft);
@@ -947,6 +947,12 @@ void CollaboratorPanelCanvas::refresh()
     card->setVisible (running);
     composer.setEnabled (panel.composerEnabled() && ! setup);
     sendButton.setEnabled (panel.canSend() && panel.composerEnabled());
+
+    // The setup notice and button stand where the composer does, so the
+    // composer is hidden rather than left underneath, painting its background
+    // over the notice.
+    composer.setVisible (! setup);
+    sendButton.setVisible (! setup);
     setupButton.setVisible (setup);
 
     if (setup != shownSetup)
@@ -1042,17 +1048,43 @@ void CollaboratorPanelCanvas::paint (juce::Graphics& g)
 
     header.removeFromLeft (appearance.scaled (metrics::rowGap));
     g.setColour (toJuce (appearance.colour (ColourToken::textMuted)));
-    g.setFont (interFont (appearance.scaled (typography::eyebrow), true));
+    g.setFont (eyebrowFont (appearance.scaled (typography::eyebrow), true));
     g.drawText ("COLLABORATOR", header, juce::Justification::centredLeft);
+
+    // An empty conversation is a state worth a word: the badge says who lives
+    // here, and the line under it says the space is waiting rather than broken.
+    if (panel.conversation().empty() && panel.history().empty() && ! panel.taskRunning())
+    {
+        const auto empty = scroller.getBounds();
+        const auto badgeSide = static_cast<float> (appearance.scaled (26));
+        auto centre = empty.getCentre().toFloat();
+        centre.y -= badgeSide;
+
+        paintCollaboratorBadge (
+            g,
+            juce::Rectangle<float> { badgeSide, badgeSide }.withCentre (centre),
+            toJuce (appearance.colour (ColourToken::collaborator)).withAlpha (0.55F));
+
+        g.setColour (toJuce (appearance.colour (ColourToken::textMuted)));
+        g.setFont (interFont (appearance.scaled (typography::body)));
+        g.drawFittedText ("Your conversation with the Collaborator starts here",
+                          empty.withTrimmedTop (empty.getHeight() / 2)
+                              .withHeight (appearance.scaled (metrics::rowHeight * 2)),
+                          juce::Justification::centredTop,
+                          2);
+    }
 
     // Nothing set up yet is a state and not an error: what it says is what to do
     // about it, over the button that does it (spec js437t).
     if (! panel.setupRequired())
         return;
 
-    auto notice = setupButton.getBounds()
-                      .withY (setupButton.getY() - appearance.scaled (setupNoticeHeight))
-                      .withHeight (appearance.scaled (setupNoticeHeight));
+    // The notice reads across the whole composer row, above the button that
+    // answers it — the button's own bounds are only as wide as the button.
+    const auto notice = getLocalBounds()
+                            .reduced (appearance.scaled (metrics::panelPadding))
+                            .removeFromBottom (appearance.scaled (composerHeight))
+                            .withBottom (setupButton.getY() - appearance.scaled (2));
 
     g.setColour (toJuce (appearance.colour (ColourToken::textSecondary)));
     g.setFont (interFont (appearance.scaled (typography::body)));
@@ -1067,7 +1099,8 @@ void CollaboratorPanelCanvas::resized()
 
     // The composer is taken off the bottom before anything else, so that a
     // conversation of any length leaves it exactly where it was.
-    auto composerRow = area.removeFromBottom (appearance.scaled (composerHeight));
+    const auto wholeComposerRow = area.removeFromBottom (appearance.scaled (composerHeight));
+    auto composerRow = wholeComposerRow;
 
     sendButton.setBounds (composerRow.removeFromRight (appearance.scaled (sendButtonWidth))
                               .removeFromBottom (appearance.scaled (metrics::rowHeight)));
@@ -1075,9 +1108,13 @@ void CollaboratorPanelCanvas::resized()
     composer.setBounds (composerRow);
 
     // The way to the settings surface stands where the composer does, because
-    // with nothing set up the composer is not what the producer needs next.
-    setupButton.setBounds (composerRow.withSizeKeepingCentre (
-        appearance.scaled (setupButtonWidth), appearance.scaled (metrics::rowHeight)));
+    // with nothing set up the composer is not what the producer needs next. It
+    // sits low in the row so the notice above it has the room it needs.
+    setupButton.setBounds (
+        wholeComposerRow
+            .withTrimmedTop (wholeComposerRow.getHeight() - appearance.scaled (metrics::rowHeight))
+            .withSizeKeepingCentre (appearance.scaled (setupButtonWidth),
+                                    appearance.scaled (metrics::rowHeight)));
 
     area.removeFromBottom (appearance.scaled (metrics::rowGap));
     layOutQuickPrompts();

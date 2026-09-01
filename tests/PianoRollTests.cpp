@@ -94,33 +94,117 @@ TEST_CASE ("a note drag moves pitch and snapped time in one Action with Alt bypa
     OpenRoll open;
     const auto note = open.add (60, 1.0, 1.0, 100);
     open.view.setGridSize (GridSize::eighth);
-    open.roll.beginNoteGesture (note, NoteGestureKind::move);
+    open.roll.beginNoteGesture (note, NoteGestureKind::move, 1.0, 60);
     open.roll.updateNoteGesture (1.62, 64, false);
     REQUIRE (open.roll.completeNoteGesture());
     REQUIRE_THAT (open.note (note).startBeats, WithinAbs (1.5, 1e-9));
     REQUIRE (open.note (note).pitch == 64);
     REQUIRE (open.session.undoNames().front() == "Move Note");
 
-    open.roll.beginNoteGesture (note, NoteGestureKind::move);
+    open.roll.beginNoteGesture (note, NoteGestureKind::move, 1.5, 64);
     open.roll.updateNoteGesture (2.37, 65, true);
     REQUIRE (open.roll.completeNoteGesture());
     REQUIRE_THAT (open.note (note).startBeats, WithinAbs (2.37, 1e-9));
+}
+
+TEST_CASE ("a drag keeps hold of where in the note it grabbed")
+{
+    OpenRoll open;
+    const auto note = open.add (60, 2.0, 2.0, 100);
+
+    // Grabbed near its middle and carried 1.4 beats to the right: the note goes
+    // where the drag carried it — one whole cell — and not to the pointer's own
+    // cell, which by then is two cells over.
+    open.roll.beginNoteGesture (note, NoteGestureKind::move, 2.9, 60);
+    open.roll.updateNoteGesture (4.3, 58, false);
+
+    SECTION ("the drawing follows the drag before anything is committed")
+    {
+        const auto drawings = open.roll.notes();
+        REQUIRE (drawings.size() == 1);
+        REQUIRE_THAT (drawings.front().startBeats, WithinAbs (3.0, 1e-9));
+        REQUIRE (drawings.front().pitch == 58);
+        REQUIRE_THAT (drawings.front().lengthBeats, WithinAbs (2.0, 1e-9));
+    }
+
+    SECTION ("letting go lands the note exactly where the drawing stood")
+    {
+        REQUIRE (open.roll.completeNoteGesture());
+        REQUIRE_THAT (open.note (note).startBeats, WithinAbs (3.0, 1e-9));
+        REQUIRE (open.note (note).pitch == 58);
+    }
+}
+
+TEST_CASE ("a move carries the whole selection in one Action")
+{
+    OpenRoll open;
+    const auto low = open.add (60, 0.0, 1.0, 100);
+    const auto high = open.add (64, 2.0, 1.0, 100);
+    open.roll.selectNotes ({ low, high }, false);
+
+    open.roll.beginNoteGesture (low, NoteGestureKind::move, 0.2, 60);
+    open.roll.updateNoteGesture (1.2, 62, false);
+
+    SECTION ("both drawings move together before the drop")
+    {
+        for (const auto& drawing : open.roll.notes())
+        {
+            if (drawing.note == low)
+            {
+                REQUIRE_THAT (drawing.startBeats, WithinAbs (1.0, 1e-9));
+                REQUIRE (drawing.pitch == 62);
+            }
+            else
+            {
+                REQUIRE_THAT (drawing.startBeats, WithinAbs (3.0, 1e-9));
+                REQUIRE (drawing.pitch == 66);
+            }
+        }
+    }
+
+    SECTION ("the drop is one undoable Action over both notes")
+    {
+        const auto before = open.session.undoNames().size();
+        REQUIRE (open.roll.completeNoteGesture());
+        REQUIRE (open.session.undoNames().size() == before + 1);
+        REQUIRE (open.session.undoNames().front() == "Move Notes");
+        REQUIRE_THAT (open.note (low).startBeats, WithinAbs (1.0, 1e-9));
+        REQUIRE (open.note (low).pitch == 62);
+        REQUIRE_THAT (open.note (high).startBeats, WithinAbs (3.0, 1e-9));
+        REQUIRE (open.note (high).pitch == 66);
+    }
 }
 
 TEST_CASE ("a note right edge stays positive and resizes in one Action")
 {
     OpenRoll open;
     const auto note = open.add (60, 1.0, 1.0, 100);
-    open.roll.beginNoteGesture (note, NoteGestureKind::resizeRight);
+    open.roll.beginNoteGesture (note, NoteGestureKind::resizeRight, 2.0, 60);
     open.roll.updateNoteGesture (2.6, 60, false);
+
+    // The pulled edge is visible where it will land before the mouse is let go.
+    REQUIRE_THAT (open.roll.notes().front().lengthBeats, WithinAbs (2.0, 1e-9));
+
     REQUIRE (open.roll.completeNoteGesture());
     REQUIRE (open.note (note).lengthBeats == 2.0);
     REQUIRE (open.session.undoNames().front() == "Resize Note");
 
-    open.roll.beginNoteGesture (note, NoteGestureKind::resizeRight);
+    open.roll.beginNoteGesture (note, NoteGestureKind::resizeRight, 3.0, 60);
     open.roll.updateNoteGesture (-100.0, 60, false);
     REQUIRE (open.roll.completeNoteGesture());
     REQUIRE (open.note (note).lengthBeats > 0.0);
+}
+
+TEST_CASE ("a new note lands in the grid cell the click is in, never the next one")
+{
+    OpenRoll open;
+    open.roll.setNewNoteLengthBeats (1.0);
+
+    // Past the cell's midpoint, still inside the cell: rounding to the nearest
+    // line would put the note one cell late.
+    const auto note = open.roll.addNote (60, 2.7);
+
+    REQUIRE_THAT (open.note (note).startBeats, WithinAbs (2.0, 1e-9));
 }
 
 TEST_CASE ("velocity bars scale the selected notes together and clamp MIDI velocity")
@@ -212,4 +296,46 @@ TEST_CASE ("piano-roll zoom uses shared horizontal view and persisted key height
     REQUIRE_THAT (reopened.hZoomPxPerBeat(), WithinAbs (80.0, 1e-9));
     REQUIRE (reopened.pianoRollKeyHeightPx() == 18);
     REQUIRE (reopened.pianoRollVScrollPx() == open.view.pianoRollVScrollPx());
+}
+
+TEST_CASE ("the roll ends exactly at its octaves once it knows its height")
+{
+    OpenRoll open;
+    open.roll.setKeyHeightPx (10);
+    open.roll.setHeightPx (400);
+
+    SECTION ("scrolling down stops where the lowest pitch meets the bottom edge")
+    {
+        open.roll.scrollVertically (1000000);
+
+        const auto rows = open.roll.rows();
+        REQUIRE (rows.back().pitch == PianoRoll::minimumPitch);
+        REQUIRE (rows.back().y + rows.back().height == 400);
+    }
+
+    SECTION ("scrolling up stops where the highest pitch meets the top edge")
+    {
+        open.roll.scrollVertically (-1000000);
+
+        const auto rows = open.roll.rows();
+        REQUIRE (rows.front().pitch == PianoRoll::maximumPitch);
+        REQUIRE (rows.front().y == 0);
+    }
+
+    SECTION ("zooming out pulls a scroll that pointed past the last octave back in")
+    {
+        open.roll.scrollVertically (1000000);
+        open.roll.verticalZoom (0.6);
+
+        const auto rows = open.roll.rows();
+        REQUIRE (rows.back().y + rows.back().height == 400);
+    }
+
+    SECTION ("a roll shorter than its window starts at the top and has nowhere to scroll")
+    {
+        open.roll.setHeightPx (2000);
+        open.roll.scrollVertically (500);
+
+        REQUIRE (open.roll.rows().front().y == 0);
+    }
 }

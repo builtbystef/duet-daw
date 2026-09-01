@@ -160,7 +160,7 @@ void BrowserCanvas::paint (juce::Graphics& g)
         if (row.isSection)
         {
             g.setColour (toJuce (appearance.colour (ColourToken::textMuted)));
-            g.setFont (interFont (appearance.scaled (typography::eyebrow)));
+            g.setFont (eyebrowFont (appearance.scaled (typography::eyebrow)));
             g.drawText ((row.expanded ? utf8 ("▾ ") : utf8 ("▸ ")) + juce::String { row.name },
                         bounds,
                         juce::Justification::centredLeft);
@@ -177,6 +177,17 @@ void BrowserCanvas::paint (juce::Graphics& g)
         g.setColour (toJuce (appearance.colour (row.favourite ? ColourToken::textPrimary
                                                               : ColourToken::textDisabled)));
         g.drawText (row.favourite ? utf8 ("★") : utf8 ("☆"), star, juce::Justification::centred);
+    }
+
+    // A search that matches nothing says so; silence would read as a broken
+    // dock rather than an empty answer.
+    if (rows.empty() && ! browser.search().empty())
+    {
+        g.setColour (toJuce (appearance.colour (ColourToken::textMuted)));
+        g.setFont (interFont (appearance.scaled (typography::body)));
+        g.drawText ("Nothing matches this search",
+                    list.withHeight (appearance.scaled (metrics::rowHeight * 3)),
+                    juce::Justification::centred);
     }
 }
 

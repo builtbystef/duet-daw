@@ -131,6 +131,78 @@ TEST_CASE ("a dock collapses and reopens at the size it had")
              == arrangementWithTheBrowserOpen);
 }
 
+TEST_CASE ("the docked panel sits between the docks rather than across them")
+{
+    OpenShell open;
+
+    const auto panel = open.surface (duet::gui::surfaceId::bottomPanel).getBounds();
+
+    REQUIRE (panel.getX() == open.surface (duet::gui::surfaceId::browser).getRight());
+    REQUIRE (panel.getRight() == open.surface (duet::gui::surfaceId::collaborator).getX());
+    REQUIRE (panel.getBottom() == 980);
+    REQUIRE (open.surface (duet::gui::surfaceId::browser).getBottom() == 980);
+    REQUIRE (open.surface (duet::gui::surfaceId::collaborator).getBottom() == 980);
+
+    SECTION ("closing a dock hands the docked panel its room, out to the window's edge")
+    {
+        open.shell.perform (Command::toggleBrowser);
+
+        REQUIRE (open.surface (duet::gui::surfaceId::bottomPanel).getX() == 0);
+    }
+}
+
+TEST_CASE ("the maximized panel takes the arrangement's room and stops at the docks")
+{
+    OpenShell open;
+
+    const auto docked = open.surface (duet::gui::surfaceId::bottomPanel).getBounds();
+    const auto arrangementBefore = open.surface (duet::gui::surfaceId::arrangement).getBounds();
+
+    open.shell.perform (Command::toggleBottomMaximized);
+
+    REQUIRE (open.view.bottomMaximized());
+    REQUIRE_FALSE (open.surface (duet::gui::surfaceId::arrangement).isVisible());
+
+    const auto panel = open.surface (duet::gui::surfaceId::bottomPanel).getBounds();
+
+    REQUIRE (panel.getY() == arrangementBefore.getY());
+    REQUIRE (panel.getBottom() == 980);
+    REQUIRE (panel.getX() == open.surface (duet::gui::surfaceId::browser).getRight());
+    REQUIRE (panel.getRight() == open.surface (duet::gui::surfaceId::collaborator).getX());
+    REQUIRE (open.surface (duet::gui::surfaceId::browser).getBottom() == 980);
+
+    SECTION ("closing a dock hands the maximized panel its room, out to the window's edge")
+    {
+        open.shell.perform (Command::toggleBrowser);
+
+        REQUIRE (open.surface (duet::gui::surfaceId::bottomPanel).getX() == 0);
+    }
+
+    SECTION ("restoring puts the panel back at its docked height, and the arrangement back")
+    {
+        open.shell.perform (Command::toggleBottomMaximized);
+
+        REQUIRE_FALSE (open.view.bottomMaximized());
+        REQUIRE (open.surface (duet::gui::surfaceId::bottomPanel).getBounds() == docked);
+        REQUIRE (open.surface (duet::gui::surfaceId::arrangement).isVisible());
+        REQUIRE (open.surface (duet::gui::surfaceId::arrangement).getBounds() == arrangementBefore);
+    }
+}
+
+TEST_CASE ("maximizing a closed panel opens it maximized")
+{
+    OpenShell open;
+
+    open.shell.perform (Command::toggleBottomPanel);
+
+    REQUIRE_FALSE (open.surface (duet::gui::surfaceId::bottomPanel).isVisible());
+
+    open.shell.perform (Command::toggleBottomMaximized);
+
+    REQUIRE (open.surface (duet::gui::surfaceId::bottomPanel).isVisible());
+    REQUIRE (open.view.bottomMaximized());
+}
+
 TEST_CASE ("switching the bottom tab lays the newly shown surface out, bounds or no bounds")
 {
     OpenShell open;

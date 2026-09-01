@@ -50,18 +50,17 @@ namespace surfaceId
     A transport strip across the top, the arrangement in the centre, the browser
     docked left and the Collaborator docked right, and a resizable, collapsible
     bottom panel holding the Piano Roll and the Mixer. A draggable divider
-    separates each dock from the arrangement. One "Duet" button in the transport
-    strip opens the app menu, which is what this interface has instead of a menu
-    bar; plugin editors will be the only floating windows, and nothing tears off
-    (spec 535bbo).
+    separates each dock from the arrangement, the strip's right end carries a
+    toggle for each of the three, and the panel can be maximized into the whole
+    of the arrangement's room. The Duet mark in the transport strip opens the
+    app menu, which is what this interface has instead of a menu bar; plugin
+    editors will be the only floating windows, and nothing tears off (spec
+    535bbo).
 
     What the shell shows is what the view state says, and every gesture that
     changes the layout goes through the view state rather than around it — that
     is what makes the layout the project's, restored when it reopens, and what
     keeps it out of the producer's undo history.
-
-    The docked surfaces are empty until their own slices fill them in; the
-    arrangement is the first that is not.
 */
 class MainShell final : public juce::Component,
                         public juce::DragAndDropContainer,
@@ -206,6 +205,13 @@ private:
 
     void appearanceChanged() override;
     void showDuetMenu();
+    void refreshDuetButton();
+
+    /** Shows one engine notice as a transient line low in the window, replacing
+        whatever notice was up: the engine's word reaches the producer without a
+        dialog, and without the default bubble pinned to the mouse.
+    */
+    void showEngineNotice (const std::string& message);
 
     /** What an "Ask Collaborator" entry does once the surface it was chosen on
         has said what the ask is about: the panel opens if it was closed and the
@@ -243,7 +249,14 @@ private:
     */
     Suggestions suggestions;
 
-    juce::TextButton duetButton { "Duet" };
+    juce::DrawableButton duetButton { "Duet menu", juce::DrawableButton::ImageFitted };
+    juce::Label engineNotice;
+
+    /** Which showing of the notice the hide timer belongs to, so a notice that
+        replaced an earlier one is not taken down on the earlier one's clock.
+    */
+    int engineNoticeGeneration = 0;
+
     std::unique_ptr<TransportStrip> transportStrip;
     std::unique_ptr<ArrangementCanvas> arrangement;
     std::unique_ptr<BrowserCanvas> browserDock;

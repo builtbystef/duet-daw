@@ -138,6 +138,10 @@ public:
                  &normaliseButton, &progress,         &status,      &exportButton, &cancelButton })
             addAndMakeVisible (*child);
 
+        // The bar means an export is running; an idle dialog has no use for an
+        // empty one.
+        progress.setVisible (false);
+
         appearance.addListener (this);
         setWantsKeyboardFocus (true);
         setSize (appearance.scaled (windowWidth), appearance.scaled (windowHeight));
@@ -211,6 +215,7 @@ public:
         howFar = 0.0;
         exportButton.setEnabled (false);
         cancelButton.setEnabled (true);
+        progress.setVisible (true);
         status.setText ("Exporting...", juce::dontSendNotification);
         startTimer (progressRefreshMs);
     }
@@ -231,6 +236,7 @@ private:
         stopTimer();
         exportButton.setEnabled (true);
         cancelButton.setEnabled (false);
+        progress.setVisible (false);
 
         switch (model.state())
         {

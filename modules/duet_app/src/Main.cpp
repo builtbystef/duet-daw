@@ -10,6 +10,7 @@
 #include <duet/gui/Appearance.h>
 #include <duet/gui/AudioMidiSettings.h>
 #include <duet/gui/AutosaveSettings.h>
+#include <duet/gui/Brand.h>
 #include <duet/gui/Export.h>
 #include <duet/gui/ExportDialog.h>
 #include <duet/gui/GraphiteLookAndFeel.h>
@@ -22,6 +23,7 @@
 #include <duet/gui/SessionClock.h>
 #include <duet/gui/SettingsWindow.h>
 #include <duet/gui/Text.h>
+#include <duet/gui/Typography.h>
 #include <duet/gui/ViewState.h>
 #include <duet/gui/WindowGeometry.h>
 
@@ -73,6 +75,7 @@ namespace
         openSettings,
         openAudioMidiSettings,
         scanPlugins,
+        aboutDuet,
         firstRecentProject = 200
     };
 
@@ -143,6 +146,114 @@ namespace
         marshal (work);
     }
 } // namespace
+
+/** The About window: the wordmark over the version and the licence.
+
+    The one surface inside the application that carries the brand's own colours
+    — everywhere else the teal keeps its reserved meaning and the chrome stays
+    within the Graphite palette.
+*/
+class AboutWindow final : public juce::DocumentWindow
+{
+public:
+    AboutWindow (duet::gui::Appearance& lookAndScale, std::function<void()> onClose)
+        : DocumentWindow ("About Duet",
+                          juce::LookAndFeel::getDefaultLookAndFeel().findColour (
+                              juce::ResizableWindow::backgroundColourId),
+                          closeButton),
+          dismissed (std::move (onClose))
+    {
+        setUsingNativeTitleBar (true);
+
+        auto content = std::make_unique<Content> (lookAndScale, [this] { closeButtonPressed(); });
+        const auto width = content->getWidth();
+        const auto height = content->getHeight();
+
+        setContentOwned (content.release(), true);
+        setResizable (false, false);
+        centreWithSize (width, height);
+        setVisible (true);
+        getContentComponent()->grabKeyboardFocus();
+    }
+
+    ~AboutWindow() override = default;
+
+    void closeButtonPressed() override
+    {
+        if (dismissed)
+            dismissed();
+    }
+
+private:
+    class Content final : public juce::Component
+    {
+    public:
+        Content (duet::gui::Appearance& lookAndScale, std::function<void()> dismiss)
+            : appearance (lookAndScale), close (std::move (dismiss)),
+              wordmark (duet::gui::brandWordmark())
+        {
+            // The wordmark's charcoal is print ink, not a token: on the dark
+            // canvas it is re-inked to the palette's text colour. The teal
+            // stays the brand's own.
+            if (wordmark != nullptr)
+                wordmark->replaceColour (
+                    juce::Colour { 0xff1c1f26 },
+                    duet::gui::toJuce (appearance.colour (duet::gui::ColourToken::textPrimary)));
+
+            setSize (appearance.scaled (380), appearance.scaled (200));
+            setWantsKeyboardFocus (true);
+        }
+
+        ~Content() override = default;
+
+        void paint (juce::Graphics& g) override
+        {
+            g.fillAll (
+                duet::gui::toJuce (appearance.colour (duet::gui::ColourToken::surfaceCanvas)));
+
+            auto area = getLocalBounds().reduced (appearance.scaled (28));
+            const auto mark = area.removeFromTop (appearance.scaled (64)).toFloat();
+
+            if (wordmark != nullptr)
+                wordmark->drawWithin (g, mark, juce::RectanglePlacement::centred, 1.0F);
+
+            area.removeFromTop (appearance.scaled (18));
+            g.setColour (
+                duet::gui::toJuce (appearance.colour (duet::gui::ColourToken::textSecondary)));
+            g.setFont (duet::gui::interFont (appearance.scaled (duet::gui::typography::body)));
+            g.drawText ("Version " JUCE_APPLICATION_VERSION_STRING,
+                        area.removeFromTop (appearance.scaled (18)),
+                        juce::Justification::centred);
+
+            g.setColour (duet::gui::toJuce (appearance.colour (duet::gui::ColourToken::textMuted)));
+            g.drawText ("Free software under the GNU AGPL v3",
+                        area.removeFromTop (appearance.scaled (18)),
+                        juce::Justification::centred);
+        }
+
+        bool keyPressed (const juce::KeyPress& key) override
+        {
+            if (key == juce::KeyPress::escapeKey && close != nullptr)
+            {
+                close();
+                return true;
+            }
+
+            return false;
+        }
+
+    private:
+        duet::gui::Appearance& appearance;
+        std::function<void()> close;
+        std::unique_ptr<juce::Drawable> wordmark;
+
+        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (Content)
+    };
+
+    std::function<void()> dismissed;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AboutWindow)
+};
 
 /** What the main window holds: the interface, and the project it is open on.
 
@@ -290,6 +401,8 @@ private:
         menu.addItem (HostMenuId::openSettings, "Settings...");
         menu.addItem (HostMenuId::openAudioMidiSettings, "Audio & MIDI Settings...");
         menu.addItem (HostMenuId::scanPlugins, "Plugin Scan...", hasProject);
+        menu.addSeparator();
+        menu.addItem (HostMenuId::aboutDuet, "About Duet");
     }
 
     void hostItemChosen (int itemId)
@@ -351,6 +464,10 @@ private:
                 openPluginScanDialog();
                 break;
 
+            case HostMenuId::aboutDuet:
+                openAboutWindow();
+                break;
+
             default:
                 break;
         }
@@ -380,6 +497,17 @@ private:
                 });
 
         settingsWindow->showTab (tab);
+    }
+
+    void openAboutWindow()
+    {
+        if (aboutWindow != nullptr)
+        {
+            aboutWindow->toFront (true);
+            return;
+        }
+
+        aboutWindow = std::make_unique<AboutWindow> (appearance, [this] { aboutWindow.reset(); });
     }
 
     void openExportDialog()
@@ -796,6 +924,7 @@ private:
     std::unique_ptr<duet::gui::SettingsWindow> settingsWindow;
     std::unique_ptr<duet::gui::ExportDialog> exportWindow;
     std::unique_ptr<duet::gui::PluginScanDialog> scanWindow;
+    std::unique_ptr<AboutWindow> aboutWindow;
     std::unique_ptr<juce::FileChooser> chooser;
     juce::String problem;
 
@@ -851,6 +980,12 @@ public:
         restored = true;
 
         setVisible (true);
+
+        // The taskbar and window-switcher icon. The peer exists only once the
+        // window is on screen, which is why this is not up with the title.
+        if (auto* peer = getPeer())
+            peer->setIcon (duet::gui::brandMarkImage (128));
+
         host->takeKeyboardFocus();
     }
 

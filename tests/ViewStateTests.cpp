@@ -118,6 +118,7 @@ TEST_CASE ("a view comes back from the VIEW tree exactly as it went in")
     view.setBrowserWidthPx (260);
     view.setCollaboratorVisible (false);
     view.setBottomHeightPx (320);
+    view.setBottomMaximized (true);
     view.setBottomTab (BottomTab::mixer);
     view.setTrackHeightPx (bass, 120);
     view.setLanesExpanded (bass, true);
@@ -140,6 +141,7 @@ TEST_CASE ("a view comes back from the VIEW tree exactly as it went in")
     REQUIRE_FALSE (reopened.collaboratorVisible());
     REQUIRE (reopened.bottomVisible());
     REQUIRE (reopened.bottomHeightPx() == 320);
+    REQUIRE (reopened.bottomMaximized());
     REQUIRE (reopened.bottomTab() == BottomTab::mixer);
     REQUIRE (reopened.trackHeightPx (bass) == 120);
     REQUIRE (reopened.lanesExpanded (bass));
@@ -157,8 +159,25 @@ TEST_CASE ("a project saved before the view existed opens on the defaults")
     REQUIRE (view.browserVisible());
     REQUIRE (view.collaboratorVisible());
     REQUIRE (view.bottomVisible());
+    REQUIRE_FALSE (view.bottomMaximized());
     REQUIRE (view.bottomTab() == BottomTab::pianoRoll);
     REQUIRE (view.browserWidthPx() == ViewState::defaultBrowserWidthPx);
+}
+
+TEST_CASE ("a maximized panel remembers the docked height it grew from")
+{
+    ViewState view;
+
+    view.setBottomHeightPx (320);
+    view.setBottomMaximized (true);
+
+    REQUIRE (view.bottomMaximized());
+    REQUIRE (view.bottomHeightPx() == 320);
+
+    view.setBottomMaximized (false);
+
+    REQUIRE_FALSE (view.bottomMaximized());
+    REQUIRE (view.bottomHeightPx() == 320);
 }
 
 TEST_CASE ("a VIEW tree written by hand cannot hand the interface a size it cannot lay out")

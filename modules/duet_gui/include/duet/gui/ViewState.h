@@ -129,6 +129,14 @@ public:
     [[nodiscard]] bool bottomVisible() const { return bottomOpen; }
     void setBottomVisible (bool shouldBeVisible) { bottomOpen = shouldBeVisible; }
 
+    /** Whether the bottom panel is maximized: grown from its docked height to
+        the whole of the room the arrangement had, the docks keeping theirs.
+        The docked height is untouched, so restoring the panel puts it back
+        exactly where the producer had it.
+    */
+    [[nodiscard]] bool bottomMaximized() const { return bottomFillsArrangement; }
+    void setBottomMaximized (bool shouldFill) { bottomFillsArrangement = shouldFill; }
+
     /** The sizes a divider drag sets. Each is held between the narrowest the
         dock is still usable at and the widest it is still a dock at.
     */
@@ -214,6 +222,7 @@ private:
     bool browserOpen = true;
     bool collaboratorOpen = true;
     bool bottomOpen = true;
+    bool bottomFillsArrangement = false;
 
     int browserWidth = defaultBrowserWidthPx;
     int collaboratorWidth = defaultCollaboratorWidthPx;

@@ -303,6 +303,48 @@ TEST_CASE ("a stopped transport is not asked to play again")
     REQUIRE_FALSE (session.isPlaying());
 }
 
+TEST_CASE ("Loop on with no range set plays the whole project instead of refusing")
+{
+    const TempProject project;
+    Session session { project.editFile() };
+
+    if (session.audioDeviceDescription().empty())
+        SKIP ("this machine has no audio device to play through");
+
+    SECTION ("a project with music loops over all of it")
+    {
+        const auto tone = project.writeTone ("tone.wav", 8.0, 440.0);
+        session.performAction (
+            "Lay out the loop",
+            [&] (auto& ops)
+            { ops.insertAudioClip (session.tracks().front().track, "loop", tone, 0.0, 8.0); });
+
+        // The trap this guards: Loop on before any loop range exists. The
+        // engine refuses that outright, with a warning per retry — the popup
+        // storm of the first report.
+        session.setLooping (true);
+
+        REQUIRE (duet::testing::playUntilRolling (session));
+        REQUIRE (session.isLooping());
+        REQUIRE_THAT (session.loopRangeSeconds().endSeconds
+                          - session.loopRangeSeconds().startSeconds,
+                      WithinAbs (session.editLengthSeconds(), 0.01));
+    }
+
+    SECTION ("an empty project loops over one bar, the Loop choice kept")
+    {
+        session.setLooping (true);
+
+        REQUIRE (duet::testing::playUntilRolling (session));
+        REQUIRE (session.isLooping());
+
+        // Four beats at the default 120 bpm: two seconds.
+        REQUIRE_THAT (session.loopRangeSeconds().endSeconds
+                          - session.loopRangeSeconds().startSeconds,
+                      WithinAbs (2.0, 0.01));
+    }
+}
+
 TEST_CASE ("the loop stays over the music through a tempo change, its undo and its redo")
 {
     const TempProject project;

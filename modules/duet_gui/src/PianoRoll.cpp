@@ -60,8 +60,30 @@ std::vector<PianoNoteDrawing> PianoRoll::notes() const
     if (session == nullptr || clip == duet::model::noClip)
         return result;
 
-    for (const auto& note : session->notes (clip))
+    // Mid-gesture, the notes in hand are drawn at their destination: the delta
+    // the drag has built so far, applied to every note it will land on.
+    const auto deltaBeats =
+        gesture.has_value() ? gesture->destinationBeats - gesture->original.startBeats : 0.0;
+    const auto deltaPitch =
+        gesture.has_value() ? gesture->destinationPitch - gesture->original.pitch : 0;
+    std::set<duet::model::NoteRef> carried;
+    if (gesture.has_value() && gesture->kind == NoteGestureKind::move)
+        for (const auto& target : gestureTargets())
+            carried.insert (target.note);
+
+    for (auto note : session->notes (clip))
     {
+        if (carried.contains (note.note))
+        {
+            note.startBeats = std::max (0.0, note.startBeats + deltaBeats);
+            note.pitch = std::clamp (note.pitch + deltaPitch, minimumPitch, maximumPitch);
+        }
+        else if (gesture.has_value() && gesture->kind == NoteGestureKind::resizeRight
+                 && note.note == gesture->original.note)
+        {
+            note.lengthBeats = std::max (gridBeats(), gesture->destinationBeats - note.startBeats);
+        }
+
         const auto x = timeline.beatsToX (clipTimelineStartBeats() + note.startBeats);
         const auto right =
             timeline.beatsToX (clipTimelineStartBeats() + note.startBeats + note.lengthBeats);
@@ -85,7 +107,7 @@ std::vector<PianoKeyRow> PianoRoll::rows() const
             used.insert (note.pitch);
 
     std::vector<PianoKeyRow> result;
-    int y = folded ? 0 : -view.pianoRollVScrollPx();
+    int y = folded ? 0 : -std::clamp (view.pianoRollVScrollPx(), 0, maximumVScrollPx());
     for (int pitch = maximumPitch; pitch >= minimumPitch; --pitch)
         if (! folded || used.contains (pitch))
         {
@@ -125,7 +147,11 @@ duet::model::NoteRef PianoRoll::addNote (int pitch, double atBeats)
     if (session == nullptr || clip == duet::model::noClip)
         return duet::model::noNote;
     duet::model::NoteRef added = duet::model::noNote;
-    const auto start = std::max (0.0, std::round (atBeats / gridBeats()) * gridBeats());
+
+    // The floor, not the nearest line: the note lands in the grid cell the
+    // producer clicked, never the next one over because the click sat past a
+    // cell's midpoint.
+    const auto start = std::max (0.0, std::floor (atBeats / gridBeats()) * gridBeats());
     session->performAction ("Add Note",
                             [&] (auto& ops)
                             {
@@ -147,19 +173,38 @@ void PianoRoll::removeNote (duet::model::NoteRef note)
     selection.clear();
 }
 
-void PianoRoll::beginNoteGesture (duet::model::NoteRef note, NoteGestureKind kind)
+void PianoRoll::beginNoteGesture (duet::model::NoteRef note,
+                                  NoteGestureKind kind,
+                                  double grabBeats,
+                                  int grabPitch)
 {
     if (const auto original = noteInfo (note); original.has_value())
-        gesture = Gesture { *original, kind, original->startBeats, original->pitch };
+        gesture = Gesture { *original,       kind,      original->startBeats,
+                            original->pitch, grabBeats, grabPitch };
 }
 
 void PianoRoll::updateNoteGesture (double atBeats, int pitch, bool altHeld)
 {
     if (! gesture.has_value())
         return;
-    gesture->destinationBeats =
-        altHeld ? atBeats : std::round (atBeats / gridBeats()) * gridBeats();
-    gesture->destinationPitch = std::clamp (pitch, minimumPitch, maximumPitch);
+
+    if (gesture->kind == NoteGestureKind::move)
+    {
+        // The note goes where the drag carries it, not where the pointer is:
+        // keeping the pointer's offset into the note is what makes a note
+        // grabbed by its middle land where it was let go.
+        const auto carried = gesture->original.startBeats + (atBeats - gesture->grabBeats);
+        gesture->destinationBeats =
+            std::max (0.0, altHeld ? carried : std::round (carried / gridBeats()) * gridBeats());
+        gesture->destinationPitch = std::clamp (
+            gesture->original.pitch + (pitch - gesture->grabPitch), minimumPitch, maximumPitch);
+    }
+    else
+    {
+        gesture->destinationBeats =
+            altHeld ? atBeats : std::round (atBeats / gridBeats()) * gridBeats();
+        gesture->destinationPitch = gesture->original.pitch;
+    }
 }
 
 bool PianoRoll::completeNoteGesture()
@@ -167,15 +212,25 @@ bool PianoRoll::completeNoteGesture()
     if (session == nullptr || ! gesture.has_value())
         return false;
     const auto completed = *gesture;
+    const auto targets = gestureTargets();
     gesture.reset();
     if (completed.kind == NoteGestureKind::move)
-        session->performAction ("Move Note",
-                                [&] (auto& ops)
-                                {
-                                    ops.moveNote (completed.original.note,
-                                                  completed.destinationPitch,
-                                                  std::max (0.0, completed.destinationBeats));
-                                });
+    {
+        // One drag, one Action: the delta the grabbed note took carries every
+        // selected note with it, and one undo brings them all back.
+        const auto deltaBeats = completed.destinationBeats - completed.original.startBeats;
+        const auto deltaPitch = completed.destinationPitch - completed.original.pitch;
+        session->performAction (
+            targets.size() == 1 ? "Move Note" : "Move Notes",
+            [&] (auto& ops)
+            {
+                for (const auto& target : targets)
+                    ops.moveNote (
+                        target.note,
+                        std::clamp (target.pitch + deltaPitch, minimumPitch, maximumPitch),
+                        std::max (0.0, target.startBeats + deltaBeats));
+            });
+    }
     else
         session->performAction (
             "Resize Note",
@@ -186,6 +241,25 @@ bool PianoRoll::completeNoteGesture()
                 ops.resizeNote (completed.original.note, end - completed.original.startBeats);
             });
     return true;
+}
+
+std::vector<duet::model::NoteInfo> PianoRoll::gestureTargets() const
+{
+    std::vector<duet::model::NoteInfo> targets;
+    if (! gesture.has_value())
+        return targets;
+    for (const auto item : selection.items())
+        if (item.kind == SelectionKind::note)
+            if (const auto note = noteInfo (item.ref); note.has_value())
+                targets.push_back (*note);
+    const auto holdsGrabbed =
+        std::any_of (targets.begin(),
+                     targets.end(),
+                     [this] (const auto& note) { return note.note == gesture->original.note; });
+    if (! holdsGrabbed)
+        if (const auto grabbed = noteInfo (gesture->original.note); grabbed.has_value())
+            targets.push_back (*grabbed);
+    return targets;
 }
 
 std::vector<SelectedItem> PianoRoll::allNoteItems() const
@@ -300,7 +374,15 @@ void PianoRoll::setScale (int rootPitchClass, Scale newScale)
     scale = newScale;
 }
 
-void PianoRoll::setKeyHeightPx (int height) { view.setPianoRollKeyHeightPx (height); }
+void PianoRoll::setKeyHeightPx (int height)
+{
+    view.setPianoRollKeyHeightPx (height);
+
+    // Shorter keys make the whole roll shorter, and a scroll that was fine a
+    // moment ago may now point past the last octave.
+    view.setPianoRollVScrollPx (std::clamp (view.pianoRollVScrollPx(), 0, maximumVScrollPx()));
+}
+
 int PianoRoll::keyHeightPx() const { return view.pianoRollKeyHeightPx(); }
 void PianoRoll::verticalZoom (double factor)
 {
@@ -309,7 +391,21 @@ void PianoRoll::verticalZoom (double factor)
 
 void PianoRoll::scrollVertically (int pixels)
 {
-    view.setPianoRollVScrollPx (view.pianoRollVScrollPx() + pixels);
+    view.setPianoRollVScrollPx (
+        std::clamp (view.pianoRollVScrollPx() + pixels, 0, maximumVScrollPx()));
+}
+
+void PianoRoll::setHeightPx (int heightPx)
+{
+    gridHeightPx = std::max (0, heightPx);
+    view.setPianoRollVScrollPx (std::clamp (view.pianoRollVScrollPx(), 0, maximumVScrollPx()));
+}
+
+int PianoRoll::maximumVScrollPx() const
+{
+    // The whole roll, top octave to bottom, less the window it is seen
+    // through. A window taller than the roll leaves nothing to scroll.
+    return std::max (0, (maximumPitch - minimumPitch + 1) * keyHeightPx() - gridHeightPx);
 }
 
 double PianoRoll::gridBeats() const

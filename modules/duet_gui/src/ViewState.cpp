@@ -25,6 +25,7 @@ namespace
         constexpr const char* browserVisible = "browserVisible";
         constexpr const char* collaboratorVisible = "collaboratorVisible";
         constexpr const char* bottomVisible = "bottomVisible";
+        constexpr const char* bottomMaximized = "bottomMaximized";
         constexpr const char* browserWidthPx = "browserWidthPx";
         constexpr const char* collaboratorWidthPx = "collaboratorWidthPx";
         constexpr const char* bottomHeightPx = "bottomHeightPx";
@@ -204,6 +205,7 @@ duet::persistence::DataNode ViewState::toData() const
     view.set (attribute::browserVisible, browserOpen);
     view.set (attribute::collaboratorVisible, collaboratorOpen);
     view.set (attribute::bottomVisible, bottomOpen);
+    view.set (attribute::bottomMaximized, bottomFillsArrangement);
     view.set (attribute::browserWidthPx, browserWidth);
     view.set (attribute::collaboratorWidthPx, collaboratorWidth);
     view.set (attribute::bottomHeightPx, bottomHeight);
@@ -253,6 +255,7 @@ void ViewState::readFrom (const duet::persistence::DataNode& stored)
     browserOpen = stored.boolValue (attribute::browserVisible, browserOpen);
     collaboratorOpen = stored.boolValue (attribute::collaboratorVisible, collaboratorOpen);
     bottomOpen = stored.boolValue (attribute::bottomVisible, bottomOpen);
+    bottomFillsArrangement = stored.boolValue (attribute::bottomMaximized, bottomFillsArrangement);
 
     setBrowserWidthPx (stored.intValue (attribute::browserWidthPx, browserWidth));
     setCollaboratorWidthPx (stored.intValue (attribute::collaboratorWidthPx, collaboratorWidth));

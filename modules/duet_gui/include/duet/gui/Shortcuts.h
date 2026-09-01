@@ -18,6 +18,7 @@ enum class Command : std::uint8_t
     toggleBrowser,
     toggleCollaborator,
     toggleBottomPanel,
+    toggleBottomMaximized,
     showPianoRoll,
     showMixer,
 

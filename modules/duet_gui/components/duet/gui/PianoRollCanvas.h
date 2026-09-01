@@ -24,6 +24,7 @@ public:
     void mouseDoubleClick (const juce::MouseEvent& event) override;
     void mouseDrag (const juce::MouseEvent& event) override;
     void mouseUp (const juce::MouseEvent& event) override;
+    void mouseMove (const juce::MouseEvent& event) override;
     void mouseWheelMove (const juce::MouseEvent& event,
                          const juce::MouseWheelDetails& wheel) override;
 
@@ -35,6 +36,13 @@ public:
 private:
     void timerCallback() override;
     [[nodiscard]] std::optional<PianoNoteDrawing> noteAt (juce::Point<int> point) const;
+
+    /** The note whose right edge is under the point, with a grab zone wide
+        enough to actually hit — a third of the note, within reason — reaching a
+        little past the edge on both sides, so pulling a note longer does not
+        demand pixel aim.
+    */
+    [[nodiscard]] std::optional<PianoNoteDrawing> noteEdgeAt (juce::Point<int> point) const;
     [[nodiscard]] int pitchAt (int y) const;
     [[nodiscard]] juce::Rectangle<int> gridArea() const;
     [[nodiscard]] juce::Rectangle<int> velocityArea() const;
@@ -47,6 +55,13 @@ private:
     Appearance& appearance;
     PianoRoll& view;
     duet::model::NoteRef dragged = duet::model::noNote;
+    NoteGestureKind draggedKind = NoteGestureKind::move;
+
+    /** Where the dragged note stood at mouse-down, so a move can leave a ghost
+        there: the producer sees both where the note came from and where it is
+        going for as long as the drag lasts.
+    */
+    juce::Rectangle<int> draggedFrom;
     duet::model::NoteRef velocityDragged = duet::model::noNote;
     int velocityTarget = PianoRoll::defaultVelocity;
     juce::ComboBox root;

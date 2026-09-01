@@ -2,6 +2,8 @@
 
 #include <duet/gui/Typography.h>
 
+#include <vector>
+
 namespace duet::gui
 {
 GraphiteLookAndFeel::GraphiteLookAndFeel (Appearance& lookAndScale) : appearance (lookAndScale)
@@ -22,7 +24,40 @@ juce::Colour GraphiteLookAndFeel::colour (ColourToken token) const
     return toJuce (appearance.colour (token));
 }
 
-void GraphiteLookAndFeel::appearanceChanged() { applyPalette(); }
+void GraphiteLookAndFeel::appearanceChanged()
+{
+    applyPalette();
+
+    // A text editor colours its text when the text is set, not when it paints,
+    // so what is already typed keeps the palette it was typed under — a tempo
+    // entered in the light theme is invisible after a switch to the dark one.
+    // The palette above is the correction; this walks it into every editor on
+    // screen, dialogs included. The colour comes from this palette and is not
+    // pinned onto the editor, so the next switch finds nothing stale.
+    for (int index = juce::TopLevelWindow::getNumTopLevelWindows(); --index >= 0;)
+        refreshTextEditorColours (*juce::TopLevelWindow::getTopLevelWindow (index),
+                                  findColour (juce::TextEditor::textColourId));
+}
+
+void GraphiteLookAndFeel::refreshTextEditorColours (juce::Component& component, juce::Colour ink)
+{
+    std::vector<juce::Component*> remaining { &component };
+
+    while (! remaining.empty())
+    {
+        auto* current = remaining.back();
+        remaining.pop_back();
+
+        if (current == nullptr)
+            continue;
+
+        if (auto* editor = dynamic_cast<juce::TextEditor*> (current))
+            editor->applyColourToAllText (ink, false);
+
+        for (auto* child : current->getChildren())
+            remaining.push_back (child);
+    }
+}
 
 void GraphiteLookAndFeel::applyPalette()
 {
@@ -93,6 +128,17 @@ void GraphiteLookAndFeel::applyPalette()
     setColour (juce::TooltipWindow::backgroundColourId, raised);
     setColour (juce::TooltipWindow::textColourId, ink);
     setColour (juce::TooltipWindow::outlineColourId, hairline);
+
+    setColour (juce::ListBox::backgroundColourId, raised);
+    setColour (juce::ListBox::outlineColourId, hairline);
+    setColour (juce::ListBox::textColourId, ink);
+
+    setColour (juce::ProgressBar::backgroundColourId, interactive);
+    setColour (juce::ProgressBar::foregroundColourId, accent);
+
+    setColour (juce::AlertWindow::backgroundColourId, raised);
+    setColour (juce::AlertWindow::textColourId, ink);
+    setColour (juce::AlertWindow::outlineColourId, hairline);
 }
 
 int GraphiteLookAndFeel::getDefaultScrollbarWidth()
@@ -165,6 +211,74 @@ void GraphiteLookAndFeel::drawButtonBackground (juce::Graphics& g,
 
     g.setColour (colour (ColourToken::borderDefault));
     g.drawRoundedRectangle (bounds.reduced (0.5F), radius, 1.0F);
+}
+
+void GraphiteLookAndFeel::drawAlertBox (juce::Graphics& g,
+                                        juce::AlertWindow& alert,
+                                        const juce::Rectangle<int>& textArea,
+                                        juce::TextLayout& textLayout)
+{
+    // Flat like every other Graphite surface: a raised fill, a hairline, and a
+    // small badge in the icon column instead of JUCE's poster-sized glyph.
+    // Square corners, because the window behind this panel is square: a corner
+    // a rounded fill leaves uncovered shows through as black.
+    const auto bounds = alert.getLocalBounds().toFloat();
+
+    g.setColour (alert.findColour (juce::AlertWindow::backgroundColourId));
+    g.fillRect (bounds);
+    g.setColour (alert.findColour (juce::AlertWindow::outlineColourId));
+    g.drawRect (bounds.reduced (0.5F), 1.0F);
+
+    // The window reserves an 80-pixel icon column on the left whenever an icon
+    // type is set, so the text is drawn past it — the same geometry JUCE's own
+    // look uses, under a badge sized for a dialog rather than a poster.
+    auto iconSpaceUsed = 0;
+
+    if (alert.getAlertType() != juce::MessageBoxIconType::NoIcon)
+    {
+        constexpr auto iconColumnWidth = 80;
+        const auto warning = alert.getAlertType() == juce::MessageBoxIconType::WarningIcon;
+        const auto tone =
+            colour (warning ? ColourToken::semanticWarning : ColourToken::semanticInfo);
+        const auto badgeSide = 30.0F;
+        const auto badge = juce::Rectangle<float> { badgeSide, badgeSide }.withCentre (
+            { static_cast<float> (iconColumnWidth) * 0.5F + 6.0F, 30.0F + badgeSide * 0.5F });
+
+        g.setColour (tone.withAlpha (0.16F));
+        g.fillEllipse (badge);
+        g.setColour (tone);
+        g.drawEllipse (badge.reduced (0.5F), 1.0F);
+        g.setFont (interFont (badgeSide * 0.55F, true));
+        g.drawText (warning ? "!" : "?", badge, juce::Justification::centred);
+
+        iconSpaceUsed = iconColumnWidth;
+    }
+
+    g.setColour (alert.findColour (juce::AlertWindow::textColourId));
+
+    const juce::Rectangle<int> alertBounds { alert.getLocalBounds().getX() + iconSpaceUsed,
+                                             30,
+                                             alert.getLocalBounds().getWidth(),
+                                             alert.getLocalBounds().getHeight()
+                                                 - getAlertWindowButtonHeight() - 20 };
+
+    textLayout.draw (g, alertBounds.toFloat());
+    juce::ignoreUnused (textArea);
+}
+
+juce::Font GraphiteLookAndFeel::getAlertWindowTitleFont()
+{
+    return interFont (appearance.scaled (typography::body) * 1.3F, true);
+}
+
+juce::Font GraphiteLookAndFeel::getAlertWindowMessageFont()
+{
+    return interFont (appearance.scaled (typography::body) * 1.1F);
+}
+
+juce::Font GraphiteLookAndFeel::getAlertWindowFont()
+{
+    return interFont (appearance.scaled (typography::body));
 }
 
 juce::Font GraphiteLookAndFeel::getTextButtonFont (juce::TextButton& /*button*/,

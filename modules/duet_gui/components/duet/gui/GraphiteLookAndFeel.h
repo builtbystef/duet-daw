@@ -58,14 +58,23 @@ public:
                                bool shouldDrawButtonAsHighlighted,
                                bool shouldDrawButtonAsDown) override;
 
+    void drawAlertBox (juce::Graphics& g,
+                       juce::AlertWindow& alert,
+                       const juce::Rectangle<int>& textArea,
+                       juce::TextLayout& textLayout) override;
+
     juce::Font getTextButtonFont (juce::TextButton& button, int buttonHeight) override;
     juce::Font getLabelFont (juce::Label& label) override;
     juce::Font getComboBoxFont (juce::ComboBox& box) override;
     juce::Font getPopupMenuFont() override;
+    juce::Font getAlertWindowTitleFont() override;
+    juce::Font getAlertWindowMessageFont() override;
+    juce::Font getAlertWindowFont() override;
 
 private:
     void appearanceChanged() override;
     void applyPalette();
+    static void refreshTextEditorColours (juce::Component& component, juce::Colour ink);
 
     Appearance& appearance;
 };

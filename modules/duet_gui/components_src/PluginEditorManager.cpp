@@ -53,7 +53,8 @@ struct PluginEditorManager::Impl final : private juce::Timer
                 juce::AudioProcessor& hostedProcessor,
                 duet::model::PluginInfo pluginInfo)
             : DocumentWindow (pluginInfo.name,
-                              juce::Colours::darkgrey,
+                              juce::LookAndFeel::getDefaultLookAndFeel().findColour (
+                                  juce::ResizableWindow::backgroundColourId),
                               DocumentWindow::closeButton,
                               true),
               manager (owner), plugin (pluginRef), info (std::move (pluginInfo)),

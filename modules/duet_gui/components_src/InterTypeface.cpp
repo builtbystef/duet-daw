@@ -1,5 +1,7 @@
 #include <duet/gui/Typography.h>
 
+#include <duet/gui/Tokens.h>
+
 #include <DuetFonts.h>
 
 namespace duet::gui
@@ -42,5 +44,10 @@ juce::Font readoutFont (float heightPx, bool bold)
     return juce::Font { juce::FontOptions { bold ? interBold() : interRegular() }
                             .withHeight (heightPx)
                             .withFeatureEnabled (tabularFigures) };
+}
+
+juce::Font eyebrowFont (float heightPx, bool bold)
+{
+    return interFont (heightPx, bold).withExtraKerningFactor (typography::eyebrowLetterSpacing);
 }
 } // namespace duet::gui

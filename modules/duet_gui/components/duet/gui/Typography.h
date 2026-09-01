@@ -28,4 +28,10 @@ namespace duet::gui
     the readout stands still.
 */
 [[nodiscard]] juce::Font readoutFont (float heightPx, bool bold = false);
+
+/** The font a section eyebrow is set in: the chrome's face carrying the
+    tracking the visual reference gives eyebrow labels
+    (`typography::eyebrowLetterSpacing`).
+*/
+[[nodiscard]] juce::Font eyebrowFont (float heightPx, bool bold = false);
 } // namespace duet::gui

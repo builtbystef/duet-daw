@@ -16,6 +16,8 @@ TEST_CASE ("the panel keys are the ones the interface is driven by")
     REQUIRE (shortcuts.commandFor ({ 'b' }, false) == Command::toggleBrowser);
     REQUIRE (shortcuts.commandFor ({ 'c' }, false) == Command::toggleCollaborator);
     REQUIRE (shortcuts.commandFor ({ 'e' }, false) == Command::toggleBottomPanel);
+    REQUIRE (shortcuts.commandFor ({ 'e', false, false, true }, false)
+             == Command::toggleBottomMaximized);
     REQUIRE (shortcuts.commandFor ({ 'p' }, false) == Command::showPianoRoll);
     REQUIRE (shortcuts.commandFor ({ 'x' }, false) == Command::showMixer);
 }

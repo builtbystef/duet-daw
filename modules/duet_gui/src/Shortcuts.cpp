@@ -109,6 +109,7 @@ Shortcuts panelShortcuts()
     shortcuts.add ({ 'b' }, Command::toggleBrowser);
     shortcuts.add ({ 'c' }, Command::toggleCollaborator);
     shortcuts.add ({ 'e' }, Command::toggleBottomPanel);
+    shortcuts.add ({ 'e', false, false, true }, Command::toggleBottomMaximized);
     shortcuts.add ({ 'p' }, Command::showPianoRoll);
     shortcuts.add ({ 'x' }, Command::showMixer);
 

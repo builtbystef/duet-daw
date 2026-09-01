@@ -797,7 +797,7 @@ namespace
                               const Resolved& plugin,
                               const std::string& paramId)
     {
-        const auto missing = "this plugin has no parameter called " + paramId;
+        auto missing = "this plugin has no parameter called " + paramId;
         const auto ref = plugin.inProject();
 
         if (! ref.has_value())

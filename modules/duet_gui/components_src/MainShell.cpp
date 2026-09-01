@@ -4,6 +4,7 @@
 
 #include <duet/gui/AcceleratedSurface.h>
 #include <duet/gui/ArrangementCanvas.h>
+#include <duet/gui/Brand.h>
 #include <duet/gui/CollaboratorPanelCanvas.h>
 #include <duet/gui/GraphiteLookAndFeel.h>
 #include <duet/gui/MixerCanvas.h>
@@ -12,6 +13,7 @@
 #include <duet/gui/Typography.h>
 
 #include <array>
+#include <cstdint>
 #include <initializer_list>
 #include <utility>
 #include <vector>
@@ -23,11 +25,13 @@ namespace
     // Logical units: the interface scale is what turns one into a pixel. The
     // dock sizes are not here — those are the producer's, and they live in the
     // view state in the pixels the producer dragged them to.
-    constexpr int menuButtonWidth = 64;
+    constexpr int menuButtonWidth = 44;
     constexpr int tabBarHeight = 28;
     constexpr int pianoRollTabWidth = 104;
     constexpr int mixerTabWidth = 78;
     constexpr int accentBarThickness = 2;
+    constexpr int dockToggleWidth = 30;
+    constexpr int transportButtonWidth = 30;
 
     /** The menu id an entry of the shell's own has. Zero is JUCE's "nothing
         chosen", and the host's ids start above these.
@@ -39,6 +43,7 @@ namespace
         for (const auto command : { Command::toggleBrowser,
                                     Command::toggleCollaborator,
                                     Command::toggleBottomPanel,
+                                    Command::toggleBottomMaximized,
                                     Command::showPianoRoll,
                                     Command::showMixer })
             if (idFor (command) == itemId)
@@ -76,6 +81,233 @@ namespace
         return typing != nullptr && typing->isTextInputActive();
     }
 
+    /** Which dock a transport-strip toggle stands for: the side of the shell
+        that dock occupies.
+    */
+    enum class DockSide : std::uint8_t
+    {
+        left,
+        bottom,
+        right
+    };
+
+    /** A dock toggle drawn as the shell in miniature: a window outline with a
+        hairline where the dock's boundary runs, and the dock's own region
+        filled with the accent while the dock is open — the same accent the tab
+        bar names its front tab with.
+    */
+    class DockToggleButton final : public juce::Button
+    {
+    public:
+        DockToggleButton (Appearance& lookAndScale, DockSide dockSide, const juce::String& name)
+            : juce::Button (name), appearance (lookAndScale), side (dockSide)
+        {
+        }
+
+        ~DockToggleButton() override = default;
+
+        void paintButton (juce::Graphics& g,
+                          bool shouldDrawButtonAsHighlighted,
+                          bool shouldDrawButtonAsDown) override
+        {
+            if (shouldDrawButtonAsHighlighted || shouldDrawButtonAsDown)
+            {
+                g.setColour (toJuce (appearance.colour (ColourToken::surfaceInteractive)));
+                g.fillRoundedRectangle (
+                    getLocalBounds().toFloat(),
+                    static_cast<float> (appearance.scaled (metrics::radiusMedium)));
+            }
+
+            const auto frame =
+                juce::Rectangle<float> { static_cast<float> (appearance.scaled (18)),
+                                         static_cast<float> (appearance.scaled (13)) }
+                    .withCentre (getLocalBounds().toFloat().getCentre());
+
+            auto dock = frame;
+            if (side == DockSide::left)
+                dock = dock.removeFromLeft (frame.getWidth() * 0.38F);
+            else if (side == DockSide::right)
+                dock = dock.removeFromRight (frame.getWidth() * 0.38F);
+            else
+                dock = dock.removeFromBottom (frame.getHeight() * 0.45F);
+
+            if (getToggleState())
+            {
+                g.setColour (toJuce (appearance.colour (ColourToken::accentStrong)));
+                g.fillRect (dock);
+            }
+
+            g.setColour (toJuce (appearance.colour (ColourToken::textSecondary)));
+            g.drawRoundedRectangle (frame, 2.0F, 1.2F);
+            if (side == DockSide::left)
+                g.drawLine (dock.getRight(), frame.getY(), dock.getRight(), frame.getBottom());
+            else if (side == DockSide::right)
+                g.drawLine (dock.getX(), frame.getY(), dock.getX(), frame.getBottom());
+            else
+                g.drawLine (frame.getX(), dock.getY(), frame.getRight(), dock.getY());
+        }
+
+    private:
+        Appearance& appearance;
+        DockSide side;
+
+        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DockToggleButton)
+    };
+
+    /** The tab-bar control that grows the bottom panel to the whole of the
+        arrangement's room and back: a chevron pointing where the panel's top
+        edge would go next.
+    */
+    class MaximiseButton final : public juce::Button
+    {
+    public:
+        MaximiseButton (Appearance& lookAndScale, const ViewState& projectView)
+            : juce::Button ("Maximize panel"), appearance (lookAndScale), view (projectView)
+        {
+        }
+
+        ~MaximiseButton() override = default;
+
+        void paintButton (juce::Graphics& g,
+                          bool shouldDrawButtonAsHighlighted,
+                          bool shouldDrawButtonAsDown) override
+        {
+            if (shouldDrawButtonAsHighlighted || shouldDrawButtonAsDown)
+            {
+                g.setColour (toJuce (appearance.colour (ColourToken::surfaceInteractive)));
+                g.fillRoundedRectangle (
+                    getLocalBounds().toFloat(),
+                    static_cast<float> (appearance.scaled (metrics::radiusMedium)));
+            }
+
+            const auto centre = getLocalBounds().toFloat().getCentre();
+            const auto reach = static_cast<float> (appearance.scaled (5));
+            const auto up = ! view.bottomMaximized();
+            const auto tipY = centre.y + (up ? -reach * 0.5F : reach * 0.5F);
+            const auto baseY = centre.y + (up ? reach * 0.5F : -reach * 0.5F);
+
+            juce::Path chevron;
+            chevron.startNewSubPath (centre.x - reach, baseY);
+            chevron.lineTo (centre.x, tipY);
+            chevron.lineTo (centre.x + reach, baseY);
+
+            g.setColour (toJuce (appearance.colour (ColourToken::textSecondary)));
+            g.strokePath (chevron,
+                          juce::PathStrokeType {
+                              1.6F, juce::PathStrokeType::mitered, juce::PathStrokeType::rounded });
+        }
+
+    private:
+        Appearance& appearance;
+        const ViewState& view;
+
+        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MaximiseButton)
+    };
+
+    /** Which transport act a strip button stands for. */
+    enum class TransportGlyph : std::uint8_t
+    {
+        goToStart,
+        playPause,
+        record
+    };
+
+    /** A transport button drawn as its glyph: the return-to-start bar, the
+        play triangle that becomes a pause while the transport rolls, and the
+        record circle that fills red while a take does. The state is read from
+        the transport model at paint time, so the glyph is never a step behind
+        a spacebar press or a stop the engine made on its own.
+    */
+    class TransportButton final : public juce::Button
+    {
+    public:
+        TransportButton (Appearance& lookAndScale,
+                         const TransportBar& transportModel,
+                         TransportGlyph act,
+                         const juce::String& name)
+            : juce::Button (name), appearance (lookAndScale), model (transportModel), glyph (act)
+        {
+        }
+
+        ~TransportButton() override = default;
+
+        void paintButton (juce::Graphics& g,
+                          bool shouldDrawButtonAsHighlighted,
+                          bool shouldDrawButtonAsDown) override
+        {
+            if (shouldDrawButtonAsHighlighted || shouldDrawButtonAsDown)
+            {
+                g.setColour (toJuce (appearance.colour (ColourToken::surfaceInteractive)));
+                g.fillRoundedRectangle (
+                    getLocalBounds().toFloat(),
+                    static_cast<float> (appearance.scaled (metrics::radiusMedium)));
+            }
+
+            const auto centre = getLocalBounds().toFloat().getCentre();
+            const auto reach = static_cast<float> (appearance.scaled (5));
+
+            if (glyph == TransportGlyph::goToStart)
+            {
+                g.setColour (toJuce (appearance.colour (ColourToken::textSecondary)));
+                g.fillRect (centre.x - reach, centre.y - reach, 1.8F, reach * 2.0F);
+                juce::Path triangle;
+                triangle.addTriangle (centre.x - reach + 2.0F,
+                                      centre.y,
+                                      centre.x + reach,
+                                      centre.y - reach,
+                                      centre.x + reach,
+                                      centre.y + reach);
+                g.fillPath (triangle);
+            }
+            else if (glyph == TransportGlyph::playPause)
+            {
+                if (model.isPlaying())
+                {
+                    g.setColour (toJuce (appearance.colour (ColourToken::accentStrong)));
+                    const auto barWidth = reach * 0.7F;
+                    g.fillRect (centre.x - reach, centre.y - reach, barWidth, reach * 2.0F);
+                    g.fillRect (
+                        centre.x + reach - barWidth, centre.y - reach, barWidth, reach * 2.0F);
+                }
+                else
+                {
+                    g.setColour (toJuce (appearance.colour (ColourToken::textSecondary)));
+                    juce::Path triangle;
+                    triangle.addTriangle (centre.x - reach * 0.7F,
+                                          centre.y - reach,
+                                          centre.x - reach * 0.7F,
+                                          centre.y + reach,
+                                          centre.x + reach,
+                                          centre.y);
+                    g.fillPath (triangle);
+                }
+            }
+            else
+            {
+                const juce::Rectangle<float> circle {
+                    centre.x - reach * 0.9F, centre.y - reach * 0.9F, reach * 1.8F, reach * 1.8F
+                };
+                if (model.isRecording())
+                {
+                    g.setColour (toJuce (appearance.colour (ColourToken::semanticDanger)));
+                    g.fillEllipse (circle);
+                }
+                else
+                {
+                    g.setColour (toJuce (appearance.colour (ColourToken::textSecondary)));
+                    g.drawEllipse (circle, 1.6F);
+                }
+            }
+        }
+
+    private:
+        Appearance& appearance;
+        const TransportBar& model;
+        TransportGlyph glyph;
+
+        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (TransportButton)
+    };
+
     [[nodiscard]] int policyKeyCode (int juceKeyCode)
     {
         if (juceKeyCode == juce::KeyPress::deleteKey)
@@ -99,15 +331,19 @@ class MainShell::TransportStrip final : public juce::Component, private juce::Ti
 {
 public:
     TransportStrip (Appearance& lookAndScale,
+                    ViewState& projectView,
                     TransportBar& transportModel,
                     std::function<void (Command)> run,
                     std::function<void()> changed)
-        : appearance (lookAndScale), model (transportModel), performCommand (std::move (run)),
-          modelChanged (std::move (changed))
+        : appearance (lookAndScale), view (projectView), model (transportModel),
+          performCommand (std::move (run)), modelChanged (std::move (changed))
     {
         setComponentID (surfaceId::transport);
 
-        for (auto* child : std::initializer_list<juce::Component*> { &musical,
+        for (auto* child : std::initializer_list<juce::Component*> { &goStart,
+                                                                     &play,
+                                                                     &record,
+                                                                     &musical,
                                                                      &wall,
                                                                      &tempo,
                                                                      &metre,
@@ -118,6 +354,9 @@ public:
                                                                      &cpu,
                                                                      &undo,
                                                                      &redo,
+                                                                     &browserToggle,
+                                                                     &panelToggle,
+                                                                     &collaboratorToggle,
                                                                      &project })
             addAndMakeVisible (*child);
 
@@ -148,11 +387,31 @@ public:
         tempo.onFocusLost = [this] { commitTempo(); };
         metre.onReturnKey = [this] { commitMetre(); };
         metre.onFocusLost = [this] { commitMetre(); };
+        goStart.setTooltip ("Go to start (Home)");
+        play.setTooltip ("Play or pause (Space)");
+        record.setTooltip ("Record (R)");
+        goStart.onClick = [this] { performCommand (Command::goToStart); };
+        play.onClick = [this] { performCommand (Command::togglePlayback); };
+        record.onClick = [this] { performCommand (Command::toggleRecording); };
+
+        tempo.setTooltip ("Tempo (BPM)");
+        metre.setTooltip ("Time signature");
+        loop.setTooltip ("Loop playback");
+        metronome.setTooltip ("Metronome");
+        follow.setTooltip ("Follow the playhead");
+        cpu.setTooltip ("Engine CPU load");
         loop.onClick = [this] { performCommand (Command::toggleLoop); };
         metronome.onClick = [this] { performCommand (Command::toggleMetronome); };
         follow.onClick = [this] { performCommand (Command::toggleFollowPlayhead); };
         undo.onClick = [this] { performCommand (Command::undo); };
         redo.onClick = [this] { performCommand (Command::redo); };
+
+        browserToggle.setTooltip ("Show or hide the Browser (B)");
+        panelToggle.setTooltip ("Show or hide the bottom panel (E)");
+        collaboratorToggle.setTooltip ("Show or hide the Collaborator (C)");
+        browserToggle.onClick = [this] { performCommand (Command::toggleBrowser); };
+        panelToggle.onClick = [this] { performCommand (Command::toggleBottomPanel); };
+        collaboratorToggle.onClick = [this] { performCommand (Command::toggleCollaborator); };
 
         startTimerHz (30);
         refresh();
@@ -167,17 +426,30 @@ public:
         const auto take = [&area, this] (int width)
         { return area.removeFromLeft (appearance.scaled (width)); };
 
+        for (auto* button : { &goStart, &play, &record })
+            button->setBounds (take (transportButtonWidth).reduced (appearance.scaled (2)));
+        area.removeFromLeft (appearance.scaled (metrics::rowGap));
+
         musical.setBounds (take (92));
         wall.setBounds (take (112));
         tempo.setBounds (take (54).reduced (2));
         metre.setBounds (take (48).reduced (2));
         grid.setBounds (take (88).reduced (2));
-        loop.setBounds (take (42));
-        metronome.setBounds (take (42));
-        follow.setBounds (take (42));
+        loop.setBounds (take (56));
+        metronome.setBounds (take (60));
+        follow.setBounds (take (64));
         cpu.setBounds (take (58));
         undo.setBounds (take (34));
         redo.setBounds (take (34));
+
+        // The dock toggles hold the strip's right end, mirroring the docks they
+        // stand for; the project name takes what is left between.
+        auto toggles = area.removeFromRight (appearance.scaled (3 * dockToggleWidth));
+        for (auto* toggle : { &browserToggle, &panelToggle, &collaboratorToggle })
+            toggle->setBounds (toggles.removeFromLeft (appearance.scaled (dockToggleWidth))
+                                   .reduced (appearance.scaled (2)));
+        area.removeFromRight (appearance.scaled (metrics::rowGap));
+
         project.setBounds (area.reduced (2));
     }
 
@@ -190,6 +462,19 @@ public:
 
     void refresh()
     {
+        // The glyphs read the transport at paint time; what refresh adds is
+        // the repaint when the state they read has turned.
+        if (const auto playing = model.isPlaying(); playing != playLit)
+        {
+            playLit = playing;
+            play.repaint();
+        }
+        if (const auto taking = model.isRecording(); taking != recordLit)
+        {
+            recordLit = taking;
+            record.repaint();
+        }
+
         musical.setText (model.musicalPosition(), juce::dontSendNotification);
         wall.setText (model.wallTime(), juce::dontSendNotification);
         if (! tempo.hasKeyboardFocus (true))
@@ -215,6 +500,9 @@ public:
         redo.setEnabled (model.canRedo());
         undo.setTooltip (model.undoLabel());
         redo.setTooltip (model.redoLabel());
+        browserToggle.setToggleState (view.browserVisible(), juce::dontSendNotification);
+        panelToggle.setToggleState (view.bottomVisible(), juce::dontSendNotification);
+        collaboratorToggle.setToggleState (view.collaboratorVisible(), juce::dontSendNotification);
         if (! project.hasKeyboardFocus (true))
             project.setText (model.projectLabel(), false);
     }
@@ -237,20 +525,29 @@ private:
     }
 
     Appearance& appearance;
+    ViewState& view;
     TransportBar& model;
     std::function<void (Command)> performCommand;
     std::function<void()> modelChanged;
+    TransportButton goStart { appearance, model, TransportGlyph::goToStart, "Go to start" };
+    TransportButton play { appearance, model, TransportGlyph::playPause, "Play or pause" };
+    TransportButton record { appearance, model, TransportGlyph::record, "Record" };
+    bool playLit = false;
+    bool recordLit = false;
     juce::Label musical;
     juce::Label wall;
     juce::TextEditor tempo;
     juce::TextEditor metre;
     juce::ComboBox grid;
-    juce::ToggleButton loop { "L" };
-    juce::ToggleButton metronome { "M" };
-    juce::ToggleButton follow { "F" };
+    juce::ToggleButton loop { "Loop" };
+    juce::ToggleButton metronome { "Metro" };
+    juce::ToggleButton follow { "Follow" };
     juce::Label cpu;
     juce::TextButton undo { "Undo" };
     juce::TextButton redo { "Redo" };
+    DockToggleButton browserToggle { appearance, DockSide::left, "Browser" };
+    DockToggleButton panelToggle { appearance, DockSide::bottom, "Bottom Panel" };
+    DockToggleButton collaboratorToggle { appearance, DockSide::right, "Collaborator" };
     juce::TextEditor project;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (TransportStrip)
@@ -303,8 +600,10 @@ public:
                  Mixer& mixerModel,
                  std::function<void (duet::model::PluginRef)> openPluginEditor,
                  std::function<void()> mixerChanged,
-                 std::function<void (BottomTab)> onTabClicked)
+                 std::function<void (BottomTab)> onTabClicked,
+                 std::function<void()> onMaximiseToggled)
         : appearance (lookAndScale), view (projectView), tabClicked (std::move (onTabClicked)),
+          maximise (appearance, view),
           pianoRoll (std::make_unique<PianoRollCanvas> (appearance, pianoRollModel)),
           mixer (std::make_unique<MixerCanvas> (appearance,
                                                 mixerModel,
@@ -315,6 +614,8 @@ public:
 
         addAndMakeVisible (*pianoRoll);
         addChildComponent (*mixer);
+        addAndMakeVisible (maximise);
+        maximise.onClick = std::move (onMaximiseToggled);
     }
 
     /** The dock a device dropped into a strip's insert chain comes out of. */
@@ -331,6 +632,13 @@ public:
     */
     void layOutSurfaces()
     {
+        const auto bar = getLocalBounds().removeFromTop (appearance.scaled (tabBarHeight));
+        maximise.setBounds (
+            bar.withLeft (bar.getRight() - bar.getHeight()).reduced (appearance.scaled (2)));
+        maximise.setTooltip (view.bottomMaximized() ? "Restore the panel (Shift+E)"
+                                                    : "Maximize the panel (Shift+E)");
+        maximise.repaint();
+
         const auto content = getLocalBounds().withTrimmedTop (appearance.scaled (tabBarHeight));
         const auto mixerInFront = view.bottomTab() == BottomTab::mixer;
 
@@ -401,6 +709,7 @@ private:
     Appearance& appearance;
     ViewState& view;
     std::function<void (BottomTab)> tabClicked;
+    MaximiseButton maximise;
 
     std::unique_ptr<PianoRollCanvas> pianoRoll;
     std::unique_ptr<MixerCanvas> mixer;
@@ -419,6 +728,7 @@ MainShell::MainShell (Appearance& lookAndScale, ViewState& projectView, Settings
 
     transportStrip = std::make_unique<TransportStrip> (
         appearance,
+        view,
         transport,
         [this] (Command command) { perform (command); },
         [this] { viewStateChanged(); });
@@ -460,7 +770,8 @@ MainShell::MainShell (Appearance& lookAndScale, ViewState& projectView, Settings
         },
         [this] { viewStateChanged(); },
         [this] (BottomTab tab)
-        { perform (tab == BottomTab::mixer ? Command::showMixer : Command::showPianoRoll); });
+        { perform (tab == BottomTab::mixer ? Command::showMixer : Command::showPianoRoll); },
+        [this] { perform (Command::toggleBottomMaximized); });
     bottom->setBrowser (&browserModel);
 
     browserDivider = std::make_unique<Divider> (true, [this] (int x) { dragBrowserDivider (x); });
@@ -479,7 +790,13 @@ MainShell::MainShell (Appearance& lookAndScale, ViewState& projectView, Settings
         addAndMakeVisible (*child);
 
     duetButton.onClick = [this] { showDuetMenu(); };
+    duetButton.setTooltip ("Duet menu");
+    refreshDuetButton();
     transportStrip->addAndMakeVisible (duetButton);
+
+    engineNotice.setJustificationType (juce::Justification::centred);
+    engineNotice.setInterceptsMouseClicks (false, false);
+    addChildComponent (engineNotice);
 
     setWantsKeyboardFocus (true);
     appearance.addListener (this);
@@ -504,19 +821,13 @@ void MainShell::resized()
                               .reduced (appearance.scaled (metrics::rowGap))
                               .withWidth (appearance.scaled (menuButtonWidth)));
 
-    // The bottom panel is taken off the whole width, and the docks off what is
-    // left, so that a dock stops where the panel starts and the arrangement is
-    // whatever remains — which is what makes collapsing one give its room to the
-    // arrangement rather than to another dock.
-    if (view.bottomVisible())
-    {
-        bottom->setBounds (area.removeFromBottom (view.bottomHeightPx()));
-        bottomDivider->setBounds (
-            juce::Rectangle<int> { 0, bottom->getY() - divider / 2, getWidth(), divider });
-    }
-
-    bottom->setVisible (view.bottomVisible());
-    bottomDivider->setVisible (view.bottomVisible());
+    // The docks are taken off the whole height first, and the bottom panel off
+    // what is left, so the panel always sits between them — never across the
+    // Browser's or the Collaborator's column — and the arrangement is whatever
+    // remains. Maximized, the panel takes the whole of the arrangement's room
+    // instead of its docked slice, still stopping at whichever docks are open
+    // and reaching the window's edge where one is closed.
+    const auto maximized = view.bottomVisible() && view.bottomMaximized();
 
     if (view.browserVisible())
     {
@@ -543,7 +854,20 @@ void MainShell::resized()
     collaboratorDock->setVisible (view.collaboratorVisible());
     collaboratorDivider->setVisible (view.collaboratorVisible());
 
-    arrangement->setBounds (area);
+    if (maximized)
+        bottom->setBounds (area);
+    else if (view.bottomVisible())
+    {
+        bottom->setBounds (area.removeFromBottom (view.bottomHeightPx()));
+        bottomDivider->setBounds (juce::Rectangle<int> {
+            area.getX(), bottom->getY() - divider / 2, area.getWidth(), divider });
+    }
+
+    bottom->setVisible (view.bottomVisible());
+    bottomDivider->setVisible (view.bottomVisible() && ! maximized);
+
+    arrangement->setVisible (! maximized);
+    arrangement->setBounds (maximized ? juce::Rectangle<int> {} : area);
 }
 
 //==============================================================================
@@ -561,6 +885,13 @@ void MainShell::perform (Command command)
 
         case Command::toggleBottomPanel:
             view.setBottomVisible (! view.bottomVisible());
+            break;
+
+        case Command::toggleBottomMaximized:
+            // Maximizing a closed panel opens it maximized: the gesture always
+            // ends with the panel on screen.
+            view.setBottomMaximized (! (view.bottomVisible() && view.bottomMaximized()));
+            view.setBottomVisible (true);
             break;
 
         case Command::zoomIn:
@@ -664,6 +995,17 @@ void MainShell::setSession (duet::model::Session* openProject)
     mixer.setSession (openProject);
     transport.setSession (openProject);
     browserModel.setSession (openProject);
+
+    // The engine's notices come to the shell's own chrome. The default surface
+    // is a bubble pinned to whatever sits under the mouse — and one more per
+    // ask while the transport keeps asking.
+    if (openProject != nullptr)
+        openProject->onEngineMessage (
+            [safe = juce::Component::SafePointer { this }] (const std::string& message)
+            {
+                if (safe != nullptr)
+                    safe->showEngineNotice (message);
+            });
 
     // Whatever was pending goes with the project it was made against, so the
     // surfaces are told what there is to draw before they are laid out.
@@ -780,6 +1122,11 @@ juce::PopupMenu MainShell::duetMenu() const
     addToggle (menu, Command::toggleBrowser, "Browser", "B", view.browserVisible());
     addToggle (menu, Command::toggleCollaborator, "Collaborator", "C", view.collaboratorVisible());
     addToggle (menu, Command::toggleBottomPanel, "Bottom Panel", "E", view.bottomVisible());
+    addToggle (menu,
+               Command::toggleBottomMaximized,
+               "Maximize Bottom Panel",
+               "Shift+E",
+               view.bottomVisible() && view.bottomMaximized());
     menu.addSeparator();
     addToggle (menu,
                Command::showPianoRoll,
@@ -823,6 +1170,55 @@ void MainShell::setHostMenu (std::function<void (juce::PopupMenu&)> build,
     hostMenuItemChosen = std::move (chosen);
 }
 
+void MainShell::refreshDuetButton()
+{
+    // The mark's charcoal D takes the theme's ink so it reads on both palettes;
+    // the teal triangle is the brand's own and stays.
+    const auto mark = brandMark (toJuce (appearance.colour (ColourToken::textPrimary)));
+
+    duetButton.setImages (mark.get());
+}
+
+void MainShell::showEngineNotice (const std::string& message)
+{
+    const auto font = interFont (appearance.scaled (typography::body));
+    const juce::String text { message };
+
+    engineNotice.setFont (font);
+    engineNotice.setText (text, juce::dontSendNotification);
+    engineNotice.setColour (juce::Label::backgroundColourId,
+                            toJuce (appearance.colour (ColourToken::surfaceRaised)));
+    engineNotice.setColour (juce::Label::textColourId,
+                            toJuce (appearance.colour (ColourToken::textPrimary)));
+    engineNotice.setColour (juce::Label::outlineColourId,
+                            toJuce (appearance.colour (ColourToken::borderDefault)));
+
+    const auto width =
+        std::min (getWidth() - appearance.scaled (2 * metrics::rowGap),
+                  static_cast<int> (juce::GlyphArrangement::getStringWidth (font, text))
+                      + appearance.scaled (6 * metrics::rowGap));
+    const auto height = appearance.scaled (32);
+
+    engineNotice.setBounds ((getWidth() - width) / 2,
+                            getHeight() - height - appearance.scaled (2 * metrics::rowGap),
+                            width,
+                            height);
+    engineNotice.setVisible (true);
+    engineNotice.toFront (false);
+
+    // Replaced notices hand their clock to the newest one, so a burst of
+    // notices reads as one line that stays up, not a flicker of takedowns.
+    const auto generation = ++engineNoticeGeneration;
+
+    juce::Timer::callAfterDelay (4000,
+                                 [safe = juce::Component::SafePointer { this }, generation]
+                                 {
+                                     if (safe != nullptr
+                                         && safe->engineNoticeGeneration == generation)
+                                         safe->engineNotice.setVisible (false);
+                                 });
+}
+
 void MainShell::showDuetMenu()
 {
     duetMenu().showMenuAsync (
@@ -853,6 +1249,7 @@ void MainShell::appearanceChanged()
 {
     // A theme is a repaint, but the scale is a layout: every measurement of the
     // shell's own chrome is in logical units.
+    refreshDuetButton();
     sendLookAndFeelChange();
     viewStateChanged();
 }

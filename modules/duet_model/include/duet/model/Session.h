@@ -1250,6 +1250,15 @@ public:
     */
     void onProjectChanged (std::function<void()> callback);
 
+    /** Calls back with each notice the engine addresses to the producer — a
+        refused paste, a transport that cannot do what was asked — so the
+        interface can show it as one line in its own chrome. Without a handler
+        the notice is dropped; the engine's default was a bubble pinned to
+        whatever component sat under the mouse, one more per retry. Message
+        thread, one callback at a time.
+    */
+    void onEngineMessage (std::function<void (const std::string&)> callback);
+
     /** A digest of the whole project state, independent of the order in which
         its properties happen to be stored.
 

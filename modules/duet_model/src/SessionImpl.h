@@ -227,6 +227,32 @@ struct DuetBehaviour final : te::EngineBehaviour
     const std::filesystem::path* recordingDirectory = nullptr;
 };
 
+/** The engine's notices to the producer, routed through the model's one
+    handler instead of the engine's default surface — a bubble pinned to
+    whatever component is under the mouse, and a fresh one per retry when the
+    transport keeps asking. With no handler set the notice is dropped.
+*/
+struct DuetUIBehaviour final : te::UIBehaviour
+{
+    explicit DuetUIBehaviour (const std::function<void (const std::string&)>& handler)
+        : deliver (&handler)
+    {
+    }
+
+    void showInfoMessage (const juce::String& message) override
+    {
+        if (*deliver)
+            (*deliver) (message.toStdString());
+    }
+
+    void showWarningMessage (const juce::String& message) override { showInfoMessage (message); }
+
+    /** The session's own, like the recording directory above: read through the
+        pointer so a handler set after the engine is built still receives.
+    */
+    const std::function<void (const std::string&)>* deliver = nullptr;
+};
+
 /** Everything engine-shaped lives here, so that Session.h can name no engine or
     JUCE type. The initialiser is declared first so that it outlives the engine:
     the engine's managers start timers and background threads that need a
@@ -254,12 +280,17 @@ struct Session::Impl
     */
     std::filesystem::path recordingDirectory { projectFolder };
 
+    /** Where the engine's producer-facing notices land. Before the engine,
+        because the engine's UI behaviour reads it for as long as it lives.
+    */
+    std::function<void (const std::string&)> engineMessage;
+
     /** The one app-global store, lent to this session's Engine: the shell's
         settings and the engine's are the same file, and a second holder of it
         would write the set it read over the set the other holds.
     */
     te::Engine engine { std::make_unique<SharedPropertyStorage>(),
-                        nullptr,
+                        std::make_unique<DuetUIBehaviour> (engineMessage),
                         std::make_unique<DuetBehaviour> (recordingDirectory) };
     std::unique_ptr<te::Edit> edit;
     std::function<void()> projectChanged;

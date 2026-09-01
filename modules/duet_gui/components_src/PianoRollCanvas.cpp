@@ -15,7 +15,17 @@ namespace duet::gui
 namespace
 {
     constexpr double wheelNotch = 50.0 / 256.0;
-}
+
+    /** The note's name, the way the keyboard column already spells it: C4 is
+        MIDI 60. */
+    [[nodiscard]] juce::String pitchName (int pitch)
+    {
+        constexpr std::array<const char*, 12> names { "C",  "C#", "D",  "D#", "E",  "F",
+                                                      "F#", "G",  "G#", "A",  "A#", "B" };
+        return juce::String { names.at (static_cast<std::size_t> (((pitch % 12) + 12) % 12)) }
+               + juce::String { pitch / 12 - 1 };
+    }
+} // namespace
 
 PianoRollCanvas::PianoRollCanvas (Appearance& lookAndScale, PianoRoll& pianoRoll)
     : appearance (lookAndScale), view (pianoRoll)
@@ -75,14 +85,14 @@ void PianoRollCanvas::paint (juce::Graphics& g)
     const auto grid = gridArea();
     const auto keyboard = grid.withX (0).withWidth (appearance.scaled (keyboardWidth));
 
-    g.setColour (toJuce (appearance.colour (ColourToken::surfaceRaised)));
-    g.fillRect (getLocalBounds().removeFromTop (appearance.scaled (controlsHeight)));
-    g.setColour (toJuce (appearance.colour (ColourToken::textPrimary)));
-    g.setFont (interFont (appearance.scaled (typography::body), true));
-    g.drawText (view.isOpen() ? utf8 ("Piano Roll — ") + juce::String { view.clipName() }
-                              : utf8 ("Piano Roll — No MIDI clip"),
-                getLocalBounds().removeFromTop (appearance.scaled (controlsHeight)).reduced (8, 0),
-                juce::Justification::centredLeft);
+    // Everything scrolled — rows, notes, playhead — stays inside the grid: a
+    // roll scrolled so a row crosses the strip's line must not paint over the
+    // strip, and one scrolled to its last octave must not paint over the
+    // velocity lane. Both are drawn after this clip is lifted.
+    g.saveState();
+    g.reduceClipRegion (getLocalBounds()
+                            .withTrimmedTop (appearance.scaled (controlsHeight))
+                            .withTrimmedBottom (appearance.scaled (velocityHeight)));
 
     for (const auto& row : view.rows())
     {
@@ -107,6 +117,14 @@ void PianoRollCanvas::paint (juce::Graphics& g)
                         juce::Justification::centredLeft);
     }
 
+    // A move leaves a ghost where the note stood, under the live notes: origin
+    // and destination are both on screen for as long as the drag lasts.
+    if (dragging && dragged != duet::model::noNote && draggedKind == NoteGestureKind::move)
+    {
+        g.setColour (toJuce (appearance.colour (ColourToken::trackOrange)).withAlpha (0.3F));
+        g.fillRoundedRectangle (draggedFrom.toFloat(), 2.0F);
+    }
+
     for (const auto& note : view.notes())
     {
         const juce::Rectangle<int> area { grid.getX() + note.x,
@@ -115,28 +133,105 @@ void PianoRollCanvas::paint (juce::Graphics& g)
                                           std::max (1, view.keyHeightPx() - 2) };
         g.setColour (toJuce (appearance.colour (ColourToken::trackOrange)));
         g.fillRoundedRectangle (area.toFloat(), 2.0F);
+
         if (view.isNoteSelected (note.note))
         {
             g.setColour (toJuce (appearance.colour (ColourToken::textPrimary)));
             g.drawRoundedRectangle (area.toFloat(), 2.0F, 2.0F);
         }
 
-        const auto velocity = velocityArea();
-        const auto height = note.velocity * velocity.getHeight() / 127;
-        g.fillRect (
-            grid.getX() + note.x, velocity.getBottom() - height, std::max (3, note.width), height);
+        // The name on the note is the running readout: a note tall and wide
+        // enough carries it, and a dragged note's name follows its new pitch.
+        if (area.getHeight() >= appearance.scaled (10) && area.getWidth() >= appearance.scaled (26))
+        {
+            g.setColour (toJuce (appearance.colour (ColourToken::onTrack)));
+            g.setFont (eyebrowFont (appearance.scaled (typography::eyebrow)));
+            g.drawText (pitchName (note.pitch),
+                        area.reduced (appearance.scaled (4), 0),
+                        juce::Justification::centredLeft);
+        }
     }
 
-    g.setColour (toJuce (appearance.colour (ColourToken::accentStrong)));
-    g.fillRect (grid.getX() + view.playheadX(),
-                grid.getY(),
-                std::max (1, appearance.scaled (2)),
-                grid.getHeight());
+    // The playhead means something only while a clip is open: over the closed
+    // roll's preview grid it would stand as a bar that answers to nothing.
+    if (view.isOpen())
+        if (const auto x = view.playheadX(); x >= 0 && x < grid.getWidth())
+        {
+            g.setColour (toJuce (appearance.colour (ColourToken::accentStrong)));
+            g.fillRect (grid.getX() + x,
+                        grid.getY(),
+                        std::max (1, appearance.scaled (2)),
+                        grid.getHeight());
+        }
     if (rubberBanding)
     {
         g.setColour (toJuce (appearance.colour (ColourToken::textSecondary)));
         g.drawRect (rubberBand, 1);
     }
+
+    g.restoreState();
+
+    // The velocity lane is its own section under the grid, not more rows: a
+    // quieter ground, a floor line, and its name in the key column. Every bar
+    // shares its x with the note it belongs to, which is what lines a value up
+    // under its note.
+    const auto velocity = velocityArea();
+    g.setColour (toJuce (appearance.colour (ColourToken::surfaceDefault)));
+    g.fillRect (velocity.withX (0).withWidth (getWidth()));
+    g.setColour (toJuce (appearance.colour (ColourToken::borderDefault)));
+    g.fillRect (0, velocity.getY(), getWidth(), 1);
+    g.setColour (toJuce (appearance.colour (ColourToken::textMuted)));
+    g.setFont (eyebrowFont (appearance.scaled (typography::eyebrow)));
+    g.drawText ("VELOCITY",
+                juce::Rectangle<int> {
+                    0, velocity.getY(), appearance.scaled (keyboardWidth), velocity.getHeight() }
+                    .reduced (appearance.scaled (4), 0),
+                juce::Justification::centredLeft);
+
+    g.saveState();
+    g.reduceClipRegion (velocity);
+
+    for (const auto& note : view.notes())
+    {
+        const auto barHeight = note.velocity * velocity.getHeight() / 127;
+        const auto bar = juce::Rectangle<int> { grid.getX() + note.x,
+                                                velocity.getBottom() - barHeight,
+                                                std::max (3, note.width),
+                                                barHeight };
+        g.setColour (toJuce (appearance.colour (ColourToken::trackOrange)));
+        g.fillRect (bar);
+
+        if (view.isNoteSelected (note.note))
+        {
+            g.setColour (toJuce (appearance.colour (ColourToken::textPrimary)));
+            g.drawRect (bar, 1);
+        }
+    }
+
+    g.restoreState();
+
+    // With no clip open the grid is a preview, not an editor, and the middle of
+    // it is where the eye lands: say what would open one.
+    if (! view.isOpen())
+    {
+        g.setColour (toJuce (appearance.colour (ColourToken::textMuted)));
+        g.setFont (interFont (appearance.scaled (typography::body)));
+        g.drawText ("Double-click a MIDI clip in the arrangement to edit it here",
+                    getLocalBounds()
+                        .withTrimmedTop (appearance.scaled (controlsHeight))
+                        .withTrimmedBottom (appearance.scaled (velocityHeight)),
+                    juce::Justification::centred);
+    }
+
+    g.setColour (toJuce (appearance.colour (ColourToken::surfaceRaised)));
+    g.fillRect (getLocalBounds().removeFromTop (appearance.scaled (controlsHeight)));
+    g.setColour (toJuce (appearance.colour (ColourToken::textPrimary)));
+    g.setFont (interFont (appearance.scaled (typography::body), true));
+    g.drawText (view.isOpen() ? utf8 ("Piano Roll — ") + juce::String { view.clipName() }
+                              : utf8 ("Piano Roll — No MIDI clip"),
+                getLocalBounds().removeFromTop (appearance.scaled (controlsHeight)).reduced (8, 0),
+                juce::Justification::centredLeft);
+
     g.setColour (toJuce (appearance.colour (ColourToken::borderDefault)));
     g.drawRect (getLocalBounds(), 1);
 }
@@ -144,6 +239,7 @@ void PianoRollCanvas::paint (juce::Graphics& g)
 void PianoRollCanvas::resized()
 {
     view.setWidthPx (std::max (0, getWidth() - appearance.scaled (keyboardWidth)));
+    view.setHeightPx (gridArea().getHeight());
     auto controls = getLocalBounds().removeFromTop (appearance.scaled (controlsHeight));
     controls.removeFromLeft (std::max (0, controls.getWidth() - appearance.scaled (330)));
     root.setBounds (controls.removeFromLeft (appearance.scaled (58)).reduced (2));
@@ -171,15 +267,20 @@ void PianoRollCanvas::mouseDown (const juce::MouseEvent& event)
             view.clickNote (note->note, false, false);
         velocityDragged = note->note;
     }
-    else if (note.has_value())
+    else if (const auto edge = noteEdgeAt (event.getPosition());
+             edge.has_value() || note.has_value())
     {
-        view.clickNote (note->note, event.mods.isCtrlDown(), event.mods.isShiftDown());
-        dragged = note->note;
-        const auto right = gridArea().getX() + note->x + note->width;
-        view.beginNoteGesture (dragged,
-                               std::abs (event.x - right) <= appearance.scaled (5)
-                                   ? NoteGestureKind::resizeRight
-                                   : NoteGestureKind::move);
+        const auto& held = edge.has_value() ? *edge : *note;
+        view.clickNote (held.note, event.mods.isCtrlDown(), event.mods.isShiftDown());
+        dragged = held.note;
+        draggedKind = edge.has_value() ? NoteGestureKind::resizeRight : NoteGestureKind::move;
+        const auto grid = gridArea();
+        draggedFrom = { grid.getX() + held.x,
+                        grid.getY() + held.y + 1,
+                        held.width,
+                        std::max (1, view.keyHeightPx() - 2) };
+        view.beginNoteGesture (
+            dragged, draggedKind, view.xToClipBeats (event.x - grid.getX()), held.pitch);
     }
     else if (gridArea().contains (event.getPosition()))
     {
@@ -261,6 +362,15 @@ void PianoRollCanvas::mouseUp (const juce::MouseEvent& event)
     repaint();
 }
 
+void PianoRollCanvas::mouseMove (const juce::MouseEvent& event)
+{
+    // The cursor says what a press would start: the resize arrows over a
+    // note's right edge, before anything is held down.
+    setMouseCursor (noteEdgeAt (event.getPosition()).has_value()
+                        ? juce::MouseCursor::LeftRightResizeCursor
+                        : juce::MouseCursor::NormalCursor);
+}
+
 void PianoRollCanvas::mouseWheelMove (const juce::MouseEvent& event,
                                       const juce::MouseWheelDetails& wheel)
 {
@@ -291,6 +401,27 @@ std::optional<PianoNoteDrawing> PianoRollCanvas::noteAt (juce::Point<int> point)
             grid.getX() + note.x, velocity.getY(), std::max (3, note.width), velocity.getHeight()
         };
         if (area.contains (point) || velocityBar.contains (point))
+            return note;
+    }
+    return {};
+}
+
+std::optional<PianoNoteDrawing> PianoRollCanvas::noteEdgeAt (juce::Point<int> point) const
+{
+    const auto grid = gridArea();
+    if (! grid.contains (point))
+        return {};
+
+    for (const auto& note : view.notes())
+    {
+        const auto rowTop = grid.getY() + note.y;
+        if (point.y < rowTop || point.y >= rowTop + view.keyHeightPx())
+            continue;
+
+        const auto right = grid.getX() + note.x + note.width;
+        const auto zone =
+            std::clamp (note.width / 3, appearance.scaled (4), appearance.scaled (10));
+        if (std::abs (point.x - right) <= zone)
             return note;
     }
     return {};

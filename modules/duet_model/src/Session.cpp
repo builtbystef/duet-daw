@@ -704,6 +704,11 @@ void Session::onProjectChanged (std::function<void()> callback)
     impl->projectChanged = std::move (callback);
 }
 
+void Session::onEngineMessage (std::function<void (const std::string&)> callback)
+{
+    impl->engineMessage = std::move (callback);
+}
+
 std::vector<std::string> Session::undoNames() const
 {
     return Impl::toStrings (impl->undoManager().getUndoDescriptions());
@@ -1693,6 +1698,28 @@ void Session::loadDemoContent()
 void Session::Impl::askTransportToPlay()
 {
     auto& transport = edit->getTransport();
+
+    // A loop over nothing cannot play: the engine refuses it outright, with a
+    // warning per ask — and the keeper asks again and again. Loop on with no
+    // range set means the whole project, the way it does in any DAW without a
+    // loop brace drawn yet — and at least one bar, so an empty project still
+    // plays and the producer's Loop choice is never let go behind their back.
+    if (transport.looping)
+    {
+        constexpr auto shortestLoopSeconds = 0.05;
+
+        if (transport.getLoopRange().getLength().inSeconds() < shortestLoopSeconds)
+        {
+            const auto oneBar = edit->tempoSequence
+                                    .toTime (te::BeatPosition::fromBeats (static_cast<double> (
+                                        edit->tempoSequence.getTimeSig (0)->numerator)))
+                                    .inSeconds();
+            const auto length = std::max (edit->getLength().inSeconds(), oneBar);
+
+            transport.setLoopRange ({ te::TimePosition(), te::TimePosition::fromSeconds (length) });
+        }
+    }
+
     transport.ensureContextAllocated();
     transport.play (false);
 
