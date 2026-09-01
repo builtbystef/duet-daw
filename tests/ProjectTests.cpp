@@ -285,6 +285,120 @@ TEST_CASE ("an imported file lives in the project, and the project still plays i
     REQUIRE (duet::testing::peakLevelOf (rendered) > 0.1);
 }
 
+TEST_CASE ("different files with the same name stay byte-exact under numbered suffixes")
+{
+    const TempProject temp;
+    const auto folder = freshFolderIn (temp);
+    const auto project = Project::create (folder);
+    REQUIRE (project != nullptr);
+
+    const auto firstSource = temp.writeTone ("first.wav", 1.0, 220.0);
+    const auto secondSource = temp.writeTone ("second.wav", 1.0, 880.0);
+    const auto thirdSource = temp.writeTone ("third.wav", 1.0, 330.0);
+
+    const auto one = temp.folder() / "one" / "tone.wav";
+    const auto two = temp.folder() / "two" / "tone.wav";
+    const auto three = temp.folder() / "three" / "tone.wav";
+    std::filesystem::create_directories (one.parent_path());
+    std::filesystem::create_directories (two.parent_path());
+    std::filesystem::create_directories (three.parent_path());
+    std::filesystem::copy_file (firstSource, one);
+    std::filesystem::copy_file (secondSource, two);
+    std::filesystem::copy_file (thirdSource, three);
+
+    const auto first = project->importAudioFile (one);
+    const auto second = project->importAudioFile (two);
+    const auto third = project->importAudioFile (three);
+
+    const auto audio = duet::persistence::audioDirectory (folder);
+    REQUIRE (first == audio / "tone.wav");
+    REQUIRE (second == audio / "tone 2.wav");
+    REQUIRE (third == audio / "tone 3.wav");
+    REQUIRE (fileContents (first) == fileContents (one));
+    REQUIRE (fileContents (second) == fileContents (two));
+    REQUIRE (fileContents (third) == fileContents (three));
+
+    const auto secondAgain = project->importAudioFile (two);
+    REQUIRE (secondAgain == second);
+    REQUIRE_FALSE (std::filesystem::exists (audio / "tone 4.wav"));
+}
+
+TEST_CASE ("same file and same-content imports reuse one project audio file")
+{
+    const TempProject temp;
+    const auto folder = freshFolderIn (temp);
+    const auto project = Project::create (folder);
+    REQUIRE (project != nullptr);
+
+    const auto source = temp.writeTone ("tone.wav", 1.0, 440.0);
+    const auto duplicate = temp.folder() / "elsewhere" / "tone.wav";
+    std::filesystem::create_directories (duplicate.parent_path());
+    std::filesystem::copy_file (source, duplicate);
+
+    const auto first = project->importAudioFile (source);
+    const auto fromDuplicate = project->importAudioFile (duplicate);
+    const auto fromInside = project->importAudioFile (first);
+
+    const auto audio = duet::persistence::audioDirectory (folder);
+    REQUIRE (first == audio / "tone.wav");
+    REQUIRE (fromDuplicate == first);
+    REQUIRE (fromInside == first);
+    REQUIRE (fileContents (first) == fileContents (source));
+    REQUIRE_FALSE (std::filesystem::exists (audio / "tone 2.wav"));
+
+    const auto nested = audio / "nested" / "inside.wav";
+    std::filesystem::create_directories (nested.parent_path());
+    std::filesystem::copy_file (source, nested);
+    REQUIRE (project->importAudioFile (nested) == nested);
+    REQUIRE_FALSE (std::filesystem::exists (audio / "inside.wav"));
+}
+
+TEST_CASE ("a leftover partial from an interrupted import is not left beside the file")
+{
+    const TempProject temp;
+    const auto folder = freshFolderIn (temp);
+    const auto project = Project::create (folder);
+    REQUIRE (project != nullptr);
+
+    const auto source = temp.writeTone ("tone.wav", 1.0, 440.0);
+    const auto audio = duet::persistence::audioDirectory (folder);
+    const auto partial = audio / "tone.wav.partial";
+    {
+        std::ofstream wreckage { partial };
+        wreckage << "interrupted";
+    }
+    REQUIRE (std::filesystem::is_regular_file (partial));
+
+    const auto imported = project->importAudioFile (source);
+
+    REQUIRE (imported == audio / "tone.wav");
+    REQUIRE (fileContents (imported) == fileContents (source));
+    REQUIRE_FALSE (std::filesystem::exists (partial));
+}
+
+TEST_CASE ("a failed audio import leaves neither the destination nor a partial copy")
+{
+    const TempProject temp;
+    const auto folder = freshFolderIn (temp);
+    const auto project = Project::create (folder);
+    REQUIRE (project != nullptr);
+
+    const auto audio = duet::persistence::audioDirectory (folder);
+
+    const auto missing = temp.folder() / "gone.wav";
+    REQUIRE (project->importAudioFile (missing).empty());
+    REQUIRE_FALSE (std::filesystem::exists (audio / "gone.wav"));
+    REQUIRE_FALSE (std::filesystem::exists (audio / "gone.wav.partial"));
+
+    const auto source = temp.writeTone ("tone.wav", 1.0, 440.0);
+    std::filesystem::create_directories (audio / "tone.wav.partial" / "in the way");
+
+    REQUIRE (project->importAudioFile (source).empty());
+    REQUIRE_FALSE (std::filesystem::is_regular_file (audio / "tone.wav"));
+    REQUIRE_FALSE (std::filesystem::exists (audio / "tone 2.wav"));
+    REQUIRE_FALSE (std::filesystem::exists (audio / "tone.wav.partial.partial"));
+}
+
 TEST_CASE ("a save brings back the fader the producer set, and leaves the redo stack alone")
 {
     const TempProject temp;

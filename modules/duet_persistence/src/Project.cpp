@@ -3,6 +3,9 @@
 #include <duet/model/EngineAccess.h>
 #include <duet/persistence/ProjectLayout.h>
 
+#include <array>
+#include <cstring>
+#include <fstream>
 #include <utility>
 #include <vector>
 
@@ -242,6 +245,130 @@ namespace
 
             ++version;
             duetTree.setProperty (schemaVersionName, version, nullptr);
+        }
+
+        return true;
+    }
+
+    constexpr std::size_t audioContentChunkBytes = 65'536;
+
+    /** Size first, then chunks: a collision check must not load a sample into
+        memory just to decide whether it is already in the project.
+    */
+    bool filesHaveSameContent (const std::filesystem::path& left,
+                               const std::filesystem::path& right)
+    {
+        std::error_code failure;
+        const auto leftSize = std::filesystem::file_size (left, failure);
+
+        if (failure)
+            return false;
+
+        const auto rightSize = std::filesystem::file_size (right, failure);
+
+        if (failure || leftSize != rightSize)
+            return false;
+
+        std::ifstream leftIn { left, std::ios::binary };
+        std::ifstream rightIn { right, std::ios::binary };
+
+        if (! leftIn || ! rightIn)
+            return false;
+
+        std::array<char, audioContentChunkBytes> leftChunk {};
+        std::array<char, audioContentChunkBytes> rightChunk {};
+        auto remaining = leftSize;
+
+        while (remaining > 0)
+        {
+            const auto request = static_cast<std::streamsize> (
+                remaining < audioContentChunkBytes ? remaining : audioContentChunkBytes);
+            leftIn.read (leftChunk.data(), request);
+            rightIn.read (rightChunk.data(), request);
+
+            if (leftIn.gcount() != request || rightIn.gcount() != request)
+                return false;
+
+            if (std::memcmp (
+                    leftChunk.data(), rightChunk.data(), static_cast<std::size_t> (request))
+                != 0)
+                return false;
+
+            remaining -= static_cast<std::uintmax_t> (request);
+        }
+
+        return true;
+    }
+
+    std::filesystem::path numberedAudioFileName (const std::filesystem::path& fileName, int number)
+    {
+        if (number <= 1)
+            return fileName;
+
+        return std::filesystem::path { fileName.stem().string() + " " + std::to_string (number)
+                                       + fileName.extension().string() };
+    }
+
+    /** The path this file already has inside `audio/`, or empty when it is not
+        a file of this project.
+    */
+    std::filesystem::path pathIfInsideAudio (const std::filesystem::path& file,
+                                             const std::filesystem::path& audio)
+    {
+        std::error_code failure;
+
+        if (! std::filesystem::is_regular_file (file, failure) || failure)
+            return {};
+
+        const auto canonicalFile = std::filesystem::weakly_canonical (file, failure);
+
+        if (failure)
+            return {};
+
+        const auto canonicalAudio = std::filesystem::weakly_canonical (audio, failure);
+
+        if (failure)
+            return {};
+
+        const auto relative = canonicalFile.lexically_relative (canonicalAudio);
+
+        if (relative.empty() || relative == ".")
+            return {};
+
+        for (const auto& part : relative)
+            if (part == "..")
+                return {};
+
+        return audio / relative;
+    }
+
+    /** Writes beside the destination and renames onto it, so an interrupted copy
+        cannot replace a project file with a truncated one.
+    */
+    bool copyAudioFileAtomically (const std::filesystem::path& source,
+                                  const std::filesystem::path& destination)
+    {
+        auto partial = destination;
+        partial += ".partial";
+
+        std::error_code ignored;
+        std::filesystem::remove (partial, ignored);
+
+        std::error_code failure;
+        std::filesystem::copy_file (source, partial, failure);
+
+        if (failure)
+        {
+            std::filesystem::remove (partial, ignored);
+            return false;
+        }
+
+        std::filesystem::rename (partial, destination, failure);
+
+        if (failure)
+        {
+            std::filesystem::remove (partial, ignored);
+            return false;
         }
 
         return true;
@@ -503,24 +630,37 @@ bool Project::writeSnapshot (const std::filesystem::path& destination,
 
 std::filesystem::path Project::importAudioFile (const std::filesystem::path& sourceFile)
 {
-    auto destination = audioDirectory (projectFolder) / sourceFile.filename();
+    const auto audio = audioDirectory (projectFolder);
 
-    // Importing what the project already holds is not a copy onto itself.
-    std::error_code alreadyHere;
-
-    if (std::filesystem::equivalent (sourceFile, destination, alreadyHere))
-        return destination;
+    if (const auto alreadyHere = pathIfInsideAudio (sourceFile, audio); ! alreadyHere.empty())
+        return alreadyHere;
 
     std::error_code failure;
-    std::filesystem::create_directories (audioDirectory (projectFolder), failure);
+    std::filesystem::create_directories (audio, failure);
 
     if (failure)
         return {};
 
-    std::filesystem::copy_file (
-        sourceFile, destination, std::filesystem::copy_options::overwrite_existing, failure);
+    const auto fileName = sourceFile.filename();
 
-    return failure ? std::filesystem::path {} : std::move (destination);
+    for (int number = 1;; ++number)
+    {
+        auto destination = audio / numberedAudioFileName (fileName, number);
+        std::error_code existsFailure;
+
+        if (std::filesystem::exists (destination, existsFailure))
+        {
+            if (filesHaveSameContent (sourceFile, destination))
+                return destination;
+
+            continue;
+        }
+
+        if (! copyAudioFileAtomically (sourceFile, destination))
+            return {};
+
+        return destination;
+    }
 }
 
 //==============================================================================

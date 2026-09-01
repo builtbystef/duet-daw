@@ -153,8 +153,10 @@ public:
 
     /** Copies an audio file into the project's audio subdirectory and returns
         the copy, so that a clip inserted from it travels with the folder. A
-        file already in the project is returned as it is; a file whose name is
-        already taken replaces what is there. Empty when the copy failed.
+        file already in that subdirectory is returned as it is. A name that is
+        already taken is reused when the bytes match, otherwise the first free
+        `name 2.ext`, `name 3.ext`, and so on — existing content is never
+        overwritten. Empty when the copy failed.
     */
     std::filesystem::path importAudioFile (const std::filesystem::path& sourceFile);
 
