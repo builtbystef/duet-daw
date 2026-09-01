@@ -1,14 +1,15 @@
 ---
 id: a5ffsn
 title: Deterministic Standard MIDI File parser and Import MIDI Action
-state: todo
+state: done
+assignee: agent
 priority: high
 labels:
     - session:task
     - roadmap:yfpnps
 parent: kmb4mv
 created: 2026-09-01T18:34:33Z
-updated: 2026-09-01T18:41:16Z
+updated: 2026-09-01T21:34:23Z
 ---
 
 ## Bounded implementation
@@ -32,3 +33,17 @@ Add an engine-free MIDI import result and one model operation that materializes 
 - [ ] Tests drive the parser and public model Action seam; no JUCE component or wall-clock timing is involved.
 
 Place parsing in an engine-free model/helper API, with tests in a focused `tests/MidiImportTests.cpp`. Run all AGENTS.md checks before closing.
+
+## Notes
+
+**agent** — 2026-09-01T20:39:03Z
+
+Seams: parseStandardMidiFile (engine-free bytes → MidiImport) and EditOps::importMidi inside performAction("Import MIDI"). Tests in tests/MidiImportTests.cpp; no JUCE component or wall-clock. Parser sorts notes by start, then pitch, then source track/channel/event order; the Action inserts one clip at the supplied beat with length max(latest note end, grid subdivision).
+
+**agent** — 2026-09-01T21:34:23Z
+
+Completed engine-free parseStandardMidiFile and EditOps::importMidi. Tests in tests/MidiImportTests.cpp drive both seams with no JUCE component or wall-clock.
+
+Literal format-0 PPQ, format-1 PPQ, and SMPTE fixtures produce independently stated beat/pitch/length/velocity values. Format-1 tempo/metre events are counted as unsupported and do not change the project. Malformed/empty/note-less files return a producer-facing message and the caller emits no Action. Merge order and summary text match across runs. Import MIDI inserts one clip at the supplied beat; undo is digest-exact; sourceReference stays empty.
+
+Summary text is always "<n> note(s), <n> unmatched note-on(s), <n> unsupported event(s)." End-of-track is not counted. Zero-length paired notes are dropped. Clip length is max(latest note end, minimumLengthBeats).

@@ -8,6 +8,7 @@ add_library(duet_model STATIC
     src/AudioFile.cpp
     src/Devices.cpp
     src/EditOps.cpp
+    src/MidiImport.cpp
     src/PluginScan.cpp
     src/Recording.cpp
     src/Session.cpp

@@ -40,6 +40,7 @@ add_executable(duet_tests
     HarmonyRoutinesTests.cpp
     MasterMixerTests.cpp
     MessageThreadMarshalTests.cpp
+    MidiImportTests.cpp
     MidiOpsTests.cpp
     MixerOpsTests.cpp
     MixerViewTests.cpp

@@ -813,6 +813,34 @@ ClipRef EditOps::insertMidiClip (TrackRef track,
     return noClip;
 }
 
+ClipRef EditOps::importMidi (TrackRef track,
+                             std::string_view name,
+                             double startBeats,
+                             double minimumLengthBeats,
+                             const MidiImport& imported)
+{
+    if (! imported.ok || imported.notes.empty())
+        return noClip;
+
+    auto latestEndBeats = 0.0;
+
+    for (const auto& note : imported.notes)
+        latestEndBeats = std::max (latestEndBeats, note.startBeats + note.lengthBeats);
+
+    const auto lengthBeats = std::max (latestEndBeats, minimumLengthBeats);
+    const auto startSeconds = session.secondsAtBeats (startBeats);
+    const auto lengthSeconds = session.secondsAtBeats (startBeats + lengthBeats) - startSeconds;
+    const auto clip = insertMidiClip (track, name, startSeconds, lengthSeconds);
+
+    if (clip == noClip)
+        return noClip;
+
+    for (const auto& note : imported.notes)
+        addNote (clip, note.pitch, note.startBeats, note.lengthBeats, note.velocity);
+
+    return clip;
+}
+
 void EditOps::moveClip (ClipRef clip, double newStartSeconds)
 {
     moveClip (clip, noTrack, newStartSeconds);

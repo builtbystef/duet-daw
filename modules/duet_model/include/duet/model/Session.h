@@ -1,5 +1,7 @@
 #pragma once
 
+#include <duet/model/MidiImport.h>
+
 #include <cstdint>
 #include <filesystem>
 #include <functional>
@@ -773,6 +775,19 @@ public:
                             std::string_view name,
                             double startSeconds,
                             double lengthSeconds);
+
+    /** Inserts a MIDI clip holding imported notes, and returns it.
+
+        The clip starts at `startBeats`. Its length is the latest imported note's
+        end, and at least `minimumLengthBeats`. Notes are ordinary project notes;
+        nothing about a source file is stored. A result with no notes inserts
+        nothing.
+    */
+    ClipRef importMidi (TrackRef track,
+                        std::string_view name,
+                        double startBeats,
+                        double minimumLengthBeats,
+                        const MidiImport& imported);
 
     void moveClip (ClipRef clip, double newStartSeconds);
 
