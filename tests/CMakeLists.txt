@@ -78,6 +78,7 @@ add_executable(duet_tests
     ToolFixtureTests.cpp
     TransportBarTests.cpp
     TrackAnalysisTests.cpp
+    TrackIoTests.cpp
     TrackOpsTests.cpp
     TranscriptionRoutinesTests.cpp
     ViewStateTests.cpp

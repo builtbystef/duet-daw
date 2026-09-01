@@ -153,7 +153,7 @@ std::vector<MidiInputInfo> Session::midiInputs() const
 
     for (const auto& device : impl->engine.getDeviceManager().getMidiInDevices())
         if (device != nullptr)
-            inputs.push_back ({ impl->refForInput (device->getDeviceID()),
+            inputs.push_back ({ impl->rememberInput (*device),
                                 device->getName().toStdString(),
                                 device->isEnabled() });
 
@@ -164,7 +164,12 @@ void Session::setMidiInputEnabled (InputRef input, bool enabled)
 {
     auto* device = impl->inputDeviceFor (input);
 
-    if (device != nullptr && device->isMidi())
-        device->setEnabled (enabled);
+    if (device == nullptr || ! device->isMidi())
+        return;
+
+    device->setEnabled (enabled);
+
+    if (! enabled)
+        impl->disarmTracksWithUnavailableInputs();
 }
 } // namespace duet::model

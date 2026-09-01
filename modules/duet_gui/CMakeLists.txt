@@ -31,6 +31,7 @@ add_library(duet_gui STATIC
     src/TimelineGeometry.cpp
     src/TransportBar.cpp
     src/Tokens.cpp
+    src/TrackIo.cpp
     src/ViewState.cpp
     src/WindowGeometry.cpp)
 add_library(duet::gui ALIAS duet_gui)

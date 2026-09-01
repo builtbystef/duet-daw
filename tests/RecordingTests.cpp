@@ -86,10 +86,7 @@ TEST_CASE ("a track is armed to record from an input, and says which one")
     session.useNoAudioDevice();
 
     const auto midiInput = inputOfKind (session, InputKind::midi);
-    const auto audioInput = inputOfKind (session, InputKind::audio);
-
     REQUIRE (midiInput != duet::model::noInput);
-    REQUIRE (audioInput != duet::model::noInput);
 
     TrackRef keys = duet::model::noTrack;
 
@@ -106,15 +103,20 @@ TEST_CASE ("a track is armed to record from an input, and says which one")
     session.setTrackRecordArmed (keys, true);
     REQUIRE (session.track (keys).recordArmed);
 
-    // A track records from one input, so choosing another takes the first away.
-    session.setTrackInput (keys, audioInput);
-    REQUIRE (session.track (keys).input == audioInput);
+    // A track records from one input, so assigning that input to another track
+    // takes it away from the first.
+    TrackRef pads = duet::model::noTrack;
+    session.performAction ("Add another track",
+                           [&] (auto& ops) { pads = ops.createTrack (TrackKind::midi, "Pads"); });
+    session.setTrackInput (pads, midiInput);
+    REQUIRE (session.track (pads).input == midiInput);
+    REQUIRE (session.track (keys).input == duet::model::noInput);
 
     session.setTrackRecordArmed (keys, false);
     REQUIRE_FALSE (session.track (keys).recordArmed);
 
-    session.setTrackInput (keys, duet::model::noInput);
-    REQUIRE (session.track (keys).input == duet::model::noInput);
+    session.setTrackInput (pads, duet::model::noInput);
+    REQUIRE (session.track (pads).input == duet::model::noInput);
 }
 
 TEST_CASE ("an input says how much of it the producer hears")
@@ -418,4 +420,185 @@ TEST_CASE ("a take waiting for the engine's devices is stopped by a Stop")
     REQUIRE_FALSE (session.isRecording());
     REQUIRE_FALSE (session.isPlaying());
     REQUIRE (session.track (guitar).clips.empty());
+}
+
+TEST_CASE ("an assigned input still has a name after the device is switched off")
+{
+    const TempProject project;
+    Session session { project.editFile() };
+    session.useNoAudioDevice();
+
+    const auto midi = [&session]
+    {
+        for (const auto& input : session.availableInputs())
+            if (input.kind == InputKind::midi)
+                return input;
+        return duet::model::InputInfo {};
+    }();
+    REQUIRE (midi.input != duet::model::noInput);
+
+    TrackRef keys = duet::model::noTrack;
+    session.performAction ("Add a track",
+                           [&] (auto& ops) { keys = ops.createTrack (TrackKind::midi, "Keys"); });
+    session.setTrackInput (keys, midi.input);
+
+    const auto assigned = session.assignedInput (keys);
+    REQUIRE (assigned.input == midi.input);
+    REQUIRE (assigned.name == midi.name);
+    REQUIRE (assigned.kind == InputKind::midi);
+    REQUIRE (assigned.available);
+
+    session.setMidiInputEnabled (midi.input, false);
+
+    const auto lost = session.assignedInput (keys);
+    REQUIRE (lost.input == midi.input);
+    REQUIRE (lost.name == midi.name);
+    REQUIRE (lost.kind == InputKind::midi);
+    REQUIRE_FALSE (lost.available);
+    REQUIRE (session.track (keys).input == midi.input);
+}
+
+TEST_CASE ("losing a device disarms the track and does not touch undo or the assignment")
+{
+    const TempProject project;
+    Session session { project.editFile() };
+    session.useNoAudioDevice();
+
+    const auto midiInput = inputOfKind (session, InputKind::midi);
+    REQUIRE (midiInput != duet::model::noInput);
+
+    TrackRef keys = duet::model::noTrack;
+    session.performAction ("Add a track",
+                           [&] (auto& ops) { keys = ops.createTrack (TrackKind::midi, "Keys"); });
+    session.performAction ("Rename the track", [&] (auto& ops) { ops.renameTrack (keys, "Pads"); });
+    session.setTrackInput (keys, midiInput);
+    session.setTrackRecordArmed (keys, true);
+    REQUIRE (session.track (keys).recordArmed);
+
+    const auto undoBefore = session.undoNames();
+    session.setMidiInputEnabled (midiInput, false);
+
+    REQUIRE_FALSE (session.track (keys).recordArmed);
+    REQUIRE (session.track (keys).input == midiInput);
+    REQUIRE (session.undoNames() == undoBefore);
+}
+
+TEST_CASE ("an input that reappears with the same id is the existing selection again")
+{
+    const TempProject project;
+    Session session { project.editFile() };
+    session.useNoAudioDevice();
+
+    const auto midiInput = inputOfKind (session, InputKind::midi);
+    REQUIRE (midiInput != duet::model::noInput);
+
+    TrackRef keys = duet::model::noTrack;
+    session.performAction ("Add a track",
+                           [&] (auto& ops) { keys = ops.createTrack (TrackKind::midi, "Keys"); });
+    session.setTrackInput (keys, midiInput);
+    session.setMidiInputEnabled (midiInput, false);
+    REQUIRE_FALSE (session.assignedInput (keys).available);
+
+    session.setMidiInputEnabled (midiInput, true);
+
+    const auto restored = session.assignedInput (keys);
+    REQUIRE (restored.input == midiInput);
+    REQUIRE (restored.available);
+    REQUIRE_FALSE (session.track (keys).recordArmed);
+}
+
+TEST_CASE ("an incompatible or missing input is refused with a notice and no state change")
+{
+    const TempProject project;
+    Session session { project.editFile() };
+    session.useNoAudioDevice();
+
+    const auto midiInput = inputOfKind (session, InputKind::midi);
+    const auto audioInput = inputOfKind (session, InputKind::audio);
+    REQUIRE (midiInput != duet::model::noInput);
+    REQUIRE (audioInput != duet::model::noInput);
+
+    TrackRef keys = duet::model::noTrack;
+    TrackRef group = duet::model::noTrack;
+    session.performAction ("Tracks",
+                           [&] (auto& ops)
+                           {
+                               keys = ops.createTrack (TrackKind::midi, "Keys");
+                               group = ops.createTrack (TrackKind::group, "Bus");
+                           });
+    session.setTrackInput (keys, midiInput);
+
+    std::vector<std::string> notices;
+    session.onEngineMessage ([&] (const std::string& text) { notices.push_back (text); });
+
+    session.setTrackInput (keys, audioInput);
+    REQUIRE (session.track (keys).input == midiInput);
+    REQUIRE_FALSE (notices.empty());
+
+    notices.clear();
+    session.setTrackInput (group, audioInput);
+    REQUIRE (session.track (group).input == duet::model::noInput);
+    REQUIRE_FALSE (notices.empty());
+
+    session.setMidiInputEnabled (midiInput, false);
+    notices.clear();
+    TrackRef pads = duet::model::noTrack;
+    session.performAction ("Add another track",
+                           [&] (auto& ops) { pads = ops.createTrack (TrackKind::midi, "Pads"); });
+    session.setTrackInput (pads, midiInput);
+    REQUIRE (session.track (pads).input == duet::model::noInput);
+    REQUIRE_FALSE (notices.empty());
+}
+
+TEST_CASE ("arming without an available input is refused with a notice")
+{
+    const TempProject project;
+    Session session { project.editFile() };
+    session.useNoAudioDevice();
+
+    TrackRef keys = duet::model::noTrack;
+    TrackRef group = duet::model::noTrack;
+    session.performAction ("Tracks",
+                           [&] (auto& ops)
+                           {
+                               keys = ops.createTrack (TrackKind::midi, "Keys");
+                               group = ops.createTrack (TrackKind::group, "Bus");
+                           });
+
+    std::vector<std::string> notices;
+    session.onEngineMessage ([&] (const std::string& text) { notices.push_back (text); });
+
+    session.setTrackRecordArmed (keys, true);
+    REQUIRE_FALSE (session.track (keys).recordArmed);
+    REQUIRE_FALSE (notices.empty());
+
+    notices.clear();
+    session.setTrackRecordArmed (group, true);
+    REQUIRE_FALSE (session.track (group).recordArmed);
+    REQUIRE_FALSE (notices.empty());
+}
+
+TEST_CASE ("repeated input and arm writes do nothing")
+{
+    const TempProject project;
+    Session session { project.editFile() };
+    session.useNoAudioDevice();
+
+    const auto midiInput = inputOfKind (session, InputKind::midi);
+    REQUIRE (midiInput != duet::model::noInput);
+
+    TrackRef keys = duet::model::noTrack;
+    session.performAction ("Add a track",
+                           [&] (auto& ops) { keys = ops.createTrack (TrackKind::midi, "Keys"); });
+    session.setTrackInput (keys, midiInput);
+    session.setTrackRecordArmed (keys, true);
+
+    std::vector<std::string> notices;
+    session.onEngineMessage ([&] (const std::string& text) { notices.push_back (text); });
+
+    session.setTrackInput (keys, midiInput);
+    session.setTrackRecordArmed (keys, true);
+    REQUIRE (session.track (keys).input == midiInput);
+    REQUIRE (session.track (keys).recordArmed);
+    REQUIRE (notices.empty());
 }

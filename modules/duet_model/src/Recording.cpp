@@ -67,6 +67,10 @@ namespace
 
         return InputMonitoring::whileArmed;
     }
+
+    constexpr const char* incompatibleInputNotice = "This track cannot record from that input.";
+    constexpr const char* missingInputNotice = "That input is not available.";
+    constexpr const char* cannotArmNotice = "Choose an available input before arming this track.";
 } // namespace
 
 //==============================================================================
@@ -92,11 +96,20 @@ InputRef Session::Impl::refForInput (const juce::String& deviceID) const
     const auto id = deviceID.toStdString();
 
     for (const auto& [ref, known] : inputsByRef)
-        if (known == id)
+        if (known.deviceID == id)
             return ref;
 
     const auto ref = nextInputRef++;
-    inputsByRef.emplace (ref, id);
+    inputsByRef.emplace (ref, KnownInput { id, {}, InputKind::audio });
+    return ref;
+}
+
+InputRef Session::Impl::rememberInput (te::InputDevice& device) const
+{
+    const auto ref = refForInput (device.getDeviceID());
+    auto& known = inputsByRef.at (ref);
+    known.name = device.getName().toStdString();
+    known.kind = device.isMidi() ? InputKind::midi : InputKind::audio;
     return ref;
 }
 
@@ -107,7 +120,93 @@ te::InputDevice* Session::Impl::inputDeviceFor (InputRef ref) const
     if (known == inputsByRef.end())
         return nullptr;
 
-    return engine.getDeviceManager().findInputDeviceForID (juce::String { known->second });
+    return engine.getDeviceManager().findInputDeviceForID (juce::String { known->second.deviceID });
+}
+
+void Session::Impl::rememberTrackInput (TrackRef track, const AssignedInput& assigned)
+{
+    if (assigned.input == noInput)
+    {
+        rememberedTrackInputs.erase (track);
+        return;
+    }
+
+    rememberedTrackInputs[track] = { assigned.input, assigned.name, assigned.kind };
+}
+
+AssignedInput Session::Impl::assignedInputOf (TrackRef track) const
+{
+    AssignedInput assigned;
+    const auto remembered = rememberedTrackInputs.find (track);
+    const auto destination = destinationStateFor (track);
+
+    if (remembered != rememberedTrackInputs.end())
+    {
+        assigned.input = remembered->second.input;
+        assigned.name = remembered->second.name;
+        assigned.kind = remembered->second.kind;
+    }
+    else if (destination.isValid())
+    {
+        assigned.input = inputOfDestination (destination);
+    }
+
+    if (assigned.input == noInput)
+        return {};
+
+    if (auto* device = inputDeviceFor (assigned.input))
+    {
+        assigned.name = device->getName().toStdString();
+        assigned.kind = device->isMidi() ? InputKind::midi : InputKind::audio;
+        assigned.available = device->isEnabled();
+        rememberInput (*device);
+        return assigned;
+    }
+
+    if (const auto known = inputsByRef.find (assigned.input); known != inputsByRef.end())
+    {
+        if (assigned.name.empty())
+            assigned.name = known->second.name;
+        assigned.kind = known->second.kind;
+    }
+
+    assigned.available = false;
+    return assigned;
+}
+
+void Session::Impl::disarmTrack (TrackRef track) const
+{
+    auto* audioTrack = trackFor (track);
+
+    if (audioTrack == nullptr)
+        return;
+
+    auto destination = destinationStateFor (track);
+
+    if (auto* instance = instanceFor (inputOfDestination (destination)))
+        instance->setRecordingEnabled (audioTrack->itemID, false);
+    else if (destination.isValid())
+        destination.setProperty (te::IDs::armed, false, nullptr);
+}
+
+void Session::Impl::disarmTracksWithUnavailableInputs() const
+{
+    for (auto* track : te::getAudioTracks (*edit))
+    {
+        const auto ref = toRef<TrackRef> (track->itemID);
+        const auto assigned = assignedInputOf (ref);
+
+        if (assigned.input == noInput || assigned.available)
+            continue;
+
+        disarmTrack (ref);
+    }
+}
+
+void Session::Impl::notifyProducer (const std::string& message) const
+{
+    if (engineMessage)
+        engineMessage (message);
 }
 
 te::InputDeviceInstance* Session::Impl::instanceFor (InputRef ref) const
@@ -157,12 +256,17 @@ std::vector<InputInfo> Session::availableInputs() const
         if (device == nullptr || ! device->isEnabled())
             continue;
 
-        out.push_back ({ impl->refForInput (device->getDeviceID()),
+        out.push_back ({ impl->rememberInput (*device),
                          device->getName().toStdString(),
                          device->isMidi() ? InputKind::midi : InputKind::audio });
     }
 
     return out;
+}
+
+AssignedInput Session::assignedInput (TrackRef track) const
+{
+    return impl->assignedInputOf (track);
 }
 
 void Session::setTrackInput (TrackRef track, InputRef input)
@@ -172,6 +276,37 @@ void Session::setTrackInput (TrackRef track, InputRef input)
     if (audioTrack == nullptr)
         return;
 
+    const auto current = impl->assignedInputOf (track);
+
+    if (current.input == input)
+        return;
+
+    if (input != noInput)
+    {
+        const auto kind = trackKindOf (*audioTrack);
+        auto* device = impl->inputDeviceFor (input);
+
+        if (kind == TrackKind::group)
+        {
+            impl->notifyProducer (incompatibleInputNotice);
+            return;
+        }
+
+        if (device == nullptr || ! device->isEnabled())
+        {
+            impl->notifyProducer (missingInputNotice);
+            return;
+        }
+
+        const auto inputKind = device->isMidi() ? InputKind::midi : InputKind::audio;
+
+        if ((kind == TrackKind::midi) != (inputKind == InputKind::midi))
+        {
+            impl->notifyProducer (incompatibleInputNotice);
+            return;
+        }
+    }
+
     // Whatever fed this track before stops feeding it, so that a track records
     // from one input and the read back is unambiguous.
     for (auto* instance : impl->edit->getAllInputDevices())
@@ -179,13 +314,29 @@ void Session::setTrackInput (TrackRef track, InputRef input)
             const auto removed = instance->removeTarget (audioTrack->itemID, nullptr);
 
     if (input == noInput)
+    {
+        impl->rememberTrackInput (track, {});
         return;
+    }
 
     if (auto* instance = impl->instanceFor (input))
+    {
         // Moved, not shared: an input feeds one track, so it leaves whichever
         // track it fed before.
         [[maybe_unused]]
         const auto assigned = instance->setTarget (audioTrack->itemID, true, nullptr);
+        auto* device = impl->inputDeviceFor (input);
+        const AssignedInput remembered { impl->rememberInput (*device),
+                                         device->getName().toStdString(),
+                                         device->isMidi() ? InputKind::midi : InputKind::audio,
+                                         true };
+        impl->rememberTrackInput (track, remembered);
+
+        // The input now feeds this track, so it no longer feeds the one it left.
+        std::erase_if (impl->rememberedTrackInputs,
+                       [track, input] (const auto& entry)
+                       { return entry.first != track && entry.second.input == input; });
+    }
 }
 
 void Session::setTrackRecordArmed (TrackRef track, bool armed)
@@ -195,7 +346,19 @@ void Session::setTrackRecordArmed (TrackRef track, bool armed)
     if (audioTrack == nullptr)
         return;
 
+    const auto current = impl->assignedInputOf (track);
     const auto destination = impl->destinationStateFor (track);
+    const bool currentlyArmed =
+        destination.isValid() && static_cast<bool> (destination[te::IDs::armed]);
+
+    if (currentlyArmed == armed)
+        return;
+
+    if (armed && (trackKindOf (*audioTrack) == TrackKind::group || ! current.available))
+    {
+        impl->notifyProducer (cannotArmNotice);
+        return;
+    }
 
     if (auto* instance = impl->instanceFor (impl->inputOfDestination (destination)))
         instance->setRecordingEnabled (audioTrack->itemID, armed);

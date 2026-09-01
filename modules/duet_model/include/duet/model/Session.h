@@ -173,6 +173,21 @@ struct InputInfo
     InputKind kind = InputKind::audio;
 };
 
+/** The input a track is assigned to, named even when that device has left the
+    machine.
+
+    `available` is false when the device is missing or switched off; the name
+    is then the last one the model saw. `input` is noInput when the track
+    records from nothing.
+*/
+struct AssignedInput
+{
+    InputRef input = noInput;
+    std::string name;
+    InputKind kind = InputKind::audio;
+    bool available = false;
+};
+
 /** One of the machine's MIDI inputs, as the MIDI tab lists it.
 
     An input the producer has switched off is still here, switched off, which is
@@ -1542,10 +1557,14 @@ public:
     /** The inputs this machine offers, in the order the engine lists them. */
     [[nodiscard]] std::vector<InputInfo> availableInputs() const;
 
+    /** The input a track records from, named even when the device is gone. */
+    [[nodiscard]] AssignedInput assignedInput (TrackRef track) const;
+
     /** Records a track from an input; noInput records it from nothing.
 
         A track records from one input and an input feeds one track, so this
-        takes the input away from whatever it fed before.
+        takes the input away from whatever it fed before. An incompatible or
+        missing input is refused with a producer notice and no state change.
     */
     void setTrackInput (TrackRef track, InputRef input);
 

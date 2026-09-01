@@ -464,14 +464,42 @@ struct Session::Impl
     // and the engine names one with a string, so the model hands out a handle
     // for it the way it does for a note.
 
-    mutable std::unordered_map<InputRef, std::string> inputsByRef;
+    struct KnownInput
+    {
+        std::string deviceID;
+        std::string name;
+        InputKind kind = InputKind::audio;
+    };
+
+    mutable std::unordered_map<InputRef, KnownInput> inputsByRef;
     mutable InputRef nextInputRef = 1;
+
+    /** The assignment a track last received, kept even if the engine drops the
+        device node when that device leaves the machine.
+    */
+    struct TrackInputMemory
+    {
+        InputRef input = noInput;
+        std::string name;
+        InputKind kind = InputKind::audio;
+    };
+
+    std::unordered_map<TrackRef, TrackInputMemory> rememberedTrackInputs;
 
     /** The handle for an input, made on first sight of it. */
     InputRef refForInput (const juce::String& deviceID) const;
 
+    /** The handle for a live device, remembering its name and kind. */
+    InputRef rememberInput (te::InputDevice& device) const;
+
     /** The input a handle names, or null when this machine has no such input. */
     te::InputDevice* inputDeviceFor (InputRef ref) const;
+
+    AssignedInput assignedInputOf (TrackRef track) const;
+    void rememberTrackInput (TrackRef track, const AssignedInput& assigned);
+    void disarmTrack (TrackRef track) const;
+    void disarmTracksWithUnavailableInputs() const;
+    void notifyProducer (const std::string& message) const;
 
     /** The instance of an input in this Edit's playback context, making the
         context first if there is none: an input has nothing to be assigned to a
@@ -627,6 +655,8 @@ struct Session::Impl
         void changeListenerCallback (juce::ChangeBroadcaster* /*deviceManager*/) override
         {
             impl->lastDeviceChangeMs = impl->nowMs();
+            if (impl->deviceListIsBuilt())
+                impl->disarmTracksWithUnavailableInputs();
         }
 
         Impl* impl = nullptr;

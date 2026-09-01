@@ -1,14 +1,15 @@
 ---
 id: oscfrz
 title: Track I/O state and compatibility view-model
-state: todo
+state: done
+assignee: agent
 priority: high
 labels:
     - session:task
     - roadmap:yfpnps
 parent: uxkosp
 created: 2026-09-01T18:33:36Z
-updated: 2026-09-01T18:41:15Z
+updated: 2026-09-01T20:29:32Z
 ---
 
 ## Bounded implementation
@@ -33,3 +34,13 @@ Add the engine-free read/write seam that both track surfaces will use. `duet::gu
 - [ ] Red/green tests live at the public model and paintless GUI seams in `tests/RecordingTests.cpp` and a focused `tests/TrackIoTests.cpp`.
 
 Start in `modules/duet_model/include/duet/model/Session.h`, `modules/duet_model/src/Recording.cpp`, and `modules/duet_gui/include/duet/gui/`. Run the targeted tests during TDD, then all AGENTS.md build/test/format/lint checks before closing. No physical hardware review belongs in this task.
+
+## Notes
+
+**agent** — 2026-09-01T20:29:32Z
+
+Completed the engine-free Track I/O seam.
+
+Session::assignedInput names the last known device after it leaves, without engine or JUCE types. TrackIo is paintless: None then compatible live devices, Unavailable — <name> for a lost assignment, monitoring/arm enabled only while that assignment is live, groups None-only and un-armable. Device loss disarms and does not touch undo or silently pick another input; the same id coming back restores the existing selection. Repeated or invalid input/arm/monitor writes are no-ops with a producer notice; output is the existing Set Track Output Action with digest-exact undo.
+
+Seams: tests/RecordingTests.cpp (model) and tests/TrackIoTests.cpp (paintless GUI). Device disappearance is exercised by disabling a MIDI input, which is the headless stand-in the issue allowed (no physical-hardware review). Arrangement and Mixer chrome are 7sd7k2 and hs7owx.

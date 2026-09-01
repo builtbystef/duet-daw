@@ -835,12 +835,12 @@ std::vector<TrackInfo> Session::tracks() const
                           static_cast<int> (track->state.getProperty (
                               juce::Identifier { "duetTrackColour" }, 0))));
 
+        const auto assigned = impl->assignedInputOf (trackInfo.track);
+        trackInfo.input = assigned.input;
+
         if (const auto destination = impl->destinationStateFor (trackInfo.track);
             destination.isValid())
-        {
-            trackInfo.input = impl->inputOfDestination (destination);
             trackInfo.recordArmed = destination[te::IDs::armed];
-        }
 
         if (auto* destination = track->getOutput().getDestinationTrack())
             trackInfo.output = toRef<TrackRef> (destination->itemID);
