@@ -13,3 +13,6 @@ CMakeUserPresets.json
 
 # Implement-loop operator state
 .implement-loop/
+
+# Local scratch
+temp/

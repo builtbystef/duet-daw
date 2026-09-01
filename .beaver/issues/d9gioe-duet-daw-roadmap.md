@@ -7,7 +7,7 @@ priority: high
 labels:
     - roadmap
 created: 2026-08-07T06:01:34Z
-updated: 2026-08-10T23:44:54Z
+updated: 2026-09-01T18:09:29Z
 ---
 
 ## Goal
@@ -96,3 +96,9 @@ Duet DAW is a native C++ desktop application that a producer can genuinely make 
 - The bright #3fd0be teal as the dark-mode Collaborator accent — rejected at node r4m858 (2026-08-10): reads neon/Tron against Graphite dark surfaces; the dark accent is #4aa294.
 - Testing Tracktion Engine from outside — rejected at the RT-testing sharpening (2026-08-10): the engine runs its own suite, and asserting on engine playback, mixing or timing is testing someone else's code at a seam Duet does not control. The prototype-verified findings (xrun-free mutation during playback) stand as evidence, not as regression tests.
 - Golden-file, fingerprint, or stored-sample comparison as an audio-correctness contract — rejected at nodes xciphe/ox1trt (2026-08-10): renders proved bit-exact only within one host, so stored samples would break silently across compilers, CPUs, and platforms; feature assertions with domain tolerances replace them (ADR 0006). The sole allowed sample comparison is the within-process render-twice determinism canary, which stores nothing.
+
+## Notes
+
+**agent** — 2026-09-01T18:09:29Z
+
+Milestone-one usability completion is now tracked under spec yfpnps. Its six workflow slices feed discoverability pass kkclj0 and manual release gate jpv27l. Post-gate daily-use editing is parked under spec h0eir5 (split, fades/crossfades, clip gain, count-in).

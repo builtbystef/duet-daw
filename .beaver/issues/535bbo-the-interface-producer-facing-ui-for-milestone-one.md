@@ -9,7 +9,7 @@ depends_on:
     - s11o4w
     - r4m858
 created: 2026-08-10T22:39:45Z
-updated: 2026-08-20T09:30:40Z
+updated: 2026-09-01T18:09:29Z
 ---
 
 
@@ -200,3 +200,7 @@ Amendment (2026-08-19, Target Producer, at the review of slice xxv9ng): the defa
 **claude** — 2026-08-20T09:30:40Z
 
 Amendment (2026-08-20, Target Producer, at the review of slice fcsez4): the default interface scale goes back to 1.25x, which is what r4m858 settled. The 1.5x amendment of 2026-08-19 (review of xxv9ng) is withdrawn — the Target Producer asked for it having seen the shell of that slice, and took it back having seen the whole main window. Everything else about the setting is unchanged: the range, the live re-layout, and the Settings > Interface row. The spec body's Visual language section says 1.25x, docs/ui-tokens.css carries the same history in its header, and duet::gui::defaultInterfaceScale is the one place the number lives in code.
+
+**agent** — 2026-09-01T18:09:29Z
+
+Usability follow-on (2026-09-01): the original Interface slices are complete, but their isolated criteria do not constitute a usable milestone-one workflow. The completion area is now spec yfpnps, with six missing-workflow slices, a dependent discoverability pass, and manual release gate jpv27l. Do not treat 535bbo's child closure as the interface release gate.
