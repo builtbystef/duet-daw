@@ -7,7 +7,9 @@
 
 #include <algorithm>
 #include <cctype>
+#include <functional>
 #include <system_error>
+#include <vector>
 
 namespace duet::gui
 {
@@ -140,10 +142,176 @@ namespace
 
         return found != known.end() && found->isInstrument;
     }
+
+    [[nodiscard]] bool stopRequested (const std::function<bool()>& stop)
+    {
+        return static_cast<bool> (stop) && stop();
+    }
+
+    /** The relative path a status names, or "this folder" when the walk could
+        not even place the directory under the root.
+    */
+    [[nodiscard]] std::string statusLabel (const std::filesystem::path& directory,
+                                           const std::filesystem::path& root)
+    {
+        std::error_code notRelative;
+        const auto relative = std::filesystem::relative (directory, root, notRelative);
+
+        if (notRelative || relative.empty() || relative == ".")
+            return "this folder";
+
+        return relative.generic_string();
+    }
+
+    void recordUnreadable (SampleFolderScan& result,
+                           const std::filesystem::path& directory,
+                           const std::filesystem::path& root)
+    {
+        if (result.status.empty())
+            result.status = "Could not read " + statusLabel (directory, root);
+    }
+
+    [[nodiscard]] std::string sampleName (const std::filesystem::path& file,
+                                          const std::filesystem::path& root)
+    {
+        std::error_code notRelative;
+        const auto relative = std::filesystem::relative (file, root, notRelative);
+
+        if (notRelative)
+            return file.filename().string();
+
+        return relative.generic_string();
+    }
+
+    void appendSample (SampleFolderScan& result,
+                       const std::filesystem::directory_entry& entry,
+                       const std::filesystem::path& root)
+    {
+        std::error_code error;
+
+        if (! entry.is_regular_file (error) || error)
+            return;
+
+        const auto extension = folded (entry.path().extension().string());
+        const auto& known = Browser::sampleExtensions();
+
+        if (std::ranges::find (known, extension) == known.end())
+            return;
+
+        result.items.push_back ({ BrowserItemKind::sample,
+                                  sampleName (entry.path(), root),
+                                  "sample:" + entry.path().string(),
+                                  {},
+                                  {},
+                                  entry.path(),
+                                  false });
+    }
+
+    void takeEntry (std::vector<std::filesystem::path>& pending,
+                    SampleFolderScan& result,
+                    const std::filesystem::directory_entry& entry,
+                    const std::filesystem::path& root)
+    {
+        std::error_code error;
+        const auto symlink = entry.is_symlink (error);
+
+        if (error)
+            return;
+
+        // Directory symlinks are not followed, which is also what breaks a
+        // cycle. A symlink to a regular sample is itself a listed file.
+        if (entry.is_directory (error) && ! error)
+        {
+            if (! symlink)
+                pending.push_back (entry.path());
+
+            return;
+        }
+
+        appendSample (result, entry, root);
+    }
+
+    void listDirectory (const std::filesystem::path& directory,
+                        const std::filesystem::path& root,
+                        std::vector<std::filesystem::path>& pending,
+                        SampleFolderScan& result,
+                        const std::function<bool()>& stop)
+    {
+        std::error_code error;
+        std::filesystem::directory_iterator iterator { directory,
+                                                       std::filesystem::directory_options::none,
+                                                       error };
+
+        if (error)
+        {
+            recordUnreadable (result, directory, root);
+            return;
+        }
+
+        const std::filesystem::directory_iterator end {};
+
+        for (; iterator != end; iterator.increment (error))
+        {
+            if (error)
+            {
+                recordUnreadable (result, directory, root);
+                return;
+            }
+
+            if (stopRequested (stop))
+                return;
+
+            takeEntry (pending, result, *iterator, root);
+        }
+    }
+
+    void walkSampleFolder (const std::filesystem::path& root,
+                           SampleFolderScan& result,
+                           const std::function<bool()>& stop)
+    {
+        std::vector<std::filesystem::path> pending { root };
+
+        while (! pending.empty())
+        {
+            if (stopRequested (stop))
+                return;
+
+            const auto directory = std::move (pending.back());
+            pending.pop_back();
+            listDirectory (directory, root, pending, result, stop);
+        }
+    }
+
+    [[nodiscard]] bool itemNameLess (const BrowserItem& first, const BrowserItem& second)
+    {
+        const auto foldedFirst = folded (first.name);
+        const auto foldedSecond = folded (second.name);
+
+        if (foldedFirst != foldedSecond)
+            return foldedFirst < foldedSecond;
+
+        return first.name < second.name;
+    }
 } // namespace
 
+SampleFolderScan scanSampleFolder (const std::filesystem::path& folder,
+                                   const std::function<bool()>& cancelled)
+{
+    SampleFolderScan result;
+    result.folder = folder;
+    walkSampleFolder (folder, result, cancelled);
+    std::ranges::sort (result.items, itemNameLess);
+    return result;
+}
+
 //==============================================================================
-Browser::Browser (Settings& store) : settings (&store) { refresh(); }
+Browser::Browser (Settings& store) : settings (&store)
+{
+    // Paths only: walking the trees is a refresh, and a host that supplies a
+    // worker does that after attach rather than on construction.
+    for (const auto& folder : sampleFolders())
+        scanned.push_back ({ folder, {}, {} });
+}
 
 void Browser::setSession (duet::model::Session* openProject)
 {
@@ -165,6 +333,52 @@ void Browser::setSampleImporter (
     importer = std::move (importIntoProject);
 }
 
+void Browser::setScanWorker (std::function<void (const SampleFolderScanRequest&)> worker)
+{
+    scanWorker = std::move (worker);
+}
+
+void Browser::applyScanProgress (const SampleFolderScanProgress& progress)
+{
+    if (progress.generation != scanGeneration || ! scanBusy)
+        return;
+
+    scanCompleted = progress.completed;
+    scanKnown = progress.known;
+    notifyChanged();
+}
+
+void Browser::applyScanOutcome (const SampleFolderScanOutcome& outcome)
+{
+    if (outcome.generation != scanGeneration)
+        return;
+
+    scanned.clear();
+    scanned.reserve (outcome.folders.size());
+
+    for (const auto& folder : outcome.folders)
+        scanned.push_back ({ folder.folder, folder.items, folder.status });
+
+    scanBusy = false;
+    scanCompleted = outcome.folders.size();
+    scanKnown = outcome.folders.size();
+    notifyChanged();
+}
+
+BrowserScanSnapshot Browser::scanSnapshot() const
+{
+    BrowserScanSnapshot snapshot;
+    snapshot.busy = scanBusy;
+    snapshot.completed = scanCompleted;
+    snapshot.known = scanKnown;
+
+    if (scanBusy)
+        snapshot.message =
+            "Scanning… " + std::to_string (scanCompleted) + "/" + std::to_string (scanKnown);
+
+    return snapshot;
+}
+
 const std::vector<std::string>& Browser::sampleExtensions()
 {
     static const std::vector<std::string> extensions { ".wav",  ".aiff", ".aif",
@@ -178,55 +392,41 @@ void Browser::refresh()
     plugins = session != nullptr ? session->knownVst3Plugins()
                                  : std::vector<duet::model::KnownPluginInfo> {};
 
-    std::vector<ScannedFolder> read;
+    const auto folders = sampleFolders();
+    std::vector<ScannedFolder> next;
+    next.reserve (folders.size());
 
-    for (const auto& folder : sampleFolders())
+    for (const auto& folder : folders)
     {
-        ScannedFolder entry { folder, {} };
-        std::error_code failure;
+        const auto found = std::ranges::find (scanned, folder, &ScannedFolder::folder);
 
-        // A folder the producer chose and then unplugged is still theirs: it
-        // reads as empty rather than throwing the whole dock away.
-        const std::filesystem::recursive_directory_iterator walk {
-            folder, std::filesystem::directory_options::skip_permission_denied, failure
-        };
-
-        if (! failure)
-        {
-            for (const auto& found : walk)
-            {
-                if (! found.is_regular_file (failure) || failure)
-                    continue;
-
-                const auto extension = folded (found.path().extension().string());
-                const auto& known = sampleExtensions();
-
-                if (std::ranges::find (known, extension) == known.end())
-                    continue;
-
-                std::error_code notRelative;
-                const auto relative = std::filesystem::relative (found.path(), folder, notRelative);
-                const auto name =
-                    notRelative ? found.path().filename().string() : relative.generic_string();
-
-                entry.items.push_back ({ BrowserItemKind::sample,
-                                         name,
-                                         "sample:" + found.path().string(),
-                                         {},
-                                         {},
-                                         found.path(),
-                                         false });
-            }
-        }
-
-        std::ranges::sort (entry.items,
-                           [] (const auto& first, const auto& second)
-                           { return folded (first.name) < folded (second.name); });
-        read.push_back (std::move (entry));
+        if (found != scanned.end())
+            next.push_back (*found);
+        else
+            next.push_back ({ folder, {}, {} });
     }
 
-    scanned = std::move (read);
-    notifyChanged();
+    scanned = std::move (next);
+    ++scanGeneration;
+
+    if (scanWorker)
+    {
+        scanBusy = true;
+        scanCompleted = 0;
+        scanKnown = folders.size();
+        notifyChanged();
+        scanWorker ({ scanGeneration, folders });
+        return;
+    }
+
+    SampleFolderScanOutcome outcome;
+    outcome.generation = scanGeneration;
+    outcome.folders.reserve (folders.size());
+
+    for (const auto& folder : folders)
+        outcome.folders.push_back (scanSampleFolder (folder));
+
+    applyScanOutcome (outcome);
 }
 
 //==============================================================================
@@ -389,7 +589,8 @@ void Browser::appendSection (std::vector<BrowserSection>& into,
                              std::string name,
                              const std::string& identity,
                              std::filesystem::path folder,
-                             const std::vector<BrowserItem>& items) const
+                             const std::vector<BrowserItem>& items,
+                             std::string status) const
 {
     auto kept = matching (items);
 
@@ -409,7 +610,8 @@ void Browser::appendSection (std::vector<BrowserSection>& into,
                       identity,
                       std::move (folder),
                       searchText.empty() ? isExpanded (identity) : true,
-                      std::move (kept) });
+                      std::move (kept),
+                      std::move (status) });
 }
 
 std::vector<BrowserSection> Browser::sections() const
@@ -471,7 +673,8 @@ std::vector<BrowserSection> Browser::sections() const
                                                         : folder.folder.filename().string(),
                        std::string { folderSectionPrefix } + folder.folder.string(),
                        folder.folder,
-                       folder.items);
+                       folder.items,
+                       folder.status);
 
     return result;
 }

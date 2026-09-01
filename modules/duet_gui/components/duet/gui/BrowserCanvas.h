@@ -55,6 +55,11 @@ public:
     */
     void refresh();
 
+    /** The Scanning… line the dock composes from the model's snapshot, empty
+        when nothing is in flight.
+    */
+    [[nodiscard]] const std::string& composedStatus() const { return statusLine; }
+
     [[nodiscard]] Browser& model() noexcept { return browser; }
     [[nodiscard]] const Browser& model() const noexcept { return browser; }
 
@@ -74,6 +79,7 @@ private:
         std::string name;
         bool expanded = false;
         bool favourite = false;
+        std::string status;
     };
 
     void appearanceChanged() override;
@@ -87,6 +93,7 @@ private:
     Browser& browser;
     juce::TextEditor searchBox;
     std::vector<Row> rows;
+    std::string statusLine;
     int scrollOffsetPx = 0;
     std::optional<std::size_t> pressedRow;
 

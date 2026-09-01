@@ -4,6 +4,7 @@
 
 #include <duet/model/Session.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <functional>
@@ -84,16 +85,83 @@ struct BrowserSection
 
     bool expanded = false;
     std::vector<BrowserItem> items;
+
+    /** A local status for this section — an unreadable subtree — and empty
+        when the last scan of it was clean.
+    */
+    std::string status;
 };
+
+/** One sample folder as a walk found it. */
+struct SampleFolderScan
+{
+    std::filesystem::path folder;
+    std::vector<BrowserItem> items;
+
+    /** One local status for an unreadable subtree; empty when the walk was
+        clean. Readable siblings are still in items.
+    */
+    std::string status;
+};
+
+/** What a host-supplied worker is asked to scan.
+
+    The generation tags the request so a result that outlived a newer refresh
+    is dropped rather than drawn.
+*/
+struct SampleFolderScanRequest
+{
+    std::uint64_t generation = 0;
+    std::vector<std::filesystem::path> folders;
+};
+
+/** How far one generation has got, as the worker reports it on the message
+    thread.
+*/
+struct SampleFolderScanProgress
+{
+    std::uint64_t generation = 0;
+    std::size_t completed = 0;
+    std::size_t known = 0;
+};
+
+/** The finished walk of one generation. */
+struct SampleFolderScanOutcome
+{
+    std::uint64_t generation = 0;
+    std::vector<SampleFolderScan> folders;
+};
+
+/** Busy, progress and the Scanning… message, as the dock reads them.
+
+    Existing rows stay up while this is busy; cancellation does not write a
+    status of its own.
+*/
+struct BrowserScanSnapshot
+{
+    bool busy = false;
+    std::size_t completed = 0;
+    std::size_t known = 0;
+    std::string message;
+};
+
+/** Walks one sample folder: ordinary directories, no directory-symlink
+    following, only sampleExtensions() regular files, sorted
+    case-insensitively by relative path with the bytewise path as the
+    tie-breaker.
+*/
+[[nodiscard]] SampleFolderScan scanSampleFolder (const std::filesystem::path& folder,
+                                                 const std::function<bool()>& cancelled = {});
 
 /** The left dock, without the painting: everything the producer can put into a
     project, and what dropping one of them does.
 
     The sample folders and the favourites are the producer's rather than the
     project's, so they live in the app-global store and follow them between
-    projects (spec 535bbo). What is on disk is read when this is refreshed and
-    not while a surface paints: a sample folder is a tree of the producer's own,
-    and reading it is the one expensive thing here.
+    projects (spec 535bbo). What is on disk is read by a host-supplied worker
+    and installed on the message thread, never while a surface paints: a sample
+    folder is a tree of the producer's own, and reading it is the one expensive
+    thing here.
 
     Every drop ends in one Action on the vocabulary layer, and a drop that has
     nowhere to land does nothing at all — an instrument has no meaning on an
@@ -126,6 +194,26 @@ public:
     void setSampleImporter (
         std::function<std::filesystem::path (const std::filesystem::path&)> importIntoProject);
 
+    /** The host-supplied walk. A refresh asks it to scan and does not walk the
+        disk itself; the worker delivers a generation-tagged result on the
+        message thread. A browser with none walks on the caller's thread, which
+        is what a test without a worker needs.
+    */
+    void setScanWorker (std::function<void (const SampleFolderScanRequest&)> worker);
+
+    /** Installs progress from the worker. A generation that is no longer the
+        current refresh is ignored.
+    */
+    void applyScanProgress (const SampleFolderScanProgress& progress);
+
+    /** Installs a finished walk. A stale generation does not replace a newer
+        one; cancellation is otherwise silent.
+    */
+    void applyScanOutcome (const SampleFolderScanOutcome& outcome);
+
+    /** Busy, the completed/known count, and the Scanning… message. */
+    [[nodiscard]] BrowserScanSnapshot scanSnapshot() const;
+
     /** Calls back after every change to what the browser shows — a folder, a
         favourite, a search, a rescan — so that the surface drawing it does not
         have to be told twice by whoever made the change. One callback at a
@@ -133,11 +221,13 @@ public:
     */
     void onChanged (std::function<void()> callback);
 
-    /** Reads the sample folders and the scanned plugin list again.
+    /** Reads the scanned plugin list again and starts a new sample-folder
+        generation.
 
         What is on disk changes without Duet asking, and so does the plugin list
         — a rescan is a producer gesture — so this is how the dock learns of it,
-        and it is why a rescan needs no restart.
+        and it is why a rescan needs no restart. Existing sample rows stay up
+        until the new generation lands.
     */
     void refresh();
 
@@ -232,22 +322,29 @@ private:
                         std::string name,
                         const std::string& identity,
                         std::filesystem::path folder,
-                        const std::vector<BrowserItem>& items) const;
+                        const std::vector<BrowserItem>& items,
+                        std::string status = {}) const;
 
-    /** One sample folder as the last refresh read it. */
+    /** One sample folder as the last installed generation left it. */
     struct ScannedFolder
     {
         std::filesystem::path folder;
         std::vector<BrowserItem> items;
+        std::string status;
     };
 
     Settings* settings = nullptr;
     duet::model::Session* session = nullptr;
     std::function<std::filesystem::path (const std::filesystem::path&)> importer;
+    std::function<void (const SampleFolderScanRequest&)> scanWorker;
     std::function<void()> changed;
     std::vector<ScannedFolder> scanned;
     std::vector<duet::model::KnownPluginInfo> plugins;
     std::map<std::string, bool, std::less<>> expansion;
     std::string searchText;
+    std::uint64_t scanGeneration = 0;
+    bool scanBusy = false;
+    std::size_t scanCompleted = 0;
+    std::size_t scanKnown = 0;
 };
 } // namespace duet::gui

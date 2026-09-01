@@ -16,6 +16,7 @@ add_library(duet_app_core STATIC
     src/OpeningContext.cpp
     src/ProjectLifecycle.cpp
     src/PropertyStorageSettings.cpp
+    src/SampleFolderScanner.cpp
     src/SuggestionSurfaces.cpp)
 add_library(duet::app_core ALIAS duet_app_core)
 

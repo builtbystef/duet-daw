@@ -181,3 +181,19 @@ TEST_CASE ("a device dragged into a strip's insert chain lands where it was drop
     REQUIRE (plugins.size() == 3);
     REQUIRE (plugins[1].builtin == duet::model::BuiltinPlugin::reverb);
 }
+
+TEST_CASE ("the browser canvas composes scanning status from the model")
+{
+    const juce::ScopedJuceInitialiser_GUI juce;
+    StoredSettings store;
+    Appearance appearance { store, true };
+    Browser browser { store };
+    browser.setScanWorker ([] (const auto&) {});
+
+    BrowserCanvas canvas { appearance, browser };
+    canvas.setBounds (0, 0, 280, 600);
+    REQUIRE (canvas.composedStatus().empty());
+
+    browser.addSampleFolder ("not-a-real-folder");
+    REQUIRE (canvas.composedStatus() == "Scanning… 0/1");
+}

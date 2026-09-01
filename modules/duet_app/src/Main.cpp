@@ -4,6 +4,7 @@
 #include <duet/app/OpeningContext.h>
 #include <duet/app/ProjectLifecycle.h>
 #include <duet/app/PropertyStorageSettings.h>
+#include <duet/app/SampleFolderScanner.h>
 #include <duet/model/Session.h>
 #include <duet/persistence/Project.h>
 
@@ -295,6 +296,8 @@ public:
         // A finished scan is the browser's VST3 section, read again where it
         // stands: no restart.
         pluginScan.onFinished ([this] { shell.browser().refresh(); });
+
+        sampleFolders.attach (shell.browser());
 
         startCollaborator();
 
@@ -884,6 +887,13 @@ private:
     duet::gui::ViewState view;
     duet::gui::PluginEditorManager pluginEditors { settings };
     duet::gui::MainShell shell { appearance, view, settings };
+
+    /** Sample-folder walks run off the message thread. Declared after the shell
+        so destruction detaches and joins before the Browser goes.
+    */
+    duet::app::SampleFolderScanner sampleFolders { [] (std::function<void()> work) {
+        juce::MessageManager::callAsync (std::move (work));
+    } };
 
     /** The DAW half of the AI seam, and what puts it on the panel. The service
         is declared first so that it is built first and torn down last: the

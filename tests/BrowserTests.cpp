@@ -14,6 +14,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <system_error>
 #include <vector>
 
 using Catch::Matchers::WithinAbs;
@@ -23,6 +24,8 @@ using duet::gui::BrowserItemKind;
 using duet::gui::BrowserSection;
 using duet::gui::BrowserSectionKind;
 using duet::gui::GridSpec;
+using duet::gui::SampleFolderScanRequest;
+using duet::gui::scanSampleFolder;
 using duet::model::BuiltinPlugin;
 using duet::model::Session;
 using duet::model::TrackKind;
@@ -63,19 +66,30 @@ namespace
     return section.has_value() ? section->items : std::vector<BrowserItem> {};
 }
 
-[[nodiscard]] std::vector<std::string> namesOf (const std::optional<BrowserSection>& section)
+[[nodiscard]] std::vector<std::string> namesOf (const std::vector<BrowserItem>& items)
 {
     std::vector<std::string> names;
+    names.reserve (items.size());
 
-    for (const auto& item : itemsOf (section))
+    for (const auto& item : items)
         names.push_back (item.name);
 
     return names;
 }
 
+[[nodiscard]] std::vector<std::string> namesOf (const std::optional<BrowserSection>& section)
+{
+    return namesOf (itemsOf (section));
+}
+
 [[nodiscard]] std::string identityOf (const std::optional<BrowserSection>& section)
 {
     return section.has_value() ? section->identity : std::string {};
+}
+
+[[nodiscard]] std::string statusOf (const std::optional<BrowserSection>& section)
+{
+    return section.has_value() ? section->status : std::string {};
 }
 
 [[nodiscard]] bool isExpanded (const std::optional<BrowserSection>& section)
@@ -218,6 +232,7 @@ TEST_CASE ("a favourite outlives the app and the project it was made in")
     // The same store read again is the next launch, in whatever project the
     // producer opens next.
     Browser relaunched { store };
+    relaunched.refresh();
     REQUIRE (relaunched.sampleFolders() == std::vector<std::filesystem::path> { loops });
     REQUIRE (namesOf (sectionOf (relaunched, BrowserSectionKind::favourites))
              == std::vector<std::string> { "Reverb", "kick.wav" });
@@ -474,4 +489,148 @@ TEST_CASE ("the browser shows what the scan found, reflects a rescan, and insert
     REQUIRE (plugins.size() == 1);
     REQUIRE (plugins.front().externalIdentifier == fixture.pluginIdentifier);
     REQUIRE_FALSE (plugins.front().missing);
+}
+
+TEST_CASE ("a deep sample folder lists a deterministic tree and ignores directory symlink cycles")
+{
+    const TempProject temp;
+    StoredSettings store;
+    Browser browser { store };
+    const auto root = temp.folder() / "library";
+
+    writeSample (root / "a" / "nested", "snare.aiff");
+    writeSample (root / "a", "Z.wav");
+    writeSample (root / "a", "z.wav");
+    writeSample (root / "B", "a.wav");
+
+    {
+        std::ofstream stream { root / "notes.txt" };
+        stream << "not audio";
+    }
+
+    std::filesystem::create_directory_symlink (root / "a", root / "link-to-a");
+    std::filesystem::create_directory_symlink (root, root / "cycle");
+
+    browser.addSampleFolder (root);
+
+    REQUIRE (namesOf (folderSection (browser, root))
+             == std::vector<std::string> {
+                 "a/nested/snare.aiff",
+                 "a/Z.wav",
+                 "a/z.wav",
+                 "B/a.wav",
+             });
+}
+
+TEST_CASE ("an unreadable subtree is one local status and does not drop readable siblings")
+{
+    const TempProject temp;
+    const auto root = temp.folder() / "library";
+    writeSample (root, "ok.wav");
+    writeSample (root / "other", "yes.wav");
+    const auto hidden = root / "hidden";
+    writeSample (hidden, "secret.wav");
+
+    std::filesystem::permissions (hidden, std::filesystem::perms::none);
+
+    struct Restore
+    {
+        explicit Restore (std::filesystem::path path) : path (std::move (path)) {}
+        Restore (const Restore&) = delete;
+        Restore& operator= (const Restore&) = delete;
+        Restore (Restore&&) = delete;
+        Restore& operator= (Restore&&) = delete;
+        ~Restore()
+        {
+            std::error_code ignored;
+            std::filesystem::permissions (path, std::filesystem::perms::owner_all, ignored);
+        }
+
+        std::filesystem::path path;
+    };
+    const Restore restore { hidden };
+
+    const auto scan = scanSampleFolder (root);
+
+    REQUIRE (namesOf (scan.items) == std::vector<std::string> { "ok.wav", "other/yes.wav" });
+    REQUIRE (scan.status == "Could not read hidden");
+
+    StoredSettings store;
+    Browser browser { store };
+    browser.addSampleFolder (root);
+    const auto section = folderSection (browser, root);
+    REQUIRE (statusOf (section) == "Could not read hidden");
+    REQUIRE (namesOf (section) == std::vector<std::string> { "ok.wav", "other/yes.wav" });
+}
+
+TEST_CASE ("existing sample rows remain while a refresh is in flight")
+{
+    const TempProject temp;
+    StoredSettings store;
+    Browser browser { store };
+    const auto loops = temp.folder() / "loops";
+    writeSample (loops, "kick.wav");
+
+    std::vector<SampleFolderScanRequest> pending;
+    browser.setScanWorker ([&] (const SampleFolderScanRequest& request)
+                           { pending.push_back (request); });
+
+    browser.addSampleFolder (loops);
+
+    REQUIRE (browser.scanSnapshot().busy);
+    REQUIRE (browser.scanSnapshot().completed == 0);
+    REQUIRE (browser.scanSnapshot().known == 1);
+    REQUIRE (browser.scanSnapshot().message == "Scanning… 0/1");
+    REQUIRE (folderSection (browser, loops).has_value());
+    REQUIRE (namesOf (folderSection (browser, loops)).empty());
+
+    const auto first = pending.back();
+    browser.applyScanOutcome ({ first.generation, { scanSampleFolder (loops) } });
+
+    REQUIRE_FALSE (browser.scanSnapshot().busy);
+    REQUIRE (browser.scanSnapshot().message.empty());
+    REQUIRE (namesOf (folderSection (browser, loops)) == std::vector<std::string> { "kick.wav" });
+
+    writeSample (loops, "snare.wav");
+    browser.refresh();
+
+    REQUIRE (browser.scanSnapshot().busy);
+    REQUIRE (browser.scanSnapshot().message == "Scanning… 0/1");
+    REQUIRE (namesOf (folderSection (browser, loops)) == std::vector<std::string> { "kick.wav" });
+
+    const auto second = pending.back();
+    browser.applyScanOutcome ({ second.generation, { scanSampleFolder (loops) } });
+
+    REQUIRE_FALSE (browser.scanSnapshot().busy);
+    REQUIRE (namesOf (folderSection (browser, loops))
+             == std::vector<std::string> { "kick.wav", "snare.wav" });
+}
+
+TEST_CASE ("a stale scan generation does not replace a newer one")
+{
+    const TempProject temp;
+    StoredSettings store;
+    Browser browser { store };
+    const auto loops = temp.folder() / "loops";
+    writeSample (loops, "old.wav");
+
+    std::vector<SampleFolderScanRequest> pending;
+    browser.setScanWorker ([&] (const SampleFolderScanRequest& request)
+                           { pending.push_back (request); });
+
+    browser.addSampleFolder (loops);
+    const auto first = pending.back();
+    const auto oldResult = scanSampleFolder (loops);
+
+    writeSample (loops, "new.wav");
+    browser.refresh();
+    const auto second = pending.back();
+    const auto newResult = scanSampleFolder (loops);
+
+    browser.applyScanOutcome ({ second.generation, { newResult } });
+    browser.applyScanOutcome ({ first.generation, { oldResult } });
+
+    REQUIRE_FALSE (browser.scanSnapshot().busy);
+    REQUIRE (namesOf (folderSection (browser, loops))
+             == std::vector<std::string> { "new.wav", "old.wav" });
 }

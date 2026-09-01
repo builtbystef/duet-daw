@@ -67,16 +67,18 @@ BrowserCanvas::~BrowserCanvas()
 void BrowserCanvas::refresh()
 {
     rows.clear();
+    statusLine = browser.scanSnapshot().message;
 
     for (const auto& section : browser.sections())
     {
-        rows.push_back ({ true, section.identity, section.name, section.expanded, false });
+        rows.push_back (
+            { true, section.identity, section.name, section.expanded, false, section.status });
 
         if (! section.expanded)
             continue;
 
         for (const auto& item : section.items)
-            rows.push_back ({ false, item.identity, item.name, false, item.favourite });
+            rows.push_back ({ false, item.identity, item.name, false, item.favourite, {} });
     }
 
     scrollOffsetPx =
@@ -101,9 +103,14 @@ int BrowserCanvas::contentHeightPx() const
 
 juce::Rectangle<int> BrowserCanvas::listArea() const
 {
-    return getLocalBounds()
-        .reduced (appearance.scaled (metrics::rowGap))
-        .withTrimmedTop (appearance.scaled (searchHeight + metrics::rowGap));
+    auto area = getLocalBounds()
+                    .reduced (appearance.scaled (metrics::rowGap))
+                    .withTrimmedTop (appearance.scaled (searchHeight + metrics::rowGap));
+
+    if (! statusLine.empty())
+        area = area.withTrimmedTop (appearance.scaled (rowHeight));
+
+    return area;
 }
 
 int BrowserCanvas::rowTop (std::size_t index) const
@@ -145,6 +152,19 @@ void BrowserCanvas::paint (juce::Graphics& g)
     g.drawRect (area, 1);
 
     const auto list = listArea();
+
+    if (! statusLine.empty())
+    {
+        const auto statusBounds =
+            juce::Rectangle<int> { list.getX(),
+                                   list.getY() - appearance.scaled (rowHeight),
+                                   list.getWidth(),
+                                   appearance.scaled (rowHeight) };
+        g.setColour (toJuce (appearance.colour (ColourToken::textMuted)));
+        g.setFont (interFont (appearance.scaled (typography::body)));
+        g.drawText (juce::String { statusLine }, statusBounds, juce::Justification::centredLeft);
+    }
+
     g.reduceClipRegion (list);
 
     for (std::size_t index = 0; index < rows.size(); ++index)
@@ -161,9 +181,12 @@ void BrowserCanvas::paint (juce::Graphics& g)
         {
             g.setColour (toJuce (appearance.colour (ColourToken::textMuted)));
             g.setFont (eyebrowFont (appearance.scaled (typography::eyebrow)));
-            g.drawText ((row.expanded ? utf8 ("▾ ") : utf8 ("▸ ")) + juce::String { row.name },
-                        bounds,
-                        juce::Justification::centredLeft);
+            auto label = (row.expanded ? utf8 ("▾ ") : utf8 ("▸ ")) + juce::String { row.name };
+
+            if (! row.status.empty())
+                label += utf8 (" — ") + juce::String { row.status };
+
+            g.drawText (label, bounds, juce::Justification::centredLeft);
             continue;
         }
 
