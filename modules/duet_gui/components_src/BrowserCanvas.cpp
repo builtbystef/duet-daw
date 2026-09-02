@@ -47,13 +47,20 @@ BrowserCanvas::BrowserCanvas (Appearance& lookAndScale, Browser& dock)
     searchBox.setReturnKeyStartsNewLine (false);
     searchBox.onTextChange = [this] { browser.setSearch (searchBox.getText().toStdString()); };
 
+    auditionButton.setComponentID ("sourceAudition");
+    auditionButton.setTooltip ("Source audition (Space)");
+    auditionButton.onClick = [this] { browser.toggleSourceAudition(); };
+
     addAndMakeVisible (searchBox);
+    addAndMakeVisible (auditionButton);
+    setWantsKeyboardFocus (true);
 
     // The model tells this what to draw, whoever changed it: the Settings
     // window manages the same sample folders, and a folder added there is in
     // the dock without either knowing about the other.
     browser.onChanged ([this] { refresh(); });
     appearance.addListener (this);
+    startTimerHz (15);
     refresh();
 }
 
@@ -68,6 +75,7 @@ void BrowserCanvas::refresh()
 {
     rows.clear();
     statusLine = browser.scanSnapshot().message;
+    const auto audition = browser.sourceAuditionStatus();
 
     for (const auto& section : browser.sections())
     {
@@ -78,13 +86,38 @@ void BrowserCanvas::refresh()
             continue;
 
         for (const auto& item : section.items)
-            rows.push_back ({ false, item.identity, item.name, false, item.favourite, {} });
+        {
+            auto rowStatus = item.identity == audition.identity ? audition.error : std::string {};
+            rows.push_back (
+                { false, item.identity, item.name, false, item.favourite, std::move (rowStatus) });
+        }
     }
 
+    refreshAuditionButton();
     scrollOffsetPx =
         std::clamp (scrollOffsetPx, 0, std::max (0, contentHeightPx() - listArea().getHeight()));
     repaint();
 }
+
+void BrowserCanvas::refreshAuditionButton()
+{
+    const auto state = browser.sourceAuditionStatus().state;
+    const auto playing =
+        state == SourceAuditionState::playing || state == SourceAuditionState::loading;
+    auditionButton.setButtonText (playing ? "Stop" : "Play");
+}
+
+std::string BrowserCanvas::auditionButtonText() const
+{
+    return auditionButton.getButtonText().toStdString();
+}
+
+SourceAuditionStatus BrowserCanvas::composedAudition() const
+{
+    return browser.sourceAuditionStatus();
+}
+
+void BrowserCanvas::timerCallback() { refreshAuditionButton(); }
 
 int BrowserCanvas::rowHeightPx (const Row& row) const
 {
@@ -190,12 +223,23 @@ void BrowserCanvas::paint (juce::Graphics& g)
             continue;
         }
 
+        if (row.identity == browser.selected())
+        {
+            g.setColour (toJuce (appearance.colour (ColourToken::surfaceRaised)));
+            g.fillRect (bounds);
+        }
+
         auto text = bounds.withTrimmedLeft (appearance.scaled (indent));
         const auto star = text.removeFromRight (appearance.scaled (favouriteWidth));
 
         g.setColour (toJuce (appearance.colour (ColourToken::textPrimary)));
         g.setFont (interFont (appearance.scaled (typography::body)));
-        g.drawText (juce::String { row.name }, text, juce::Justification::centredLeft, true);
+        auto label = juce::String { row.name };
+
+        if (! row.status.empty())
+            label += utf8 (" — ") + juce::String { row.status };
+
+        g.drawText (label, text, juce::Justification::centredLeft, true);
 
         g.setColour (toJuce (appearance.colour (row.favourite ? ColourToken::textPrimary
                                                               : ColourToken::textDisabled)));
@@ -216,15 +260,20 @@ void BrowserCanvas::paint (juce::Graphics& g)
 
 void BrowserCanvas::resized()
 {
-    searchBox.setBounds (getLocalBounds()
-                             .reduced (appearance.scaled (metrics::rowGap))
-                             .withHeight (appearance.scaled (searchHeight)));
+    auto chrome = getLocalBounds()
+                      .reduced (appearance.scaled (metrics::rowGap))
+                      .withHeight (appearance.scaled (searchHeight));
+    const auto play = chrome.removeFromRight (appearance.scaled (52));
+    chrome.removeFromRight (appearance.scaled (metrics::rowGap));
+    searchBox.setBounds (chrome);
+    auditionButton.setBounds (play);
     refresh();
 }
 
 //==============================================================================
 void BrowserCanvas::mouseDown (const juce::MouseEvent& event)
 {
+    grabKeyboardFocus();
     pressedRow = rowAt (event.y);
 
     if (! pressedRow.has_value())
@@ -245,7 +294,19 @@ void BrowserCanvas::mouseDown (const juce::MouseEvent& event)
     {
         browser.toggleFavourite (row.identity);
         pressedRow.reset();
+        return;
     }
+
+    browser.select (row.identity);
+}
+
+bool BrowserCanvas::keyPressed (const juce::KeyPress& key)
+{
+    if (key.getKeyCode() != juce::KeyPress::spaceKey)
+        return false;
+
+    browser.toggleSourceAudition();
+    return true;
 }
 
 void BrowserCanvas::mouseDrag (const juce::MouseEvent& event)

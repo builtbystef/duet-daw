@@ -172,6 +172,7 @@ ArrangementCanvas::ArrangementCanvas (Appearance& lookAndScale,
       askCollaborator (std::move (askTheCollaborator)), openPianoRoll (std::move (showPianoRoll))
 {
     setComponentID (surfaceId::arrangement);
+    setWantsKeyboardFocus (true);
     audioFormats.registerBasicFormats();
 
     ruler = std::make_unique<Ruler> (appearance, view);
@@ -486,6 +487,7 @@ void ArrangementCanvas::mouseWheelMove (const juce::MouseEvent& event,
 
 void ArrangementCanvas::mouseDown (const juce::MouseEvent& event)
 {
+    grabKeyboardFocus();
     const auto timelineY = event.y - timelineArea().getY();
 
     // A ghost is a drawing of what a Suggestion would do, so the pointer goes

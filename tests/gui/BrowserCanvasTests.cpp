@@ -16,6 +16,9 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include <filesystem>
+#include <fstream>
+#include <functional>
+#include <optional>
 #include <string>
 
 using duet::gui::Appearance;
@@ -27,6 +30,8 @@ using duet::gui::BrowserSectionKind;
 using duet::gui::MainShell;
 using duet::gui::Mixer;
 using duet::gui::MixerCanvas;
+using duet::gui::SourceAudition;
+using duet::gui::SourceAuditionState;
 using duet::gui::ViewState;
 using duet::model::Session;
 using duet::model::TrackKind;
@@ -196,4 +201,111 @@ TEST_CASE ("the browser canvas composes scanning status from the model")
 
     browser.addSampleFolder ("not-a-real-folder");
     REQUIRE (canvas.composedStatus() == "Scanning… 0/1");
+}
+
+namespace
+{
+class FakeSourceAudition final : public SourceAudition
+{
+public:
+    void play (std::filesystem::path file, std::string identity) override
+    {
+        current.identity = std::move (identity);
+        current.state = SourceAuditionState::playing;
+        playing = std::move (file);
+        ++plays;
+        notify();
+    }
+
+    void stop() override
+    {
+        playing.reset();
+        current = {};
+        ++stops;
+        notify();
+    }
+
+    [[nodiscard]] duet::gui::SourceAuditionStatus status() const override { return current; }
+    void onChanged (std::function<void()> callback) override { changed = std::move (callback); }
+
+    std::optional<std::filesystem::path> playing;
+    duet::gui::SourceAuditionStatus current;
+    int plays = 0;
+    int stops = 0;
+    std::function<void()> changed;
+
+private:
+    void notify() const
+    {
+        if (changed)
+            changed();
+    }
+};
+
+void writeSample (const std::filesystem::path& folder, const std::string& fileName)
+{
+    std::filesystem::create_directories (folder);
+    std::ofstream stream { folder / fileName, std::ios::binary };
+    stream << "not really audio";
+}
+} // namespace
+
+TEST_CASE ("Browser-focused Space and the Play button toggle Source audition")
+{
+    const juce::ScopedJuceInitialiser_GUI juce;
+    const TempFolder temp;
+    StoredSettings store;
+    Appearance appearance { store, true };
+    Browser browser { store };
+    FakeSourceAudition audition;
+    const auto loops = temp.editFile().parent_path() / "loops";
+    writeSample (loops, "kick.wav");
+    browser.addSampleFolder (loops);
+    browser.setSourceAudition (&audition);
+
+    BrowserCanvas canvas { appearance, browser };
+    canvas.setBounds (0, 0, 280, 600);
+    REQUIRE (canvas.auditionButtonText() == "Play");
+    REQUIRE (canvas.composedAudition().state == SourceAuditionState::stopped);
+
+    const auto kick = identityOf (browser, BrowserSectionKind::samples, "kick.wav");
+    REQUIRE_FALSE (kick.empty());
+    browser.select (kick);
+
+    REQUIRE (canvas.keyPressed (juce::KeyPress { juce::KeyPress::spaceKey }));
+    REQUIRE (audition.plays == 1);
+    REQUIRE (audition.current.identity == kick);
+    REQUIRE (canvas.auditionButtonText() == "Stop");
+    REQUIRE (canvas.composedAudition().state == SourceAuditionState::playing);
+
+    REQUIRE (canvas.keyPressed (juce::KeyPress { juce::KeyPress::spaceKey }));
+    REQUIRE (audition.stops == 1);
+    REQUIRE (canvas.auditionButtonText() == "Play");
+    REQUIRE (canvas.composedAudition().state == SourceAuditionState::stopped);
+}
+
+TEST_CASE ("Space in the search box is typing, not Source audition")
+{
+    const juce::ScopedJuceInitialiser_GUI juce;
+    StoredSettings store;
+    Appearance appearance { store, true };
+    Browser browser { store };
+    FakeSourceAudition audition;
+    browser.setSourceAudition (&audition);
+
+    BrowserCanvas canvas { appearance, browser };
+    canvas.setBounds (0, 0, 280, 600);
+
+    juce::TextEditor* search = nullptr;
+
+    for (auto* child : canvas.getChildren())
+        if (auto* editor = dynamic_cast<juce::TextEditor*> (child); editor != nullptr)
+            search = editor;
+
+    REQUIRE (search != nullptr);
+    search->grabKeyboardFocus();
+
+    REQUIRE (search->hasKeyboardFocus (true));
+    REQUIRE_FALSE (canvas.hasKeyboardFocus (false));
+    REQUIRE (audition.plays == 0);
 }

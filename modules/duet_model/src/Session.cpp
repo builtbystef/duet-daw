@@ -539,6 +539,11 @@ void Session::startUndoHistory()
 
 tracktion::engine::Edit& EngineAccess::editOf (Session& session) { return *session.impl->edit; }
 
+juce::AudioDeviceManager& EngineAccess::audioDevicesOf (Session& session)
+{
+    return session.impl->engine.getDeviceManager().deviceManager;
+}
+
 juce::AudioProcessor* PluginEditorAccess::processorOf (Session& session, PluginRef plugin)
 {
     if (auto* external = dynamic_cast<te::ExternalPlugin*> (session.impl->pluginFor (plugin)))

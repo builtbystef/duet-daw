@@ -26,6 +26,8 @@ using duet::gui::BrowserSectionKind;
 using duet::gui::GridSpec;
 using duet::gui::SampleFolderScanRequest;
 using duet::gui::scanSampleFolder;
+using duet::gui::SourceAudition;
+using duet::gui::SourceAuditionState;
 using duet::model::BuiltinPlugin;
 using duet::model::Session;
 using duet::model::TrackKind;
@@ -633,4 +635,140 @@ TEST_CASE ("a stale scan generation does not replace a newer one")
     REQUIRE_FALSE (browser.scanSnapshot().busy);
     REQUIRE (namesOf (folderSection (browser, loops))
              == std::vector<std::string> { "new.wav", "old.wav" });
+}
+
+namespace
+{
+class FakeSourceAudition final : public SourceAudition
+{
+public:
+    void play (std::filesystem::path file, std::string identity) override
+    {
+        playing = std::move (file);
+        current.identity = std::move (identity);
+        current.state = SourceAuditionState::playing;
+        current.progress = 0.0;
+        current.error.clear();
+        ++plays;
+        notify();
+    }
+
+    void stop() override
+    {
+        playing.reset();
+        current = {};
+        ++stops;
+        notify();
+    }
+
+    [[nodiscard]] duet::gui::SourceAuditionStatus status() const override { return current; }
+
+    void onChanged (std::function<void()> callback) override { changed = std::move (callback); }
+
+    [[nodiscard]] const std::optional<std::filesystem::path>& playingFile() const
+    {
+        return playing;
+    }
+    [[nodiscard]] int playCount() const { return plays; }
+    [[nodiscard]] int stopCount() const { return stops; }
+
+private:
+    void notify() const
+    {
+        if (changed)
+            changed();
+    }
+
+    std::optional<std::filesystem::path> playing;
+    duet::gui::SourceAuditionStatus current;
+    int plays = 0;
+    int stops = 0;
+    std::function<void()> changed;
+};
+} // namespace
+
+TEST_CASE ("selecting a sample marks it, and Space toggles Source audition of it")
+{
+    const TempProject temp;
+    StoredSettings store;
+    Browser browser { store };
+    FakeSourceAudition audition;
+    const auto loops = temp.folder() / "loops";
+    writeSample (loops, "kick.wav");
+    writeSample (loops, "snare.wav");
+    browser.addSampleFolder (loops);
+    browser.setSourceAudition (&audition);
+
+    const auto kick = itemNamed (folderSection (browser, loops), "kick.wav");
+    const auto snare = itemNamed (folderSection (browser, loops), "snare.wav");
+    browser.select (kick.identity);
+
+    REQUIRE (browser.selected() == kick.identity);
+    REQUIRE (itemNamed (folderSection (browser, loops), "kick.wav").selected);
+    REQUIRE_FALSE (itemNamed (folderSection (browser, loops), "snare.wav").selected);
+
+    browser.toggleSourceAudition();
+    REQUIRE (audition.playCount() == 1);
+    REQUIRE (audition.status().identity == kick.identity);
+    REQUIRE (audition.playingFile() == kick.file);
+    REQUIRE (browser.sourceAuditionStatus().state == SourceAuditionState::playing);
+
+    browser.toggleSourceAudition();
+    REQUIRE (audition.stopCount() == 1);
+    REQUIRE (browser.sourceAuditionStatus().state == SourceAuditionState::stopped);
+}
+
+TEST_CASE ("selecting another sample switches Source audition to it")
+{
+    const TempProject temp;
+    StoredSettings store;
+    Browser browser { store };
+    FakeSourceAudition audition;
+    const auto loops = temp.folder() / "loops";
+    writeSample (loops, "kick.wav");
+    writeSample (loops, "snare.wav");
+    browser.addSampleFolder (loops);
+    browser.setSourceAudition (&audition);
+
+    const auto kick = itemNamed (folderSection (browser, loops), "kick.wav");
+    const auto snare = itemNamed (folderSection (browser, loops), "snare.wav");
+    browser.select (kick.identity);
+    browser.toggleSourceAudition();
+    browser.select (snare.identity);
+
+    REQUIRE (audition.playCount() == 2);
+    REQUIRE (audition.status().identity == snare.identity);
+    REQUIRE (audition.playingFile() == snare.file);
+    REQUIRE (itemNamed (folderSection (browser, loops), "snare.wav").selected);
+}
+
+TEST_CASE ("Source audition does not start for a non-sample, and replacing the project stops it")
+{
+    const TempProject temp;
+    OpenBrowser open { temp.folder() / "project" };
+    FakeSourceAudition audition;
+    open.browser.setSourceAudition (&audition);
+
+    const auto reverb = itemNamed (sectionOf (open.browser, BrowserSectionKind::effects), "Reverb");
+    open.browser.select (reverb.identity);
+    open.browser.toggleSourceAudition();
+    REQUIRE (audition.playCount() == 0);
+
+    const auto loops = temp.folder() / "loops";
+    writeSample (loops, "kick.wav");
+    open.browser.addSampleFolder (loops);
+    const auto kick = itemNamed (folderSection (open.browser, loops), "kick.wav");
+    open.browser.select (kick.identity);
+    open.browser.toggleSourceAudition();
+    REQUIRE (audition.playCount() == 1);
+
+    const auto actionsBefore = open.session().undoNames().size();
+    const auto playingBefore = open.session().isPlaying();
+    const auto positionBefore = open.session().playbackPositionSeconds();
+
+    open.browser.setSession (nullptr);
+    REQUIRE (audition.stopCount() >= 1);
+    REQUIRE (open.session().undoNames().size() == actionsBefore);
+    REQUIRE (open.session().isPlaying() == playingBefore);
+    REQUIRE (open.session().playbackPositionSeconds() == positionBefore);
 }

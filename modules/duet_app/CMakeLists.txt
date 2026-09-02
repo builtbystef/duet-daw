@@ -9,6 +9,18 @@
 # service meet, and neither module can name the other — one links no JUCE and
 # the other no engine. It reaches the message thread through the two functions
 # its host supplies, so it links no JUCE either and the tests drive it headless.
+# Source audition's mix() is a Duet audio callback, so it lives on its own
+# target that links duet::realtime — that link is what puts it under RTSan in
+# linux-rtsan, and git grep duet::realtime is the list (ADR 0006).
+add_library(duet_source_audition STATIC src/SourceAuditionPlayer.cpp)
+add_library(duet::source_audition ALIAS duet_source_audition)
+
+target_include_directories(duet_source_audition PUBLIC include)
+target_compile_features(duet_source_audition PRIVATE cxx_std_20)
+target_link_libraries(duet_source_audition
+    PUBLIC duet::gui duet::realtime
+    PRIVATE duet::model duet::model_engine_access duet_engine_config)
+
 add_library(duet_app_core STATIC
     src/Collaborator.cpp
     src/MessageThreadMarshal.cpp
@@ -24,8 +36,9 @@ target_include_directories(duet_app_core PUBLIC include)
 target_compile_features(duet_app_core PRIVATE cxx_std_20)
 # duet::collab_tools is PUBLIC because the Collaborator's own header names the
 # service, the tools and the ledger; the model comes with it, that target being
-# what reads the project.
-target_link_libraries(duet_app_core PUBLIC duet::gui duet::persistence duet::collab_tools)
+# what reads the project. duet::source_audition is PUBLIC so the tests drive the
+# same player the shell runs.
+target_link_libraries(duet_app_core PUBLIC duet::gui duet::persistence duet::collab_tools duet::source_audition)
 target_link_libraries(duet_app_core PRIVATE duet::model)
 
 juce_add_gui_app(duet_app

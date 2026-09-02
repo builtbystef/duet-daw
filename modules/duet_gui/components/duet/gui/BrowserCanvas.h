@@ -36,7 +36,9 @@ namespace browserDrag
     this paints them, turns a click into one of its calls, and starts the drag
     that the arrangement and the mixer finish (spec 535bbo).
 */
-class BrowserCanvas final : public juce::Component, private Appearance::Listener
+class BrowserCanvas final : public juce::Component,
+                            private juce::Timer,
+                            private Appearance::Listener
 {
 public:
     BrowserCanvas (Appearance& lookAndScale, Browser& dock);
@@ -49,6 +51,7 @@ public:
     void mouseDrag (const juce::MouseEvent& event) override;
     void mouseWheelMove (const juce::MouseEvent& event,
                          const juce::MouseWheelDetails& wheel) override;
+    bool keyPressed (const juce::KeyPress& key) override;
 
     /** Reads the model again and lays the rows out from what it says: what
         opening a project, adding a folder and finishing a scan all need.
@@ -59,6 +62,16 @@ public:
         when nothing is in flight.
     */
     [[nodiscard]] const std::string& composedStatus() const { return statusLine; }
+
+    /** Play or Stop, as the visible Source audition control currently reads.
+        A test of visible state without paint.
+    */
+    [[nodiscard]] std::string auditionButtonText() const;
+
+    /** Loading, playing, progress, stopped, or a row-local error — the same
+        snapshot the button and the selected row read.
+    */
+    [[nodiscard]] SourceAuditionStatus composedAudition() const;
 
     [[nodiscard]] Browser& model() noexcept { return browser; }
     [[nodiscard]] const Browser& model() const noexcept { return browser; }
@@ -83,6 +96,8 @@ private:
     };
 
     void appearanceChanged() override;
+    void timerCallback() override;
+    void refreshAuditionButton();
     [[nodiscard]] int rowHeightPx (const Row& row) const;
     [[nodiscard]] std::optional<std::size_t> rowAt (int y) const;
     [[nodiscard]] int rowTop (std::size_t index) const;
@@ -92,6 +107,7 @@ private:
     Appearance& appearance;
     Browser& browser;
     juce::TextEditor searchBox;
+    juce::TextButton auditionButton { "Play" };
     std::vector<Row> rows;
     std::string statusLine;
     int scrollOffsetPx = 0;

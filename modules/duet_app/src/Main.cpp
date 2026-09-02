@@ -5,6 +5,7 @@
 #include <duet/app/ProjectLifecycle.h>
 #include <duet/app/PropertyStorageSettings.h>
 #include <duet/app/SampleFolderScanner.h>
+#include <duet/app/SourceAuditionPlayer.h>
 #include <duet/model/Session.h>
 #include <duet/persistence/Project.h>
 
@@ -298,6 +299,7 @@ public:
         pluginScan.onFinished ([this] { shell.browser().refresh(); });
 
         sampleFolders.attach (shell.browser());
+        shell.browser().setSourceAudition (&sourceAudition);
 
         startCollaborator();
 
@@ -322,6 +324,8 @@ public:
 
         // The shell and plugin windows stop reading the session before it goes,
         // and the surfaces stop reading a manager that has gone with it.
+        shell.browser().setSourceAudition (nullptr);
+        sourceAudition.detachFromOutput();
         shell.pendingSuggestions().setSource (nullptr);
         pluginEditors.setSession (nullptr);
         shell.setTimelineClock (nullptr);
@@ -710,6 +714,8 @@ private:
         // the surfaces are told so before they are asked to draw again.
         collaborator.setSession (nullptr, {});
         pluginEditors.setSession (nullptr);
+        sourceAudition.stop();
+        sourceAudition.detachFromOutput();
         shell.browser().setSampleImporter ({});
         shell.setTimelineClock (nullptr);
         shell.setSession (nullptr);
@@ -764,6 +770,7 @@ private:
         machine = std::make_unique<duet::gui::SessionAudioDevices> (project->session());
         audioAndMidi.setDevices (machine.get());
         static_cast<void> (audioAndMidi.applyStoredChoice());
+        sourceAudition.attachToOutput (project->session());
 
         shell.viewStateChanged();
         refreshTitle();
@@ -892,6 +899,13 @@ private:
         so destruction detaches and joins before the Browser goes.
     */
     duet::app::SampleFolderScanner sampleFolders { [] (std::function<void()> work) {
+        juce::MessageManager::callAsync (std::move (work));
+    } };
+
+    /** One Source audition player for the open audio device. Declared after the
+        shell so destruction detaches from the Browser before the Browser goes.
+    */
+    duet::app::SourceAuditionPlayer sourceAudition { [] (std::function<void()> work) {
         juce::MessageManager::callAsync (std::move (work));
     } };
 

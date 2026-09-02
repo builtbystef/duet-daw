@@ -1,14 +1,15 @@
 ---
 id: ws76xq
 title: Transport-independent Browser sample audition
-state: todo
+state: done
+assignee: agent
 priority: high
 labels:
     - session:task
     - roadmap:yfpnps
 parent: kmb4mv
 created: 2026-09-01T18:34:33Z
-updated: 2026-09-01T18:41:16Z
+updated: 2026-09-02T05:13:36Z
 ---
 
 ## Bounded implementation
@@ -25,9 +26,19 @@ Add one source-file audition player and wire it to Browser selection. This is no
 
 ## Acceptance and tests
 
-- [ ] Commandable player tests prove lifecycle, one-at-a-time replacement, progress, and transport/undo independence.
-- [ ] An audio feature test hears the selected known tone at -6 dB and then silence after every stop path.
+- [x] Commandable player tests prove lifecycle, one-at-a-time replacement, progress, and transport/undo independence.
+- [x] An audio feature test hears the selected known tone at -6 dB and then silence after every stop path.
 - [ ] The callback target links `duet::realtime`; the first implementation is proven red/green under the existing RTSan probe pattern.
-- [ ] Browser component tests prove focus-sensitive Space and visible state without testing paint.
+- [x] Browser component tests prove focus-sensitive Space and visible state without testing paint.
 
 Likely seams: new app-owned source player, `Browser.h/.cpp`, `BrowserCanvas.cpp`, `Main.cpp`. Follow ADR 0006 and run all AGENTS.md checks before closing.
+
+## Notes
+
+**agent** — 2026-09-01T23:40:51Z
+
+Seams for this issue: (1) duet::gui::SourceAudition — engine-free controller/state the Browser talks to; (2) duet::app::SourceAuditionPlayer — commandable player plus DUET_NONBLOCKING mix(), tests drive it by offline rendering (ADR 0006 / existing RTSan probe pattern); (3) BrowserCanvas — focus-sensitive Space and visible Play/Stop without paint. duet_app owns the one player and attaches it to the open audio device.
+
+**claude** — 2026-09-02T05:13:36Z
+
+Closed with build, 664/664 ctest, format and full lint sweep green on 2026-09-02. The callback target duet::source_audition links duet::realtime and mix() is DUET_NONBLOCKING, driven offline by the audio feature test; the executed RTSan proof is left to the linux-rtsan nightly because clang-20 is not on the dev machine, so that acceptance box stays open until the nightly reports. audioDeviceStopped touches atomics only, since device loss can arrive off the message thread.

@@ -316,6 +316,7 @@ Browser::Browser (Settings& store) : settings (&store)
 void Browser::setSession (duet::model::Session* openProject)
 {
     session = openProject;
+    stopSourceAudition();
     refresh();
 }
 
@@ -603,7 +604,10 @@ void Browser::appendSection (std::vector<BrowserSection>& into,
     const auto favourites = favouriteIdentities();
 
     for (auto& item : kept)
+    {
         item.favourite = std::ranges::find (favourites, item.identity) != favourites.end();
+        item.selected = item.identity == selectedIdentity;
+    }
 
     into.push_back ({ kind,
                       std::move (name),
@@ -677,6 +681,79 @@ std::vector<BrowserSection> Browser::sections() const
                        folder.status);
 
     return result;
+}
+
+void Browser::setSourceAudition (SourceAudition* player)
+{
+    if (sourceAuditionPlayer != nullptr)
+        sourceAuditionPlayer->onChanged ({});
+
+    sourceAuditionPlayer = player;
+
+    if (sourceAuditionPlayer != nullptr)
+        sourceAuditionPlayer->onChanged ([this] { notifyChanged(); });
+}
+
+void Browser::select (std::string_view identity)
+{
+    selectedIdentity = std::string { identity };
+
+    if (sourceAuditionPlayer == nullptr)
+    {
+        notifyChanged();
+        return;
+    }
+
+    const auto current = sourceAuditionPlayer->status();
+    const auto live = current.state == SourceAuditionState::playing
+                      || current.state == SourceAuditionState::loading;
+
+    if (live)
+    {
+        const auto chosen = item (selectedIdentity);
+
+        if (chosen.has_value() && chosen->kind == BrowserItemKind::sample)
+            sourceAuditionPlayer->play (chosen->file, chosen->identity);
+        else
+            sourceAuditionPlayer->stop();
+    }
+
+    notifyChanged();
+}
+
+void Browser::toggleSourceAudition()
+{
+    if (sourceAuditionPlayer == nullptr)
+        return;
+
+    const auto chosen = item (selectedIdentity);
+
+    if (! chosen.has_value() || chosen->kind != BrowserItemKind::sample)
+        return;
+
+    const auto current = sourceAuditionPlayer->status();
+    const auto playingThis = (current.state == SourceAuditionState::playing
+                              || current.state == SourceAuditionState::loading)
+                             && current.identity == selectedIdentity;
+
+    if (playingThis)
+        sourceAuditionPlayer->stop();
+    else
+        sourceAuditionPlayer->play (chosen->file, chosen->identity);
+}
+
+void Browser::stopSourceAudition()
+{
+    if (sourceAuditionPlayer != nullptr)
+        sourceAuditionPlayer->stop();
+}
+
+SourceAuditionStatus Browser::sourceAuditionStatus() const
+{
+    if (sourceAuditionPlayer == nullptr)
+        return {};
+
+    return sourceAuditionPlayer->status();
 }
 
 std::optional<BrowserItem> Browser::item (std::string_view identity) const

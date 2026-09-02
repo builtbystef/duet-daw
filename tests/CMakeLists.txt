@@ -68,6 +68,7 @@ add_executable(duet_tests
     ShortcutTests.cpp
     SidecarLiveTests.cpp
     SidecarTests.cpp
+    SourceAuditionPlayerTests.cpp
     SmartToolTests.cpp
     SuggestToolTests.cpp
     SuggestionViewTests.cpp

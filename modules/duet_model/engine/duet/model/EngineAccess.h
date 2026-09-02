@@ -20,5 +20,10 @@ struct EngineAccess
 {
     /** The Edit a session is editing. */
     [[nodiscard]] static tracktion::engine::Edit& editOf (Session& session);
+
+    /** The machine's audio device manager, so Source audition can mix into the
+        open device after the engine — heard at Main Output, never an input.
+    */
+    [[nodiscard]] static juce::AudioDeviceManager& audioDevicesOf (Session& session);
 };
 } // namespace duet::model

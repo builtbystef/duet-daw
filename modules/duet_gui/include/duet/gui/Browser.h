@@ -65,6 +65,7 @@ struct BrowserItem
     std::filesystem::path file;
 
     bool favourite = false;
+    bool selected = false;
 };
 
 /** One of the dock's sections and what is under it. */
@@ -145,6 +146,50 @@ struct BrowserScanSnapshot
     std::string message;
 };
 
+/** What Source audition is doing, as the Browser and its surface read it.
+
+    This is not Suggestion Audition: it names a Browser sample playing through
+    the main output, independent of the project transport and undo history.
+*/
+enum class SourceAuditionState : std::uint8_t
+{
+    stopped,
+    loading,
+    playing,
+    error
+};
+
+struct SourceAuditionStatus
+{
+    SourceAuditionState state = SourceAuditionState::stopped;
+    double progress = 0.0;
+    std::string error;
+    std::string identity;
+};
+
+/** The engine-free controller the Browser talks to for Source audition.
+
+    duet_app owns the one player behind this; the dock never names an engine
+    type. Decode happens off this interface; the player reports loading,
+    playing, progress, stopped, and a plain row-local error.
+*/
+class SourceAudition
+{
+public:
+    virtual ~SourceAudition() = default;
+
+    SourceAudition (const SourceAudition&) = delete;
+    SourceAudition& operator= (const SourceAudition&) = delete;
+
+    virtual void play (std::filesystem::path file, std::string identity) = 0;
+    virtual void stop() = 0;
+    [[nodiscard]] virtual SourceAuditionStatus status() const = 0;
+    virtual void onChanged (std::function<void()> callback) = 0;
+
+protected:
+    SourceAudition() = default;
+};
+
 /** Walks one sample folder: ordinary directories, no directory-symlink
     following, only sampleExtensions() regular files, sorted
     case-insensitively by relative path with the bytewise path as the
@@ -213,6 +258,30 @@ public:
 
     /** Busy, the completed/known count, and the Scanning… message. */
     [[nodiscard]] BrowserScanSnapshot scanSnapshot() const;
+
+    /** The one Source audition player, or nothing while the host has not
+        handed one over. The dock never owns it.
+    */
+    void setSourceAudition (SourceAudition* player);
+
+    /** The selected item, by identity. Selecting a sample while Source audition
+        is playing switches to that sample; selecting anything else stops it.
+    */
+    void select (std::string_view identity);
+    [[nodiscard]] const std::string& selected() const { return selectedIdentity; }
+
+    /** Browser-focused Space and the visible Play/Stop button: plays the
+        selected sample, or stops it if that sample is already playing.
+    */
+    void toggleSourceAudition();
+
+    /** Stops Source audition without changing the selection: project
+        replacement, Browser close, device loss, and shutdown all land here.
+    */
+    void stopSourceAudition();
+
+    /** Loading, playing, progress 0..1, stopped, or a plain row-local error. */
+    [[nodiscard]] SourceAuditionStatus sourceAuditionStatus() const;
 
     /** Calls back after every change to what the browser shows — a folder, a
         favourite, a search, a rescan — so that the surface drawing it does not
@@ -335,6 +404,8 @@ private:
 
     Settings* settings = nullptr;
     duet::model::Session* session = nullptr;
+    SourceAudition* sourceAuditionPlayer = nullptr;
+    std::string selectedIdentity;
     std::function<std::filesystem::path (const std::filesystem::path&)> importer;
     std::function<void (const SampleFolderScanRequest&)> scanWorker;
     std::function<void()> changed;

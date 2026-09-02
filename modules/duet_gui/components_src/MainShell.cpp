@@ -877,6 +877,10 @@ void MainShell::perform (Command command)
     {
         case Command::toggleBrowser:
             view.setBrowserVisible (! view.browserVisible());
+
+            if (! view.browserVisible())
+                browserModel.stopSourceAudition();
+
             break;
 
         case Command::toggleCollaborator:
@@ -995,6 +999,7 @@ void MainShell::setSession (duet::model::Session* openProject)
     mixer.setSession (openProject);
     transport.setSession (openProject);
     browserModel.setSession (openProject);
+    browserModel.stopSourceAudition();
 
     // The engine's notices come to the shell's own chrome. The default surface
     // is a bubble pinned to whatever sits under the mouse — and one more per
