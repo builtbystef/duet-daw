@@ -1,12 +1,36 @@
-# Duet DAW
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logo-full-dark.svg">
+    <img src="docs/assets/logo-full.svg" alt="Duet DAW" width="400">
+  </picture>
+</p>
 
-A desktop digital audio workstation with an AI participant built in. Written in C++ on [JUCE](https://juce.com) and [Tracktion Engine](https://www.tracktion.com/develop/tracktion-engine).
+<p align="center">
+  <b>A desktop digital audio workstation with an AI participant built in.</b><br>
+  Written in C++ on <a href="https://juce.com">JUCE</a> and <a href="https://www.tracktion.com/develop/tracktion-engine">Tracktion Engine</a>.<br>
+  The Collaborator reads the project through tools, proposes Suggestions, and never changes a note without you.
+</p>
 
-[![CI](https://github.com/builtbystef/duet-daw/actions/workflows/ci.yml/badge.svg)](https://github.com/builtbystef/duet-daw/actions/workflows/ci.yml)
-[![Nightly sanitizers](https://github.com/builtbystef/duet-daw/actions/workflows/nightly.yml/badge.svg)](https://github.com/builtbystef/duet-daw/actions/workflows/nightly.yml)
-[![License: AGPL v3](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
+<p align="center">
+  <a href="https://github.com/builtbystef/duet-daw/actions/workflows/ci.yml"><img src="https://github.com/builtbystef/duet-daw/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/builtbystef/duet-daw/actions/workflows/nightly.yml"><img src="https://github.com/builtbystef/duet-daw/actions/workflows/nightly.yml/badge.svg" alt="Nightly sanitizers"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue.svg" alt="License: AGPL v3"></a>
+</p>
 
-The AI participant is called the Collaborator. It reads the project through a fixed set of read-only tools, not through audio. It cannot change the project by itself. What it produces is a Suggestion, which the producer can listen to, change, take parts of, accept, or reject. An accepted Suggestion becomes one normal undo step.
+<p align="center">
+  <a href="#screenshots">Screenshots</a> ·
+  <a href="#how-the-collaborator-works">The Collaborator</a> ·
+  <a href="#what-is-in-it">Features</a> ·
+  <a href="#status">Status</a> ·
+  <a href="#building-from-source">Building</a> ·
+  <a href="#architecture">Architecture</a> ·
+  <a href="#development">Development</a> ·
+  <a href="#contributing">Contributing</a>
+</p>
+
+---
+
+Duet is a desktop digital audio workstation with an AI participant built in. The AI participant is called the Collaborator. It reads the project through a fixed set of read-only tools, not through audio. It cannot change the project by itself. What it produces is a Suggestion, which the producer can listen to, change, take parts of, accept, or reject. An accepted Suggestion becomes one normal undo step.
 
 ## Screenshots
 
